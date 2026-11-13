@@ -215,4 +215,5 @@ func _test_view() -> void:
 	check(screen.reaches_infinity({"effects": [{"kind": "damage", "raw": CEIL, "hp_loss": 900}]}), "a blow of the ceiling is the player reaching Infinite")
 	check(screen.reaches_infinity({"effects": [{"kind": "poison", "poison_after": CEIL}]}), "so is Poison stacked to it")
 	check(not screen.reaches_infinity({"effects": [{"kind": "damage", "raw": 40, "hp_after": CEIL, "max_hp": CEIL}]}), "a creature born at the ceiling is not")
+	check(not screen.reaches_infinity({"effects": [{"kind": "retain", "amount": 12, "keep_all": true, "retain_after": CEIL}]}), "nor a Keep that holds all the Block (Rampart)")
 	check(not screen.reaches_infinity({"effects": [{"kind": "damage", "raw": CEIL - 1}]}), "nor anything short of it")

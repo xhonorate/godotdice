@@ -45,7 +45,16 @@ const INVERTED_HOSTILE = ['damage', 'poison', 'marked', 'curse'];
 // The six colors and what a Spectrum gives for each, as [effect kind, amount, target].
 const SPECTRUM_GIFTS = { RED: ['damage', 3, 'enemy'], BLUE: ['block', 3, 'self'], GREEN: ['heal', 3, 'self'], VIOLET: ['poison', 2, 'enemy'], GOLD: ['gold', 2, 'self'], WHITE: ['resonance', 1, 'self'] };
 const DROPS_PER_SIZE = 3;
-export const BIRTHSTONE_KINDS = ['replay_rail', 'tick_poison', 'stone_drop', 'pot'];
+export const BIRTHSTONE_KINDS = ['replay_rail', 'tick_poison', 'stone_drop', 'pot',
+	'arpeggio', 'prize', 'quilt', 'second_act', 'grow_dice', 'fight_count'];
+// What each of the six colors gives when a Patchwork's Quilt pays, as [effect kind, target], in
+// the order they are paid.
+const QUILT_GIFTS = { RED: ['damage', 'enemy'], BLUE: ['block', 'self'], GREEN: ['heal', 'self'], VIOLET: ['poison', 'enemy'], GOLD: ['gold', 'self'], WHITE: ['charged', 'self'] };
+// Where a Renown keeps its Trophies: with the run's other counts, so they come out of every
+// fight with the fighter (playFight's `carry.runCounts`).
+export const TROPHIES = 'birthstone:trophies';
+// And what a stone has added to its wearer's max health for the run (a Bloodroot's Tap).
+export const GROWN = 'birthstone:grown';
 const PROC_IN_PLACE = ['coin_flip'];
 const MAX_RAIL = 24;
 // The most gems (and Birthstone firings) one rail may play in a turn (DeepBattle.RAIL_CAP).
@@ -62,6 +71,10 @@ const enemyById = (state, id) => state.enemies.find((u) => u.id === id) || null;
 const playerById = (state, id) => state.players.find((u) => u.id === id) || null;
 const aim = (unit) => String(unit.firing_target ?? unit.target ?? '');
 const isEmpty = (o) => !o || !Object.keys(o).length;
+// The fight is over (sim/battle.gd done): nobody in the party is left standing. A dummy that
+// falls is stood up again as the next turn begins, so a fight here never ends in a victory, and
+// in a balance run the player never goes down, so it never ends at all.
+const done = (state) => !living(state.players).length;
 
 // What the hand shows, read once for as long as it stands still. A hand of plain dice reads
 // the same whatever color asks (only materials and boon faces change which die is preferred),
@@ -85,16 +98,18 @@ function cloneDie(die) { return { ...die, faces: (die.faces || []).map((f) => ({
 
 // A player for a fight (sim/battle.gd make_player, laid flat). `rail` is stones by socket;
 // `opts.sockets` the socket colors (the character's own by default), `opts.pyrite` what they
-// carry, `opts.birthstone`/`opts.passive` false to leave either out.
+// carry, `opts.birthstone`/`opts.passive` false to leave either out, `opts.worn` the key of the
+// variant Birthstone they wear ('' for their first).
 export function makePlayer(id, characterKey, rail, dice, opts = {}) {
 	const character = C.character(characterKey);
 	const sockets = (opts.sockets || character.sockets || [C.SOCKET_RAINBOW]).slice();
 	const maxHp = Number(opts.hp ?? character.hp ?? 60);
 	const laid = [];
 	for (let i = 0; i < sockets.length; i++) laid.push(rail[i] ? cloneStone(rail[i]) : null);
+	const worn = C.birthstoneKey(characterKey, String(opts.worn || ''));
 	return {
 		id, name: id, side: 'player', character: characterKey, sockets, rail: laid,
-		birthstone: opts.birthstone === false ? {} : (character.birthstone || {}),
+		birthstone: opts.birthstone === false ? {} : C.birthstoneDef(characterKey, worn), birthstone_key: worn,
 		passive: opts.passive === false ? { kind: 'none' } : (character.passive || { kind: 'none' }),
 		flips: 0, fired_sockets: [], fizzled_sockets: [], tailings_paid: {}, rank_buff: { carat: 0, cut: 0 }, gem_buffs: {}, pyrite_delta: 0, repeat_next: 0, replaying: false,
 		stone_drops: 0, pot: 0, hp: maxHp, max_hp: maxHp, block: 0, statuses: {}, dice: dice.map(cloneDie), hand: [], rerolls: 0, rerolls_max: 0, locked: false, target: '',
@@ -104,6 +119,24 @@ export function makePlayer(id, characterKey, rail, dice, opts = {}) {
 		bonus_dice_next: [], double_resonance_next: false, resonance_doubled: false,
 		last_face: '', face_shown: '', change: 0, change_now: 0,
 	};
+}
+
+// Puts another Birthstone on a unit: one of its own delver's, or another delver's lent for the
+// day (sim/battle.gd wear).
+export function wear(unit, characterKey, worn = '') {
+	if (characterKey !== String(unit.character || '')) unit.birthstone_of = characterKey; else delete unit.birthstone_of;
+	unit.birthstone = C.birthstoneDef(characterKey, worn);
+	unit.birthstone_key = C.birthstoneKey(characterKey, worn);
+}
+
+// The Trophies a Renown has taken this run.
+export const trophies = (unit) => I((unit.run_counts || {})[TROPHIES]);
+
+// How many of the six colors have fired on this rail this turn (an opal is none of them).
+export function colorsFired(unit) {
+	const seen = new Set();
+	for (const colors of unit.fired_colors || []) for (const color of colors) if (C.COLOR_KEYS.includes(String(color))) seen.add(String(color));
+	return seen.size;
 }
 
 // --- All or Nothing (DeepBattle.all_or_nothing and friends) ------------------------------------
@@ -301,6 +334,7 @@ function resetRail(unit) {
 	unit.fired_colors = [];
 	unit.gem_results = {};
 	unit.resonance_mult = 1;
+	unit.second_act = false;
 	// A Flawless Lodestone: a turn begun Charged, the first gem to fire goes twice.
 	if (I(unit.initial_resonance) > 0 && flawlessGems(unit, 'charged_first').length) unit.repeat_next = 1;
 }
@@ -517,6 +551,8 @@ export function resolveGem(state, unit, socket, opts, rng) {
 		if (dry && kind === 'random_debuff') applied.dry = true;
 		if (HAND_KINDS.includes(kind) || SELF_KINDS.includes(kind)) {
 			applied.reactions = reactions;
+			// A skill this socket only wears (a Doublet's, a Black Opal's) is not this stone's to spend.
+			applied.borrowed = Boolean(opts.as_skill) || Boolean(stone.worn_from);
 			const times = PROC_IN_PLACE.includes(kind) ? 1 : procs;
 			for (let p = 0; p < times; p++) results.push(HAND_KINDS.includes(kind) ? mutateHand(unit, applied) : selfEffect(state, unit, applied, socket, previousSocket, dry, rng));
 		} else {
@@ -576,10 +612,15 @@ export function resolveBirthstone(state, unit, opts, rng) {
 	const defs = def.tiers || [];
 	const evaluated = [];
 	let exclusiveHit = -1;
+	// The Resonance the stone opened on: an Arpeggio raises what it reads as its notes play.
+	const opened = resonance;
+	// How many of the six colors this rail has fired this turn, for a Patchwork.
+	const colors = colorsFired(unit);
+	const hasEffect = (tier, kind) => (tier.effects || []).some((e) => e && e.kind === kind);
 	for (let index = 0; index < defs.length; index++) {
 		const tier = defs[index];
-		const trig = Patterns.evaluate(tier.trigger || { kind: 'always' }, 0, a, { resonance });
-		if (replay && trig.active && (tier.effects || []).some((e) => e && e.kind === 'replay_rail')) { trig.active = false; trig.reason = 'Once a turn.'; }
+		const trig = Patterns.evaluate(tier.trigger || { kind: 'always' }, 0, a, { resonance, colors });
+		if (replay && trig.active && (hasEffect(tier, 'replay_rail') || hasEffect(tier, 'second_act'))) { trig.active = false; trig.reason = 'Once a turn.'; }
 		// WHAT-IF (balance sweeps only; no tier in the shipped pack has the key): a tier marked
 		// `whatif_once_a_turn` pays on the first firing of the turn that reaches it, never again.
 		if (trig.active && tier.whatif_once_a_turn) {
@@ -589,16 +630,33 @@ export function resolveBirthstone(state, unit, opts, rng) {
 		if (trig.active && tier.exclusive && exclusiveHit < 0) exclusiveHit = index;
 		evaluated.push(trig);
 	}
+	// A tier may take the place of the ones it names (`eclipses`): a Jinx curses every creature
+	// instead of Omen's one, a Flourish throws the Fan's knives its own way. Only a tier that
+	// fires does, and one an exclusive tier has eclipsed fires nothing.
+	const eclipsedBy = new Map();
+	for (let index = 0; index < defs.length; index++) {
+		if (!evaluated[index].active || (exclusiveHit >= 0 && index !== exclusiveHit)) continue;
+		for (const name of defs[index].eclipses || []) eclipsedBy.set(String(name), String(defs[index].name || ''));
+	}
 	const tiers = [];
 	let fired = false;
 	for (let index = 0; index < defs.length; index++) {
 		const tier = defs[index];
 		const trig = evaluated[index];
-		const entry = { name: String(tier.name || ''), active: Boolean(trig.active), effects: [] };
+		// `counted` is what the trigger counted (the colors fired, the dice showing 1).
+		const entry = { name: String(tier.name || ''), active: Boolean(trig.active), counted: I(trig.count), effects: [] };
 		if (exclusiveHit >= 0 && index !== exclusiveHit && entry.active) { entry.active = false; entry.eclipsed = true; }
+		if (entry.active && eclipsedBy.has(entry.name)) { entry.active = false; entry.eclipsed = true; }
 		if (entry.active) {
 			fired = true;
-			const tc = { a, trig, unit, resonance, previous_amount: I(unit.previous_amount), depth: I(state.depth), turn: I(state.turn), party: I(state.party) };
+			// The ledger counts every firing of every tier, by its place on the stone.
+			const lit = state.ledger.tiers || (state.ledger.tiers = []);
+			lit[index] = I(lit[index]) + 1;
+			// Whoever the stone is aimed at as this tier fires, for a term that reads them
+			// (`target_curse`): looked up tier by tier, since the tier before may have killed them.
+			const aimed = targets(state, unit, 'enemy');
+			const tc = { a, trig, unit, resonance, previous_amount: I(unit.previous_amount), depth: I(state.depth), turn: I(state.turn), party: I(state.party),
+				colors, target_unit: aimed.length ? aimed[0] : {} };
 			const reactions = {};
 			for (const effectDef of tier.effects || []) {
 				if (!effectDef || typeof effectDef !== 'object') continue;
@@ -609,18 +667,38 @@ export function resolveBirthstone(state, unit, opts, rng) {
 				if (HAND_KINDS.includes(kind)) entry.effects.push(mutateHand(unit, applied));
 				// A Motif plays the gem before the Birthstone again: the last one that fired.
 				else if (SELF_KINDS.includes(kind)) entry.effects.push(selfEffect(state, unit, applied, -1, unit.previous_socket ?? -1, dry, rng));
-				else if (BIRTHSTONE_KINDS.includes(kind)) entry.effects.push(birthstoneEffect(state, unit, applied, dry, replay));
-				else entry.effects.push(...apply(state, unit, applied, rng, '', reactions));
+				else if (BIRTHSTONE_KINDS.includes(kind)) {
+					// What the stone reads as this effect lands, and the sets its tier found: an
+					// Arpeggio climbs from the one, a Bandit pays the other.
+					applied.reads = resonance;
+					applied.sets = trig.sets || [];
+					const did = birthstoneEffect(state, unit, applied, dry, replay, rng);
+					entry.effects.push(did);
+					// An Arpeggio's notes have raised the Resonance, for what is left of this firing too.
+					const climbed = I(did.gained);
+					if (climbed > 0) { resonance = satAdd(resonance, climbed); tc.resonance = resonance; }
+				} else {
+					const did = apply(state, unit, applied, rng, '', reactions);
+					// What the stone has added to its wearer's max health for the run (a Bloodroot's
+					// Tap), kept with the run's other counts.
+					if (kind === 'max_hp' && !dry && !applied.for_fight && did.length) {
+						const counts = unit.run_counts || (unit.run_counts = {});
+						counts[GROWN] = satAdd(I(counts[GROWN]), Math.max(0, I(applied.amount)));
+					}
+					entry.effects.push(...did);
+				}
+				if (done(state)) break;
 			}
 		}
 		tiers.push(entry);
+		if (done(state)) break;
 	}
 	if (!dry && !replay && promised > 0) for (let more = 0; more < promised; more++) state.queue.unshift({ kind: 'birthstone', unit: unit.id, replay: true });
 	// The Birthstone is a gem that fired, as far as a Chainmail is concerned.
-	if (fired && !unit.downed) answerFire(state, unit, fireAnswers(unit), rng);
+	if (fired && !done(state)) answerFire(state, unit, fireAnswers(unit), rng);
 	settleMarks(state);
 	if (fired) state.ledger.birthstone += 1;
-	return { kind: 'birthstone', fired, resonance, replay, tiers, face, change };
+	return { kind: 'birthstone', fired, resonance: opened, climbed: resonance - opened, replay, tiers, face, change };
 }
 
 // WHAT-IF (balance sweeps only; the shipped pack never sets it): a Birthstone with
@@ -661,11 +739,14 @@ function settleMarks(state) {
 // What a Chainmail or a Contagion earlier this turn gives for one more gem fired.
 function answerFire(state, unit, answers, rng) {
 	const out = [];
-	for (const answer of answers) out.push(...apply(state, unit, { kind: answer.kind, amount: I(answer.amount), target: answer.target, repeat: 1 }, rng));
+	for (const answer of answers) {
+		out.push(...apply(state, unit, { kind: answer.kind, amount: I(answer.amount), target: answer.target, repeat: 1 }, rng));
+		if (done(state)) break;
+	}
 	return out;
 }
 
-function birthstoneEffect(state, unit, effect, dry, replay) {
+function birthstoneEffect(state, unit, effect, dry, replay, rng = null) {
 	const kind = effect.kind;
 	const amount = I(effect.amount);
 	const out = { kind, amount };
@@ -687,13 +768,127 @@ function birthstoneEffect(state, unit, effect, dry, replay) {
 			for (const foe of living(state.enemies)) {
 				for (let time = 0; time < Math.max(0, amount); time++) {
 					if ((I(foe.statuses.poison)) <= 0 || (I(foe.hp)) <= 0) break;
-					poisonTick(state, foe);
+					poisonTick(state, foe, rng);
 				}
 			}
 			break;
 		}
 		case 'stone_drop':
 			if (!dry) unit.stone_drops = (I(unit.stone_drops)) + amount;
+			break;
+		case 'arpeggio': {
+			// An Arpeggio: the scale is played a note at a time. Each die in it adds the number it
+			// shows to the Resonance, and then that share of the Resonance lands on every creature.
+			// What it adds stays on the rail, so a second pass climbs from the first.
+			const reads = I(effect.reads ?? unit.resonance);
+			const climb = readHand(unit).scale || {};
+			const notes = [];
+			const landed = [];
+			let gained = 0;
+			for (let index = 0; index < (climb.dice || []).length; index++) {
+				const by = Math.max(0, I(climb.values[index]));
+				gained = satAdd(gained, by);
+				unit.resonance = satAdd(I(unit.resonance), by);
+				const blow = satMulDiv(satAdd(reads, gained), Math.max(0, amount), 100);
+				const hits = blow > 0 ? apply(state, unit, { kind: 'damage', amount: blow, target: 'enemies', repeat: 1 }, rng) : [];
+				notes.push({ die: String(climb.dice[index]), value: by, resonance: satAdd(reads, gained), amount: blow, hits });
+				landed.push(...hits);
+				if (done(state)) break;
+			}
+			out.notes = notes;
+			out.hits = landed;
+			out.gained = gained;
+			out.resonance_after = satAdd(reads, gained);
+			if (!notes.length) out.nothing = true;
+			break;
+		}
+		case 'prize': {
+			// A One-Armed Bandit: every set its tier read pays the prize its number names in the
+			// stone's `prizes`, worth so many times the Resonance, `amount` times over. A number with
+			// no prize of its own takes the `other` one, worth a point more for every point the
+			// number is over `value_less`.
+			const reads = I(effect.reads ?? unit.resonance);
+			const table = (unit.birthstone || {}).prizes || {};
+			const paid = [];
+			const landed = [];
+			for (const group of effect.sets || []) {
+				const number = I(group.value);
+				const prize = (String(number) in table ? table[String(number)] : table.other) || {};
+				if (isEmpty(prize)) continue;
+				let mult = I(prize.mult ?? 1);
+				if ('value_less' in prize) mult = Math.max(1, number - I(prize.value_less));
+				const worth = satMul(reads, mult);
+				const times = Math.max(1, amount);
+				const hits = worth > 0 ? apply(state, unit, { kind: String(prize.kind || 'damage'), amount: worth, target: String(prize.target || 'enemy'), repeat: times }, rng) : [];
+				paid.push({ value: number, count: I(group.count), dice: (group.dice || []).slice(), prize: String(prize.kind || 'damage'), amount: worth, times, hits });
+				landed.push(...hits);
+				if (done(state)) break;
+			}
+			out.paid = paid;
+			out.hits = landed;
+			if (!paid.length) out.nothing = true;
+			break;
+		}
+		case 'quilt': {
+			// A Patchwork's Quilt: every color that has fired this turn gives its own gift, each
+			// worth the amount, in the six colors' order.
+			const seen = new Set();
+			for (const fired of unit.fired_colors || []) for (const color of fired) seen.add(String(color));
+			const given = [];
+			const gifts = [];
+			let sewn = 0;
+			for (const color of Object.keys(QUILT_GIFTS)) if (seen.has(color)) sewn += 1;
+			for (const color of Object.keys(QUILT_GIFTS)) {
+				if (!seen.has(color) || amount <= 0) continue;
+				const [gift, target] = QUILT_GIFTS[color];
+				// White's gift opens the next rail, so it is worth a point for each color sewn and not
+				// the Resonance: worth the Resonance, every Quilt paid for a bigger one the turn after.
+				const worth = gift === 'charged' ? sewn : amount;
+				for (const hit of apply(state, unit, { kind: gift, amount: worth, target, repeat: 1 }, rng)) { hit.color = color; given.push(hit); }
+				gifts.push(color);
+				if (done(state)) break;
+			}
+			out.colors = gifts;
+			out.hits = given;
+			if (!given.length) out.nothing = true;
+			break;
+		}
+		case 'second_act':
+			// A Patchwork's Whole Cloth: every die is thrown again and the whole rail plays once more
+			// on the new hand, the Birthstone after it. Once a turn: the Birthstone's second go is a
+			// replay, on which this tier stays dark.
+			if (dry || replay || unit.second_act) out.nothing = true;
+			else {
+				unit.second_act = true;
+				out.thrown = restartRail(state, unit, rng);
+				let after = 0;
+				while (after < state.queue.length && state.queue[after].kind === 'gem' && String(state.queue[after].unit || '') === String(unit.id)) after += 1;
+				state.queue.splice(after, 0, { kind: 'birthstone', unit: unit.id, replay: true });
+			}
+			break;
+		case 'grow_dice': {
+			// A Standing Ovation: every die in the bowl a size bigger for the rest of the fight (the
+			// fight gives them back as they were, see diceAfterFight).
+			const grown = [];
+			for (const die of unit.dice || []) {
+				if (die.bonus || Dice.resizeRefusal(die, Math.max(1, amount))) continue;
+				if (!dry) {
+					// Counted, not copied: the fight files each die back down by as many sizes
+					// (diceAfterFight), so a face raised for good after the Ovation stays raised.
+					const sizes = unit.fight_grown || (unit.fight_grown = {});
+					Dice.resize(die, Math.max(1, amount));
+					sizes[String(die.id || '')] = I(sizes[String(die.id || '')]) + Math.max(1, amount);
+				}
+				grown.push(String(die.id || ''));
+			}
+			out.dice = grown;
+			if (!grown.length) out.nothing = true;
+			break;
+		}
+		case 'fight_count':
+			// A Bloodroot counts the 1s it has been shown this fight.
+			unit.fight_ones = satAdd(I(unit.fight_ones), Math.max(0, amount));
+			out.total = I(unit.fight_ones);
 			break;
 		case 'pot': {
 			// What is on the table. Staking moves Pyrite out of the bank in the same breath.
@@ -1024,13 +1219,15 @@ export function selfEffect(state, unit, effect, socket, previousSocket, dry, rng
 		}
 		case 'replay_fizzled': {
 			// A Matrix: gems earlier on the rail that stayed dark this turn fire anyway, earliest first.
+			// The Birthstone (socket -1) comes after the whole rail, so it reaches every socket; a
+			// Small Hours wakes each of them `repeat` times over.
 			const woken = [];
 			const darkSockets = [];
 			for (const at of unit.fizzled_sockets.slice().sort((x, y) => x - y)) {
 				if (darkSockets.length >= Math.max(1, amount)) break;
-				if (at >= socket || !repeatable(unit, at)) continue;
+				if ((socket >= 0 && at >= socket) || !repeatable(unit, at)) continue;
 				darkSockets.push(at);
-				woken.push({ kind: 'gem', unit: unit.id, socket: at, retrigger: true, force: true });
+				for (let again = 0; again < Math.max(1, I(effect.repeat ?? 1)); again++) woken.push({ kind: 'gem', unit: unit.id, socket: at, retrigger: true, force: true });
 			}
 			out.sockets = darkSockets;
 			if (dry || !woken.length) out.nothing = true; else state.queue = woken.concat(state.queue);
@@ -1317,16 +1514,19 @@ export function selfEffect(state, unit, effect, socket, previousSocket, dry, rng
 			break;
 		case 'enrich_forever': {
 			// A Flawless Enrich: its neighbours are a carat heavier for good and it is gone. A Void
-			// copy has nothing to give for good and nothing to lose: only the fight's carat, and it goes.
+			// copy or a skill worn by another stone has nothing to give for good: only the fight's
+			// carat. The copy goes as it gives it; the stone wearing the skill stays.
 			const kin = [];
 			if (!dry) for (const at of [socket - 1, socket + 1]) if (at >= 0 && at < unit.rail.length && unit.rail[at]) kin.push(at);
 			if (!kin.length) { out.nothing = true; break; }
 			const own = unit.rail[socket];
+			const borrowed = Boolean(effect.borrowed);
+			const fleeting = borrowed || Boolean(own.temporary);
 			if (!unit.gem_buffs) unit.gem_buffs = {};
 			for (const at of kin) {
 				const neighbour = unit.rail[at];
 				const id = String(neighbour.id || '');
-				if (own.temporary || neighbour.temporary) {
+				if (fleeting || neighbour.temporary) {
 					const buff = unit.gem_buffs[id] || (unit.gem_buffs[id] = {});
 					buff.carat = I(buff.carat) + 1;
 				} else {
@@ -1335,10 +1535,12 @@ export function selfEffect(state, unit, effect, socket, previousSocket, dry, rng
 					enriched[id] = I(enriched[id]) + 1;
 				}
 			}
-			if (!own.temporary) (unit.shattered || (unit.shattered = [])).push(String(own.id || ''));
-			unit.rail[socket] = null;
+			if (!fleeting) (unit.shattered || (unit.shattered = [])).push(String(own.id || ''));
+			if (!borrowed) {
+				unit.rail[socket] = null;
+				out.destroyed = true;
+			}
 			out.sockets = kin;
-			out.destroyed = true;
 			break;
 		}
 		case 'retrigger_previous':
@@ -1389,6 +1591,12 @@ function targets(state, source, target, intentTarget = '') {
 			return chosen ? [chosen] : [];
 		}
 		case 'enemies': return foes;
+		case 'enemy_weakest': {
+			// The creature with the least health left (a Renown's Tourney); the first of them on a tie.
+			let weakest = null;
+			for (const foe of foes) if (!weakest || I(foe.hp) < I(weakest.hp)) weakest = foe;
+			return weakest ? [weakest] : [];
+		}
 		case 'enemy_adjacent': {
 			let chosen = enemyById(state, aim(source));
 			if ((!chosen || chosen.burrowed) && foes.length) chosen = foes[0];
@@ -1434,6 +1642,7 @@ export function apply(state, source, effect, rng, intentTarget = '', reactions =
 	for (let count = 0; count < repeat; count++) {
 		let picked;
 		if (targetKind === 'spread') { const foes = targets(state, source, 'enemies'); picked = foes.length ? [foes[count % foes.length]] : []; }
+		else if (targetKind === 'enemy_random') picked = randomFoe(state, source, rng);
 		else picked = targets(state, source, targetKind, intentTarget);
 		for (const target of picked) {
 			let hit = applyOne(state, source, target, kind, I(effect.amount), effect, rng, reactions);
@@ -1441,12 +1650,25 @@ export function apply(state, source, effect, rng, intentTarget = '', reactions =
 			while (effect.chain_on_kill && hit.killed && (I(source.hp)) > 0) {
 				const survivors = targetable(state.enemies);
 				if (!survivors.length) break;
-				hit = applyOne(state, source, survivors[0], kind, I(effect.amount), effect, rng, reactions);
+				// A knife thrown at a creature picked at random is thrown again at another picked the same way.
+				const next = targetKind === 'enemy_random' ? randomFoe(state, source, rng)[0] : survivors[0];
+				hit = applyOne(state, source, next, kind, I(effect.amount), effect, rng, reactions);
+				hit.chained = true;
 				results.push(hit);
 			}
 		}
+		// The fight may have ended on this go (sim/battle.gd _apply checks the outcome here).
+		if (done(state)) return results;
 	}
 	return results;
+}
+
+// One creature that can be hit, picked at random with the fight's own numbers (a Fan of Knives,
+// a Heartsblood). With one standing nothing is drawn.
+function randomFoe(state, source, rng) {
+	const foes = targets(state, source, 'enemies');
+	if (foes.length <= 1 || !rng) return foes.slice(0, 1);
+	return [foes[rng.randiRange(0, foes.length - 1)]];
 }
 
 // What an `of_target` amount reads off one target (sim/battle.gd target_measure).
@@ -1520,6 +1742,12 @@ export function applyOne(state, source, target, kind, amount, effect, rng, react
 			out.amount = amount;
 			Object.assign(out, damage(state, source, target, amount, rng, reactions, false, Boolean(effect.piercing)));
 			reactions.result_damage = satAdd(I(reactions.result_damage), I(out.hp_loss));
+			// A Renown's Lance: a kill it makes is a Trophy, kept for the run.
+			if (effect.trophy && out.killed && source.side === 'player') {
+				const counts = source.run_counts || (source.run_counts = {});
+				counts[TROPHIES] = satAdd(I(counts[TROPHIES]), 1);
+				out.trophy = I(counts[TROPHIES]);
+			}
 			// A Flawless Barrage: a hit that got past Block rings.
 			if (I(effect.ring_past_block) > 0 && I(out.hp_loss) > 0) source.resonance = satAdd(I(source.resonance), I(effect.ring_past_block));
 			if (spent > 0 && out.killed) source.pyrite_delta += spent * Number(effect.refund_mult ?? 2);
@@ -1556,6 +1784,8 @@ export function applyOne(state, source, target, kind, amount, effect, rng, react
 		case 'heal': {
 			const healed = heal(state, target, amount);
 			out.healed = healed;
+			// What a Transfusion deals on (`from_result`: "healed").
+			reactions.result_healed = satAdd(I(reactions.result_healed), healed);
 			noteResult(source, target, 'heal', healed);
 			if (source.side === 'player') source.healed = satAdd(I(source.healed), healed);
 			// What would heal past full: block for a Wellspring, a blow for a Flawless Thirst.
@@ -1579,10 +1809,11 @@ export function applyOne(state, source, target, kind, amount, effect, rng, react
 			break;
 		case 'max_hp':
 			target.max_hp = satAdd(I(target.max_hp), Math.max(0, amount));
-			target.hp = satAdd(I(target.hp), Math.max(0, amount));
+			// A Bloodroot's Take Root raises the ceiling and leaves the health where it was (`empty`).
+			if (!effect.empty) target.hp = satAdd(I(target.hp), Math.max(0, amount));
 			// A Flawless Green Seam's: the fight gives it back (playFight, as sim/descent.gd _settle_fight).
 			if (effect.for_fight) target.fight_max_hp = satAdd(I(target.fight_max_hp), Math.max(0, amount));
-			if (target.side === 'player') state.ledger.healed += Math.max(0, amount);
+			if (target.side === 'player' && !effect.empty) state.ledger.healed += Math.max(0, amount);
 			break;
 		case 'max_hp_loss': {
 			const before = I(target.hp);
@@ -1594,8 +1825,8 @@ export function applyOne(state, source, target, kind, amount, effect, rng, react
 		case 'ward': target.statuses.ward = Math.min(99, (I(target.statuses.ward)) + Math.max(0, amount)); break;
 		case 'retain': {
 			const kept = I(target.statuses.retain);
-			// No cap on either side; a creature told to keep it all keeps every point.
-			target.statuses.retain = target.side === 'enemy' && effect.keep_all ? CEILING : satAdd(kept, Math.max(0, amount));
+			// No cap on either side; whoever is told to keep it all (a creature, a Rampart's Keep) keeps every point.
+			target.statuses.retain = effect.keep_all ? CEILING : satAdd(kept, Math.max(0, amount));
 			noteResult(source, target, 'retain', target.statuses.retain - kept);
 			break;
 		}
@@ -1698,6 +1929,12 @@ export function applyOne(state, source, target, kind, amount, effect, rng, react
 				if (kind === 'charged' && effect.resonance_cap) { amount = Math.min(amount, Math.max(0, I(source.resonance))); out.amount = amount; }
 				const had = I(target.statuses[kind]);
 				target.statuses[kind] = satAdd(had, Math.max(0, amount));
+				// A Rampart's Thornwork: Spikes a delver holds up until their own next turn opens.
+				if (effect.until === 'next_turn' && target.side === 'player') {
+					const timed = target.timed || (target.timed = {});
+					timed[kind] = satAdd(I(timed[kind]), Math.max(0, amount));
+					out.timed = I(timed[kind]);
+				}
 				if (kind === 'curse') target.statuses.curse = Math.min(Rules.CURSE_MAX_STACKS, target.statuses.curse);
 				noteResult(source, target, kind, I(target.statuses[kind]) - had);
 				// A Flawless Etch: these Marks are never spent (see settleMarks).
@@ -1935,12 +2172,37 @@ function shrinkGrown(unit) {
 	delete unit.grown_dice;
 }
 
+// The bowl a player walks out of a fight with (sim/battle.gd dice_after_fight), as copies: no
+// die a Hot Streak lent, a die a Flawless Dread grew back at its size, and a Standing Ovation's
+// sizes off again, each die filed down by as many as it grew and keeping its own faces. What
+// was done for good stays done. (The game also hands back the dice a creature ground, blanked
+// or broke for the fight, from the copies it kept; a dummy does none of that.)
+export function diceAfterFight(unit) {
+	const dice = unit.dice.filter((d) => !d.bonus).map(cloneDie);
+	const dread = unit.grown_dice || {};
+	const ovation = unit.fight_grown || {};
+	for (const die of dice) {
+		const id = String(die.id || '');
+		if (id in dread) Dice.resize(die, -I(dread[id]));
+		if (id in ovation) Dice.resize(die, -I(ovation[id]));
+	}
+	return dice;
+}
+
 // The player's half of sim/battle.gd _begin_turn: defences fall, Charged becomes Resonance,
 // the bowl is thrown, the rerolls are counted. `roll(die, index)` throws one die.
 export function beginTurn(state, unit, roll) {
 	// An Echo's copy lasts the turn it was made in (a Flawless one, the fight).
 	echoesFade(state, unit);
 	resetDefenses(unit);
+	// What was held up only until this turn (a Thornwork's Spikes) comes down.
+	if (unit.timed && typeof unit.timed === 'object') {
+		for (const [status, held] of Object.entries(unit.timed)) {
+			const left = Math.max(0, I(unit.statuses[status]) - I(held));
+			if (left > 0) unit.statuses[status] = left; else delete unit.statuses[status];
+		}
+		delete unit.timed;
+	}
 	// What a Chainmail, a Contagion or a Rebound set up lasted the turn that has ended.
 	unit.after_fire = [];
 	unit.on_block = [];
@@ -2061,6 +2323,10 @@ export function plan(unit, policy, roll) {
 // always with none, and with one or two only when the gem the rail chases is not answered.
 // A Gambler who must throw the whole bowl plays the odds, not a pattern.
 function allOrNothingRolls(unit, policy) {
+	// In a variant Birthstone the crowns are not what his stone reads (a Bandit reads sets, a
+	// Blackjack the total): the bowl goes again only when the pattern the rail chases asks for a
+	// die to be thrown, and never when it chases nothing.
+	if (unit.birthstone_key) return policy !== 'none' && policy !== 'always' && rerollIds(policy, unit.hand, readHand(unit)).size > 0;
 	const crowns = unit.hand.filter((r) => isCrown(r)).length;
 	if (crowns >= 3) return false;
 	if (crowns === 0) return true;
@@ -2077,6 +2343,12 @@ function policyScore(policy, a) {
 	if (policy === 'distinct') return a.distinct;
 	if (policy === 'skip') return Math.max(a.odd_values, a.even_values);
 	if (policy.startsWith('value:')) { const wanted = policy.slice(6).split(',').map(Number); let n = 0; for (const w of wanted) n += (a.ids_by_value.get(w) || []).length; return n; }
+	// What the variant Birthstones chase (simulate.js policyFor): dice at a number or more, a total
+	// in a window (how far outside it, the nearer the better), a scale, crowns and 1s.
+	if (policy.startsWith('floor:')) { const floor = Number(policy.slice(6)); return Hand.matching(a, (v) => v >= floor).length; }
+	if (policy.startsWith('total:')) { const [least, most] = policy.slice(6).split(':').map(Number); return -Math.max(0, least - a.total, a.total - most); }
+	if (policy === 'scale') return I((a.scale || {}).length);
+	if (policy === 'faces') return new Set([...(a.crown_ids || []), ...(a.one_ids || [])]).size;
 	if (policy === 'low') return -a.total;
 	if (policy === 'high' || policy === 'always') return a.total;
 	return null;
@@ -2239,14 +2511,16 @@ function carryEnriched(unit, carry) {
 }
 
 // One seeded fight: `spec` = {character, rail: [stones], sockets?, policy, turns, dummies:
-// {count, dice, guard, hp}, pyrite, depth, birthstone, passive, seed}; `sample` picks the fight.
+// {count, dice, guard, hp}, pyrite, depth, birthstone, passive, worn, seed}; `sample` picks the
+// fight. `worn` is the key of the variant Birthstone the character wears ('' for their first).
 // Every random number comes from a stream named for what it is for, and each die has a
 // stream of its own each turn, so two rails played on the same sample throw the same dice
 // for as long as they make the same choices: the differences between them are the rails'.
 //
 // Returns the ledger: dealt (damage the dummies took), kills, incoming (what they threw), hpLost,
 // healed, gold (pyrite won: gold, spent and staked), blockGained, fires, fizzles, birthstone
-// (rails it fired on), resonance (built, summed over rails), downs, sparkle.
+// (rails it fired on), tiers (how often each of its tiers fired), resonance (built, summed over
+// rails), downs, sparkle.
 //
 // `spec.wall`: a kill line. The dummies keep standing (give them no health), and `killTurn` is
 // when the damage dealt crossed the line, in turns, read within the turn that crossed it (1.5:
@@ -2264,7 +2538,7 @@ export function playFight(spec, sample, carry = null) {
 	const character = C.character(spec.character);
 	const bowl = carry && carry.dice ? carry.dice : (spec.dice || character.dice || []).map((ref, i) => Dice.dieFrom(ref, `p${i}`));
 	const unit = makePlayer('p0', spec.character, spec.rail || [], bowl, { sockets: spec.sockets || (spec.rail || []).map(() => C.SOCKET_ANY), pyrite: spec.pyrite ?? 0,
-		birthstone: spec.birthstone !== false, passive: spec.passive !== false, hp: carry && carry.maxHp ? carry.maxHp : undefined });
+		birthstone: spec.birthstone !== false, passive: spec.passive !== false, worn: String(spec.worn || ''), hp: carry && carry.maxHp ? carry.maxHp : undefined });
 	if (carry && carry.runCounts) unit.run_counts = { ...carry.runCounts };
 	if (carry) carryEnriched(unit, carry);
 	if (spec.opalsApart) unit.opals_apart = true;
@@ -2309,18 +2583,20 @@ export function playFight(spec, sample, carry = null) {
 		if (L.runaway && spec.stopOnRunaway) break;
 		if (spec.stopAtWall && killTurn < Infinity) break;
 	}
-	// A Hot Streak's bonus die was only lent for a turn; so was a size a Flawless Dread gave. Max HP
-	// a Flawless Green Seam raised lasted the fight.
+	// A Hot Streak's bonus die was only lent for a turn; so was a size a Flawless Dread gave, and
+	// the sizes a Standing Ovation gave lasted the fight. Max HP a Flawless Green Seam raised lasted
+	// the fight.
 	if (carry) {
-		shrinkGrown(unit);
-		carry.dice = unit.dice.filter((d) => !d.bonus);
+		carry.dice = diceAfterFight(unit);
 		carry.runCounts = unit.run_counts || {};
 		carry.maxHp = Math.max(1, unit.max_hp - I(unit.fight_max_hp));
 		for (const [id, carats] of Object.entries(unit.enriched || {})) (carry.enriched || (carry.enriched = {}))[id] = I((carry.enriched || {})[id]) + carats;
 		if ((unit.shattered || []).length) carry.shattered = (carry.shattered || []).concat(unit.shattered);
 	}
 	const out = { dealt: L.dealt, kills: L.kills, incoming: L.incoming, hpLost: L.hpLost, healed: L.healed, gold: (I(unit.gold)) + (I(unit.pyrite_delta)) + (I(unit.pot)), blockGained: L.blockGained,
-		fires: L.fires, fizzles: L.fizzles, birthstone: L.birthstone, resonance: L.resonance, downs: L.downs, sparkle: I(unit.sparkle), killTurn, runaway: I(L.runaway), maxEvents: I(L.maxEvents) };
+		fires: L.fires, fizzles: L.fizzles, birthstone: L.birthstone, resonance: L.resonance, downs: L.downs, sparkle: I(unit.sparkle), killTurn, runaway: I(L.runaway), maxEvents: I(L.maxEvents),
+		// How many times each tier of the Birthstone fired, by its place on the stone (replays too).
+		tiers: Array.from(L.tiers || [], (n) => I(n)) };
 	if (turnDealt) { out.turnDealt = turnDealt; out.turnSaved = turnSaved; }
 	return out;
 }

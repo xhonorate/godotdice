@@ -568,7 +568,7 @@ static func table(home: Control, parent: Node, stones: Array, opts: Dictionary =
 		var in_cell := DeepUi.hbox(row, 3)
 		in_cell.custom_minimum_size.x = 76
 		for character in wearing.get(skill, []):
-			var face := Roster.Portrait.new(str(character), Vector2(22, 22))
+			var face := Roster.Portrait.new(str(character), Vector2(22, 22), false, false, false, Roster.worn_stone(home.profile, str(character)))
 			face.tooltip_text = "In %s's sockets" % DeepContent.character_title(str(character))
 			in_cell.add_child(face)
 		var on_pick: Callable = opts.get("on_pick", Callable())

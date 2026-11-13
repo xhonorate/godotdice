@@ -647,7 +647,7 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			if needed <= 0:
 				needed = rng.randi_range(1, maxi(1, int(action.get("tries_max", 5))))
 			var pulled: int = int(tries.get("done", 0)) + 1
-			var cost: int = maxi(0, int(action.get("hp", 3)) + int(action.get("hp_step", 2)) * (pulled - 1))
+			var cost: int = idol_price(action, pulled - 1)
 			player.hp = maxi(1, int(player.get("hp", 0)) - cost)
 			out.tries = {"needed": needed, "done": pulled}
 			out.hp_lost = cost
@@ -992,13 +992,30 @@ static func ore_amount(action: Dictionary, depth: int) -> int:
 		return maxi(0, int(action.get("base", 0)) + int(action.get("per_depth", 1)) * maxi(0, depth))
 	return int(action.get("amount", 5))
 
-static func choice_text(choice: Dictionary, depth: int) -> String:
+static func choice_text(choice: Dictionary, depth: int, done: int = 0) -> String:
 	## A card's words as they stand at this depth: an amount that grows the deeper the party
-	## is ("{ore}") is written as the number it comes to here, never as its sum.
-	var text: String = str(choice.get("text", ""))
+	## is ("{ore}") is written as the number it comes to here, never as its sum. A price that
+	## climbs with each go ("{hp}", the Idol's pull) is what the next go costs after `done`.
+	var text: String = str(at_pull(choice, done).get("text", ""))
 	if text.contains("{ore}"):
 		text = text.replace("{ore}", str(ore_amount(choice.get("action", {}), depth)))
+	if text.contains("{hp}"):
+		text = text.replace("{hp}", str(idol_price(choice.get("action", {}), done)))
 	return text
+
+static func at_pull(choice: Dictionary, done: int) -> Dictionary:
+	## A card worked at more than once (the Idol) words each go after the first from its
+	## "again" ladder: "Pull harder", "It's still stuck". The last rung stands for any go past it.
+	var again: Array = choice.get("again", [])
+	if done <= 0 or again.is_empty():
+		return choice
+	var shown: Dictionary = choice.duplicate()
+	shown.merge(again[mini(done, again.size()) - 1], true)
+	return shown
+
+static func idol_price(action: Dictionary, done: int) -> int:
+	## What the Idol's next pull costs in health after `done` pulls: each dearer than the last.
+	return maxi(0, int(action.get("hp", 3)) + int(action.get("hp_step", 2)) * done)
 
 # --- the crucible -------------------------------------------------------------------------------
 

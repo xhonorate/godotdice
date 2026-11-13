@@ -539,6 +539,11 @@ func _test_idol(rng: RandomNumberGenerator, ctx: Dictionary) -> void:
 		check(int(eye.carat) >= least and int(eye.carat) <= least + 3, "its size is the depth, not a flat sixteen: %d" % int(eye.carat))
 		check(eye.inclusions.size() == 2 and bool(eye.appraised), "and it is appraised and cracked twice")
 	check(pulls.size() >= 3, "how many pulls it takes varies: %s" % str(pulls.keys()))
+	var card: Dictionary = DeepContent.oddity("IDOL").choices[0]
+	check(str(DeepOddities.at_pull(card, 0).label) == "Try to pull it" and DeepOddities.choice_text(card, 3) == "Costs 3 HP."
+		and str(DeepOddities.at_pull(card, 1).label) == "Pull harder" and DeepOddities.choice_text(card, 3, 1) == "It's still stuck. Costs 5 HP.",
+		"the card says what the next pull costs, and is reworded after one fails: %s" % DeepOddities.choice_text(card, 3, 1))
+	check(DeepOddities.choice_text(card, 3, 9).ends_with("Costs 21 HP."), "past the ladder the last rung stands, at the climbing price")
 
 func _test_well(rng: RandomNumberGenerator, ctx: Dictionary) -> void:
 	## Everything down the well is weighed into pyrite, and that number picks a rung. Even

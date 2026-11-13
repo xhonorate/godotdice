@@ -31,6 +31,10 @@ extends RefCounted
 ##   bases         {die id: face value} for exploding rolls: what the face says before what it threw again
 ##   showing       {number: [die ids]} by the number printed on the face each die landed on,
 ##                 where that differs from what it counts for (Doubled, exploding)
+##   sizes         {die id: how many faces a plain die of its shape has}
+##   one_ids       the dice whose face shows a 1 (a wild is not one of them)
+##   scale         {length, dice, values, total}: the longest climb across the dice from the
+##                 smallest die to the largest, each showing more than the one before (Arpeggio)
 
 static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 	var values: Array = []
@@ -59,6 +63,9 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 	var crown_total: int = 0
 	var crown_values: Dictionary = {}
 	var showing: Dictionary = {}
+	var sizes: Dictionary = {}
+	var one_ids: Array = []
+	var notes: Array = []
 	for index in range(hand.size()):
 		var roll: Dictionary = hand[index]
 		var kind: String = str(roll.get("kind", "plain"))
@@ -72,6 +79,7 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 		var id: String = str(roll.get("die_id", ""))
 		## Higher wants it more; the bench order breaks a tie, so a hand reads the same twice.
 		rank[id] = DeepDice.preference(roll, colors) * 1000 - index
+		sizes[id] = faces
 		max_total += top
 		if bool(roll.get("phantom", false)):
 			phantoms += 1
@@ -92,9 +100,11 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 			crown_total += top
 			low_dice += 1
 			low_ids.append(id)
+			notes.append({"id": id, "value": top, "size": faces, "index": index})
 			continue
 		if kind == "blank":
 			continue
+		notes.append({"id": id, "value": value, "size": faces, "index": index})
 		total += value
 		if kind == "exploding" and roll.has("base"):
 			bases[id] = int(roll.base)
@@ -120,6 +130,8 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 		if not showing.has(shown):
 			showing[shown] = []
 		showing[shown].append(id)
+		if shown == 1:
+			one_ids.append(id)
 		counts[value] = int(counts.get(value, 0)) + (2 if kind == "twin" or bool(roll.get("twinned", false)) else 1)
 		if not ids_by_value.has(value):
 			ids_by_value[value] = []
@@ -179,7 +191,57 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 		"odd_values": odd_values + wilds.size(), "even_values": even_values + wilds.size(),
 		"low_dice": low_dice, "low_ids": low_ids, "crowns": crowns, "crown_ids": crown_ids, "crown_total": crown_total,
 		"high_crown": 1 if (not wilds.is_empty() and wild_top >= high) or (high > 0 and crown_values.has(high)) else 0,
-		"ids_by_value": ids_by_value, "bases": bases, "showing": showing}
+		"ids_by_value": ids_by_value, "bases": bases, "showing": showing,
+		"sizes": sizes, "one_ids": one_ids, "scale": _scale(notes)}
+
+static func _scale(notes: Array) -> Dictionary:
+	## The longest climb across the dice from the smallest die to the largest, each showing
+	## more than the one before it. Dice of one size keep their bench order. Between two climbs
+	## as long, the one that adds up to more. A wild reads as its die's top, as `high` reads it.
+	var order: Array = notes.duplicate()
+	order.sort_custom(func(x: Dictionary, y: Dictionary) -> bool:
+		if int(x.size) != int(y.size):
+			return int(x.size) < int(y.size)
+		return int(x.index) < int(y.index))
+	var length: Array = []
+	var total: Array = []
+	var before: Array = []
+	for i in range(order.size()):
+		length.append(1)
+		total.append(int(order[i].value))
+		before.append(-1)
+		for j in range(i):
+			if int(order[j].value) >= int(order[i].value):
+				continue
+			var longer: int = int(length[j]) + 1
+			var more: int = int(total[j]) + int(order[i].value)
+			if longer > int(length[i]) or (longer == int(length[i]) and more > int(total[i])):
+				length[i] = longer
+				total[i] = more
+				before[i] = j
+	var best: int = -1
+	for i in range(order.size()):
+		if best < 0 or int(length[i]) > int(length[best]) or (int(length[i]) == int(length[best]) and int(total[i]) > int(total[best])):
+			best = i
+	var dice: Array = []
+	var values: Array = []
+	var at: int = best
+	while at >= 0:
+		dice.push_front(str(order[at].id))
+		values.push_front(int(order[at].value))
+		at = int(before[at])
+	return {"length": dice.size(), "dice": dice, "values": values, "total": int(total[best]) if best >= 0 else 0}
+
+static func size_steps(analysis: Dictionary, ids: Array) -> int:
+	## How many sizes over a d4 these dice are, added up: a d6 is one, a d8 two, a d10 three.
+	var steps: int = 0
+	for id in ids:
+		var faces: int = int(analysis.get("sizes", {}).get(str(id), 4))
+		for key in DeepDice.TIERS:
+			var size: int = DeepDice.size_of(str(key))
+			if size > 4 and size <= faces:
+				steps += 1
+	return steps
 
 static func _prefer(ids: Array, rank: Dictionary) -> void:
 	## The dice that most want to be spent, first.

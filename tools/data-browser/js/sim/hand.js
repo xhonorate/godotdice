@@ -1,14 +1,21 @@
 // What a hand of rolls contains: a port of sim/hand.gd, field for field.
 
-import { heldForPatterns, preference, sizeOf } from './dice.js';
+import { heldForPatterns, preference, sizeOf, TIERS } from './dice.js';
 import { I } from './numbers.js';
 
+// Besides what sim/hand.gd lists: `sizes` (die id to how many faces a plain die of its shape
+// has), `one_ids` (the dice whose face shows a 1; a wild is not one of them) and `scale`
+// ({length, dice, values, total}: the longest climb across the dice from the smallest die to the
+// largest, each showing more than the one before, for an Arpeggio).
 export function analyze(hand, colors = []) {
 	const values = [];
 	const idsByValue = new Map();
 	const bases = new Map();
 	const showing = new Map();
 	const counts = new Map();
+	const sizes = new Map();
+	const oneIds = [];
+	const notes = [];
 	const wilds = [];
 	let wildTop = 0, wildTotal = 0;
 	const wildTops = new Map();
@@ -30,6 +37,7 @@ export function analyze(hand, colors = []) {
 		const id = roll.die_id || '';
 		// Higher wants it more; the bench order breaks a tie, so a hand reads the same twice.
 		rank.set(id, preference(roll, colors) * 1000 - index);
+		sizes.set(id, faces);
 		maxTotal += top;
 		if (roll.phantom) phantoms += 1;
 		if (heldForPatterns(roll)) held += 1;
@@ -47,9 +55,11 @@ export function analyze(hand, colors = []) {
 			crownTotal += top;
 			lowDice += 1;
 			lowIds.push(id);
+			notes.push({ id, value: top, size: faces, index });
 			continue;
 		}
 		if (kind === 'blank') continue;
+		notes.push({ id, value, size: faces, index });
 		total += value;
 		if (kind === 'exploding' && 'base' in roll) bases.set(id, I(roll.base));
 		values.push(value);
@@ -63,6 +73,7 @@ export function analyze(hand, colors = []) {
 		const shown = 'shown' in roll && value === I(roll.counted ?? -1) ? I(roll.shown) : value;
 		if (!showing.has(shown)) showing.set(shown, []);
 		showing.get(shown).push(id);
+		if (shown === 1) oneIds.push(id);
 		counts.set(value, (counts.get(value) || 0) + (kind === 'twin' || roll.twinned ? 2 : 1));
 		if (!idsByValue.has(value)) idsByValue.set(value, []);
 		idsByValue.get(value).push(id);
@@ -105,8 +116,45 @@ export function analyze(hand, colors = []) {
 		odd_values: oddValues + wilds.length, even_values: evenValues + wilds.length,
 		low_dice: lowDice, low_ids: lowIds, crowns, crown_ids: crownIds, crown_total: crownTotal,
 		high_crown: (wilds.length > 0 && wildTop >= high) || (high > 0 && crownValues.has(high)) ? 1 : 0, ids_by_value: idsByValue,
-		bases, showing,
+		bases, showing, sizes, one_ids: oneIds, scale: scaleOf(notes),
 	};
+}
+
+// The longest climb across the dice from the smallest die to the largest, each showing more than
+// the one before it. Dice of one size keep their bench order. Between two climbs as long, the one
+// that adds up to more. A wild reads as its die's top, as `high` reads it.
+function scaleOf(notes) {
+	const order = notes.slice().sort((x, y) => (x.size !== y.size ? x.size - y.size : x.index - y.index));
+	const length = [];
+	const total = [];
+	const before = [];
+	for (let i = 0; i < order.length; i++) {
+		length.push(1);
+		total.push(order[i].value);
+		before.push(-1);
+		for (let j = 0; j < i; j++) {
+			if (order[j].value >= order[i].value) continue;
+			const longer = length[j] + 1;
+			const more = total[j] + order[i].value;
+			if (longer > length[i] || (longer === length[i] && more > total[i])) { length[i] = longer; total[i] = more; before[i] = j; }
+		}
+	}
+	let best = -1;
+	for (let i = 0; i < order.length; i++) if (best < 0 || length[i] > length[best] || (length[i] === length[best] && total[i] > total[best])) best = i;
+	const dice = [];
+	const values = [];
+	for (let at = best; at >= 0; at = before[at]) { dice.unshift(String(order[at].id)); values.unshift(order[at].value); }
+	return { length: dice.length, dice, values, total: best >= 0 ? total[best] : 0 };
+}
+
+// How many sizes over a d4 these dice are, added up: a d6 is one, a d8 two, a d10 three.
+export function sizeSteps(analysis, ids) {
+	let steps = 0;
+	for (const id of ids || []) {
+		const faces = I(analysis.sizes?.has(String(id)) ? analysis.sizes.get(String(id)) : 4);
+		for (const key of TIERS) { const size = sizeOf(key); if (size > 4 && size <= faces) steps += 1; }
+	}
+	return steps;
 }
 
 function straightOf(counts, wilds, idsByValue, diceTotal, wildTop = 0) {

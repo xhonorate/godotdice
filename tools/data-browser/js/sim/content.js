@@ -44,6 +44,66 @@ export const pattern = (k) => entry('patterns', String(k).toUpperCase());
 export const etching = (k) => entry('etchings', String(k).toUpperCase());
 export const material = (k) => entry('materials', String(k).toUpperCase());
 export const character = (k) => entry('characters', k);
+
+// --- Birthstones (sim/content.gd) ---------------------------------------------------------------
+// Every delver has a first Birthstone (`birthstone`) and may have others bought with gold
+// (`variants`, each with a `key` and a `price`). A stone is named by its delver and its key; the
+// first one's key is ''.
+
+export function birthstoneVariants(characterKey) {
+	const listed = character(characterKey).variants;
+	return Array.isArray(listed) ? listed : [];
+}
+
+// Every Birthstone this delver can wear, the first ('') first, then the variants in order.
+export function birthstoneKeys(characterKey) {
+	const out = [''];
+	for (const variant of birthstoneVariants(characterKey)) if (variant && typeof variant === 'object' && String(variant.key || '')) out.push(String(variant.key));
+	return out;
+}
+
+// The key as this delver knows it: '' for the first stone and for one that is not theirs.
+export function birthstoneKey(characterKey, key) {
+	return key && birthstoneKeys(characterKey).includes(String(key)) ? String(key) : '';
+}
+
+// The Birthstone itself: the delver's first, or the variant of theirs with this key.
+export function birthstoneDef(characterKey, key = '') {
+	if (key) for (const variant of birthstoneVariants(characterKey)) if (variant && typeof variant === 'object' && String(variant.key || '') === String(key)) return variant;
+	const first = character(characterKey).birthstone;
+	return first && typeof first === 'object' ? first : {};
+}
+
+// What a variant costs in gold; the first stone costs nothing.
+export function birthstonePrice(characterKey, key) {
+	return birthstoneKey(characterKey, key) ? Math.trunc(Number(birthstoneDef(characterKey, key).price ?? 0)) : 0;
+}
+
+// Whose variant this is, or ''.
+export function birthstoneOwner(key) {
+	if (!key) return '';
+	for (const characterKey of Object.keys(section('characters'))) if (birthstoneKeys(characterKey).includes(String(key))) return characterKey;
+	return '';
+}
+
+// Every character key, the starter first, then by unlock_order, then by name.
+export function charactersInUnlockOrder() {
+	return Object.keys(section('characters')).sort((a, b) => {
+		const ca = character(a), cb = character(b);
+		if (Boolean(ca.starter) !== Boolean(cb.starter)) return ca.starter ? -1 : 1;
+		const oa = Math.trunc(Number(ca.unlock_order ?? 99)), ob = Math.trunc(Number(cb.unlock_order ?? 99));
+		if (oa !== ob) return oa - ob;
+		return a < b ? -1 : a > b ? 1 : 0;
+	});
+}
+
+// Every Birthstone in the pack as [delver, key], in unlock order, each delver's first stone first.
+export function allBirthstones() {
+	const out = [];
+	for (const characterKey of charactersInUnlockOrder()) for (const key of birthstoneKeys(characterKey)) out.push([characterKey, key]);
+	return out;
+}
+
 export const creature = (k) => entry('creatures', k);
 export const mine = (k) => entry('mines', k);
 export const oddity = (k) => entry('oddities', k);

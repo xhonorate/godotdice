@@ -200,7 +200,7 @@ func _ledger() -> void:
 	check(panel.rows().has("Topple") and panel.rows().has("Summon"), "moves no face carries yet are listed, with when they come")
 	check(Look.traits(crown).any(func(c: Dictionary) -> bool: return str(c.title) == "Sturdy"), "the Crown's Sturdy is one of its traits")
 	check(Look.meaning("Sturdy", crown).contains("15%") and Look.meaning("Acid Armour", {"key": "SPORE_SLIME", "traits": {}}).contains("Poison"), "a keyword's meaning reads the creature's own number")
-	for word in ["Marked", "Poison", "Burn", "Curse", "Dulled", "Festering", "Strength", "Stunned", "Drink", "Acid Armour", "Sturdy", "Steadfast", "Waterlogged"]:
+	for word in ["Marked", "Poison", "Burn", "Curse", "Dulled", "Festering", "Strength", "Stunned", "Drink", "Breaks", "Acid Armour", "Sturdy", "Steadfast", "Waterlogged"]:
 		check(not Look.meaning(word).is_empty(), "the keyword %s is explained on hover" % word)
 	var rtl := RichTextLabel.new()
 	viewport.add_child(rtl)

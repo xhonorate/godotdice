@@ -223,7 +223,7 @@ static func for_enemy(foe: Dictionary, battle: Dictionary = {}) -> Array:
 		if int(gathering.get("guard_pct", 0)) > 0:
 			words += " It takes %d%% less while it gathers." % int(gathering.guard_pct)
 		if int(gathering.get("cancel_pct", 0)) > 0:
-			words += " Taking %d%% of its health off it meanwhile breaks the charge." % int(gathering.cancel_pct)
+			words += " Taking %d%% of its health off it meanwhile cancels the charge." % int(gathering.cancel_pct)
 		out.append(entry("charging", "bolt", str(charge), true, "Charging", words, Color("ffe27a"), charge))
 	var empowered: int = int(foe.get("empowered", 0))
 	if empowered > 0:

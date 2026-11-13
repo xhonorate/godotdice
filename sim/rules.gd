@@ -30,6 +30,11 @@ extends RefCounted
 ##   even_read (the even dice among those the trigger read)
 ##   pairs (how many pairs the hand holds whose value clears the trigger: a set of four or five
 ##     is two, a full house two, phantom dice counted like any other)
+##   matched (dice that match another: every die in a set of two or more)
+##   trophies (what a Renown has taken this run)  envenom (the owner's Envenomed stacks)
+##   crown_steps / one_steps (the sizes over a d4 of the dice on their top face, or on a 1, added up)
+##   fight_ones (the 1s a Bloodroot has counted this fight)  target_curse (Curse on whoever is aimed at)
+##   colors (how many of the six colors have fired on this rail this turn)
 ##
 ## A skill may carry `numbers`: named amount expressions written into its `text` and its
 ## Flawless line wherever a `{token}` appears, so a Cut ladder never leaves the card lying.
@@ -139,6 +144,18 @@ extends RefCounted
 ##   party, rounded up) or, from a creature, `flat` (its amount and its Strength, nothing else:
 ##   no mine multiplier, no depth bonus). A creature's `spread` deals its hits round the party.
 ##   Birthstone-only: replay_rail  tick_poison(times: every poison on every creature ticks)
+##   The variant Birthstones' own (November 12, 2026), Birthstone-only as well:
+##     arpeggio(pct: each die in the scale adds its number to Resonance, then deals that share of
+##       Resonance to every creature)  prize(times: every set the tier read pays its number's prize
+##       from the stone's `prizes`, that many times)  quilt(every color that fired gives its gift,
+##       worth the amount: Red damage, Blue Block, Green healing, Violet Poison, Gold pyrite, White
+##       Charged)  second_act(every die is thrown again and the whole rail plays once more, the
+##       Birthstone after it; once a turn)  grow_dice(every die a size bigger for the fight)
+##       fight_count(adds to the 1s this fight has counted, see `fight_ones`)
+##   A damage effect may carry `trophy` (a kill it makes is a Trophy, kept for the run). A max_hp
+##   may carry `empty` (the health itself does not rise with it). A player's spikes may carry
+##   `until`: "next_turn" (they come off as its owner's next turn opens), and a player's retain
+##   `keep_all` (every point of Block stays, this once).
 ##   stone_drop(count: a raw stone, Exquisite or better, into the haul when the fight is won)
 ##     pot(pot_mode: what the Gambler has on the table. "ante" stakes the amount, "double"
 ##     matches what is already there, "all" pushes the whole bank in, "lose" leaves it on the
@@ -155,7 +172,8 @@ const TERMS: Array = ["rolled", "value", "second", "count", "high", "low", "tota
 	"set_value", "set_count", "sum_low", "sum_high", "block", "block_lost", "healed", "dealt", "hp", "max_hp", "hp_missing", "gold",
 	"resonance", "previous_amount", "carat", "cut", "clarity", "depth", "turn", "party", "crowns", "high_crown", "low_dice", "pyrite", "pot", "enemy_poison", "fizzles",
 	"swell", "held_gems", "biggest_hit", "party_heaviest_carat", "party_best_turn", "party_richest", "party_high_die", "taken_since", "turns_acted", "living_players", "strength", "pairs", "even_read",
-	"crown_total", "run_fires", "fight_resonance", "pair_count", "pairs_total", "rerolls_left", "run_kills", "run_breaks", "healed_all", "self_dots"]
+	"crown_total", "run_fires", "fight_resonance", "pair_count", "pairs_total", "rerolls_left", "run_kills", "run_breaks", "healed_all", "self_dots",
+	"matched", "trophies", "envenom", "crown_steps", "one_steps", "fight_ones", "target_curse", "colors"]
 const RANKS: Array = ["carat", "cut", "clarity"]
 const EFFECT_KINDS: Array = ["damage", "block", "heal", "gold", "poison", "stun", "remove_block", "cleanse", "revive",
 	"curse", "amplify_next", "cut_step_next", "raise_low", "raise_high", "set_match", "flip_high", "flip_low",
@@ -173,7 +191,8 @@ const EFFECT_KINDS: Array = ["damage", "block", "heal", "gold", "poison", "stun"
 	"bonus_die", "double_resonance_next", "lose_pyrite", "reflect_blows", "invert_previous",
 	"copy_hand", "grip_die", "lose_die", "hasten", "swap_gems",
 	"etch", "grow_faces", "pin_trait", "fog", "flee", "morph", "cling", "blank_next", "random_debuff", "lose_hp",
-	"regen_tick", "strength_guard", "poison_safe", "envenom_thorns", "gild_block", "carry_rerolls", "mortar", "graft_pairs", "restart_rail", "enrich_forever"]
+	"regen_tick", "strength_guard", "poison_safe", "envenom_thorns", "gild_block", "carry_rerolls", "mortar", "graft_pairs", "restart_rail", "enrich_forever",
+	"arpeggio", "prize", "quilt", "second_act", "grow_dice", "fight_count"]
 ## What a random debuff (a Hex) may draw: each a debuff that lands a stack at a time by itself.
 const RANDOM_DEBUFFS: Array = ["clouded", "die_steal", "dice_dread", "marked", "stun"]
 ## What an `of_target` amount may read off each target.
@@ -197,10 +216,10 @@ const HOSTILE: Array = ["damage", "damage_curse", "detonate", "wager", "poison",
 	"random_debuff", "lose_hp"]
 ## What a creature's hostile effect means by "the enemy": these are turned on the party. A
 ## creature that names one player, or itself, keeps its aim.
-const ENEMY_SIDE_TARGETS: Array = ["enemy", "enemies", "spread", "enemy_behind", "enemy_adjacent", "hero", "heroes"]
+const ENEMY_SIDE_TARGETS: Array = ["enemy", "enemies", "spread", "enemy_behind", "enemy_adjacent", "enemy_weakest", "enemy_random", "hero", "heroes"]
 const HERO_PICKS: Array = ["hero_least_block", "hero_most_hp", "hero_most_gold", "hero_top_damage", "hero_top_dealt", "hero_marked", "hero_rerolled"]
 
-const TARGETS: Array = ["self", "ally_low", "allies", "allies_other", "enemy", "enemies", "spread", "enemy_behind", "enemy_adjacent", "downed_ally", "hero", "heroes",
+const TARGETS: Array = ["self", "ally_low", "allies", "allies_other", "enemy", "enemies", "spread", "enemy_behind", "enemy_adjacent", "enemy_weakest", "enemy_random", "downed_ally", "hero", "heroes",
 	"hero_least_block", "hero_most_hp", "hero_most_gold", "hero_top_damage", "hero_top_dealt", "hero_marked", "hero_rerolled", "escort_leader"]
 const MODIFIER_KINDS: Array = ["rider", "per_die_damage", "magnitude", "fizzle_on_value", "hp_cost", "carat", "carat_mult",
 	"cut_step", "cut_override", "locked", "slotless", "fragile", "lens", "color_also", "next_cut_step", "retrigger_if_previous_fired",
@@ -232,7 +251,9 @@ const EFFECT_OPTIONS: Array = ["chain_on_kill", "missing_hp_bonus", "from_result
 	## so the screen plays it after the gem's own; `flawless_overflow` a heal whose overflow is the
 	## line's; the rest are the small rule changes the lines ask for.
 	"flawless", "flawless_overflow", "ring_past_block", "min_procs", "gain_pct", "keeps", "grow", "count_phantoms", "let_ride", "twin_bonus",
-	"best_read", "overflow_carat", "lit_double", "every", "all_in", "each", "stolen_phantoms", "grow_self", "plague"]
+	"best_read", "overflow_carat", "lit_double", "every", "all_in", "each", "stolen_phantoms", "grow_self", "plague",
+	## The variant Birthstones' (see the header): a kill that is a Trophy, max health that comes empty.
+	"trophy", "empty"]
 ## How an effect that works on one die or one gem chooses it: `showing` is the face every die
 ## lies on, `all` every die, `usable` the finest gem a creature could fire itself.
 const PICKS: Array = ["high", "low", "random", "heaviest", "hardest", "best", "usable", "showing", "all"]
@@ -377,6 +398,20 @@ static func term(name: String, node: Dictionary, c: Dictionary) -> int:
 		"run_breaks": return int(c.get("run_breaks", 0))
 		"healed_all": return sat_add(int(unit.get("healed", 0)), int(unit.get("overhealed", 0)))
 		"self_dots": return int(unit.get("statuses", {}).get("poison", 0)) + int(unit.get("statuses", {}).get("burn", 0))
+		"matched":
+			## Every die in a set of two or more: the dice that match another.
+			var matched: int = 0
+			for group in a.get("groups", []):
+				if int(group.get("count", 0)) >= 2:
+					matched += group.get("dice", []).size()
+			return matched
+		"trophies": return int(unit.get("run_counts", {}).get("birthstone:trophies", 0))
+		"envenom": return int(unit.get("statuses", {}).get("envenom", 0))
+		"crown_steps": return DeepHand.size_steps(a, a.get("crown_ids", []))
+		"one_steps": return DeepHand.size_steps(a, a.get("one_ids", []))
+		"fight_ones": return int(unit.get("fight_ones", 0))
+		"target_curse": return int(c.get("target_unit", {}).get("statuses", {}).get("curse", 0))
+		"colors": return int(c.get("colors", 0))
 		"dice": return int(a.get("dice_count", 0))
 		"count_value":
 			var wanted: int = int(node.get("value", 0))
@@ -661,7 +696,7 @@ static func validate_effect(effect: Variant, where: String, hostile_side: String
 		errors.append_array(validate_expression(effect.share, where + " share"))
 	if effect.has("scope") and not str(effect.scope) in ["adjacent", "all", "others", "self"]:
 		errors.append(where + ": unknown gem scope")
-	if effect.has("from_result") and not str(effect.from_result) in ["damage", "gold", "block", "removed", "stolen", "resonance"]:
+	if effect.has("from_result") and not str(effect.from_result) in ["damage", "gold", "block", "removed", "stolen", "resonance", "healed"]:
 		errors.append(where + ": unknown previous result")
 	if kind in CREATURE_KINDS and hostile_side != "hero":
 		errors.append(where + ": " + kind + " is a creature's move, not a stone's")

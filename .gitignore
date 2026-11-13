@@ -9,3 +9,7 @@ __pycache__/
 
 # The data browser's npm packages (the Ogg encoder)
 /tools/data-browser/node_modules/
+
+# Windows' leftovers when Godot swaps a loaded GDExtension library (the Steam dll)
+*.TMP
+addons/godotsteam/**/~*

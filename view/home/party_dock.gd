@@ -42,7 +42,8 @@ static func dock(home: Control, bar: HBoxContainer) -> void:
 		face.custom_minimum_size = Vector2(32, 32)
 		face.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		row.add_child(face)
-		face.add_child(Roster.Portrait.new(str(member.get("character", DeepContent.starter_character())), Vector2(32, 32)))
+		## Lit by the Birthstone they go down in: two of one delver in a party are told apart.
+		face.add_child(Roster.Portrait.new(str(member.get("character", DeepContent.starter_character())), Vector2(32, 32), false, false, false, _stone_of(home, str(id))))
 		var dot := DeepUi.icon(face, str(mark[0]), 13, mark[1])
 		dot.position = Vector2(20, 19)
 		dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -56,6 +57,14 @@ static func dock(home: Control, bar: HBoxContainer) -> void:
 			home._party_open = not home._party_open
 			home._showcase_of = ""
 			home._render())
+
+static func _stone_of(home: Control, id: String) -> Dictionary:
+	## The Birthstone a member goes down in: their own word for it, and for this player what
+	## the workshop has on the delver now (the lobby hears of a change a moment later).
+	var member: Dictionary = home.lobby.get("members", {}).get(id, {})
+	if id == home.local_id and str(member.get("character", "")) == str(home.profile.get("current_character", "")):
+		return Roster.worn_stone(home.profile, str(member.get("character", "")))
+	return Roster.member_stone(member)
 
 static func _ready_count(home: Control) -> int:
 	return home.lobby.get("order", []).filter(func(id: Variant) -> bool:
@@ -123,7 +132,10 @@ static func _member_row(home: Control, box: VBoxContainer, id: String) -> void:
 	var member: Dictionary = home.lobby.members.get(id, {})
 	var row := DeepUi.hbox(box, 10)
 	var character: String = str(member.get("character", DeepContent.starter_character()))
-	row.add_child(Roster.Portrait.new(character, Vector2(DeepUi.pt(28), DeepUi.pt(28)) if DeepUi.phone else Vector2(40, 40)))
+	## The Birthstone they go down in lights their plate and, when it is not their first, is
+	## named after them ("Ardor · Rampart"): two Ardors in a party read as two delvers.
+	var stone: Dictionary = _stone_of(home, id)
+	row.add_child(Roster.Portrait.new(character, Vector2(DeepUi.pt(28), DeepUi.pt(28)) if DeepUi.phone else Vector2(40, 40), false, false, false, stone))
 	var words := DeepUi.vbox(row, 0)
 	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	## Named as the party sees them ("Player 2" when two share a name), your own marked YOU
@@ -135,7 +147,12 @@ static func _member_row(home: Control, box: VBoxContainer, id: String) -> void:
 	named.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	named.custom_minimum_size.x = 110
 	named.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	DeepUi.label(words, DeepContent.character_title(character), 12, DeepUi.MUTED)
+	var wears: bool = not Roster.is_first(character, stone)
+	var going := DeepUi.label(words, Roster.named(character, stone), 12, Roster.stone_tone(stone) if wears else DeepUi.MUTED)
+	going.name = "GoingAs"
+	if wears:
+		going.mouse_filter = Control.MOUSE_FILTER_PASS
+		going.tooltip_text = "%s, wearing %s\n%s" % [DeepContent.character_title(character), str(stone.get("name", "")), str(stone.get("text", ""))]
 	var mark: Array = standing(home, id)
 	DeepUi.pill(row, str(mark[0]), str(mark[2]), mark[1], 11)
 	var shown: Array = DeepProfile.showcase(home.profile) if id == home.local_id else member.get("showcase", [])

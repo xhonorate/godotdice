@@ -10,10 +10,11 @@ const state = { tab: 'oddities' };
 const NEEDS = { stone: 'a stone', two_stones: 'two stones', inclusion: 'a stone and one of its inclusions', raw_stone: 'a raw stone', die: 'a die', die_face: 'a die and a face', pattern: 'a pattern', raw_stones: 'up to three raw stones', offer: 'what the room has laid out', ore: 'pyrite', socket: 'a socketed stone', pick: 'a choice of three' };
 
 // A card's "{ore}" is the pyrite it pays at the depth the party is on; here, the range across a run.
+// Its "{hp}" is a climbing price (the Idol's pull); here, its first go.
 function oreText(choice) {
-	const text = choice.text || '';
-	if (!text.includes('{ore}')) return text;
 	const a = choice.action || {};
+	const text = (choice.text || '').replace('{hp}', a.hp ?? 3);
+	if (!text.includes('{ore}')) return text;
 	const at = (depth) => (a.base !== undefined || a.per_depth !== undefined ? Math.max(0, (a.base | 0) + (a.per_depth ?? 1) * depth) : (a.amount ?? 5));
 	return text.replace('{ore}', `${at(1)}–${at(24)}`);
 }

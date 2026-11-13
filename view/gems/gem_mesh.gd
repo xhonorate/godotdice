@@ -44,13 +44,22 @@ static func skill_key(gem: Dictionary) -> String:
 ## A Birthstone names a cut of its own, and now wears it. Each of these is a solid built
 ## here and nowhere else — no Birthstone borrows one of the six outlines any more, because
 ## borrowing is what made Ardor read as an ordinary red gem and Cadence as a Blue.
+##
+## A delver's second and third Birthstones follow the same rule, so there are eighteen of
+## these now: the first six, then two more each, every one an outline nobody else wears.
 const STYLE_SHAPES: Dictionary = {"shield": "shield", "marquise": "marquise", "step": "step",
-	"briolette": "briolette", "checkerboard": "checkerboard", "heptagon": "heptagon"}
+	"briolette": "briolette", "checkerboard": "checkerboard", "heptagon": "heptagon",
+	"tower": "tower", "spearhead": "spearhead", "cushion": "cushion", "fan": "fan",
+	"dart": "dart", "octagon": "octagon", "pill": "pill", "drop": "drop",
+	"cameo": "cameo", "lozenge": "lozenge", "lucky_star": "lucky_star", "card": "card"}
 ## Which of the six a Birthstone stands nearest to. This decides nothing anyone can see:
 ## every Birthstone names its own hue and its own words, so it is only what the hue would
-## fall back on if one ever did not.
+## fall back on if one ever did not. A delver's later stones stand where their first does.
 const STYLE_KIN: Dictionary = {"shield": "RED", "marquise": "WHITE", "step": "VIOLET",
-	"briolette": "GREEN", "checkerboard": "RED", "heptagon": "GOLD"}
+	"briolette": "GREEN", "checkerboard": "RED", "heptagon": "GOLD",
+	"tower": "RED", "spearhead": "RED", "cushion": "WHITE", "fan": "WHITE",
+	"dart": "VIOLET", "octagon": "VIOLET", "pill": "GREEN", "drop": "GREEN",
+	"cameo": "RED", "lozenge": "RED", "lucky_star": "GOLD", "card": "GOLD"}
 ## Socket fit is a visual choice, independent of the Birthstones' 24-carat weight: how
 ## large the finished stone is drawn against a stone of the six at the same carat. A style
 ## listed here is sized by eye and NOT area-matched with the rest — these numbers were set
@@ -58,7 +67,10 @@ const STYLE_KIN: Dictionary = {"shield": "RED", "marquise": "WHITE", "step": "VI
 ## that has to look consistent. Every style a Birthstone can wear is listed, 1.0 included,
 ## so the two ways of sizing a stone never both apply to one.
 const STYLE_SCALE := {"shield": 0.90, "step": 0.85, "briolette": 0.90,
-	"checkerboard": 0.70, "heptagon": 0.70, "marquise": 1.00}
+	"checkerboard": 0.70, "heptagon": 0.70, "marquise": 1.00,
+	"tower": 0.88, "spearhead": 0.96, "cushion": 0.84, "fan": 0.86,
+	"dart": 0.92, "octagon": 0.74, "pill": 0.92, "drop": 0.88,
+	"cameo": 0.84, "lozenge": 0.94, "lucky_star": 0.86, "card": 0.90}
 const STYLE_OFFSET := {"shield": Vector3(0.0, -0.08, 0.0)}
 
 static func shape_of(gem: Dictionary) -> String:
@@ -163,7 +175,9 @@ const CUTS := {"RED": "trilliant", "BLUE": "princess", "GREEN": "heart",
 const SHAPE_NAMES := {"trilliant": "trilliant", "princess": "princess", "heart": "heart",
 	"pear": "pear", "dutch_rose": "half Dutch rose", "round": "round brilliant", "cabochon": "cabochon",
 	"shield": "shield", "marquise": "marquise", "step": "emerald", "briolette": "briolette",
-	"checkerboard": "checkerboard", "heptagon": "heptagon", "kite": "kite", "pentagon": "pentagon", "hourglass": "hourglass", "keystone": "keystone"}
+	"checkerboard": "checkerboard", "heptagon": "heptagon", "kite": "kite", "pentagon": "pentagon", "hourglass": "hourglass", "keystone": "keystone",
+	"tower": "tower", "spearhead": "lance head", "cushion": "cushion", "fan": "fan", "dart": "dart", "octagon": "stepped octagon",
+	"pill": "capsule", "drop": "falling drop", "cameo": "cameo", "lozenge": "lozenge", "lucky_star": "lucky star", "card": "card"}
 ## Cut is how TRUE the stone is cut, not how busy it is.
 ##
 ## Perfect is the clean solid: one band of crown facets over a two-band pavilion, a narrow
@@ -195,10 +209,23 @@ const CUT_DEPTH := [0.72, 0.82, 0.90, 0.96, 1.00]
 const EMBLEM_SPAN := {"trilliant": 0.86, "princess": 1.10, "heart": 0.94,
 	"pear": 0.84, "dutch_rose": 1.04, "round": 1.06, "cabochon": 0.96,
 	"shield": 0.92, "marquise": 0.62, "step": 0.96, "briolette": 0.66,
-	"checkerboard": 1.04, "heptagon": 1.00, "kite": 0.76, "pentagon": 0.98, "hourglass": 0.74, "keystone": 0.90}
+	"checkerboard": 1.04, "heptagon": 1.00, "kite": 0.76, "pentagon": 0.98, "hourglass": 0.74, "keystone": 0.90,
+	"tower": 0.80, "spearhead": 0.66, "cushion": 0.88, "fan": 0.72, "dart": 0.60, "octagon": 1.04,
+	"pill": 0.74, "drop": 0.84, "cameo": 0.90, "lozenge": 0.66, "lucky_star": 0.78, "card": 0.84}
 ## Move the engraving within its slice, towards the broad part of an asymmetric face.
 const EMBLEM_OFFSET := {"shield": Vector2(0.0, 0.12), "briolette": Vector2(0.0, -0.23),
-	"pear": Vector2(0.0, -0.13), "kite": Vector2(0.0, 0.02), "keystone": Vector2(0.0, 0.06)}
+	"pear": Vector2(0.0, -0.13), "kite": Vector2(0.0, 0.02), "keystone": Vector2(0.0, 0.06),
+	"tower": Vector2(0.0, -0.14), "fan": Vector2(0.0, 0.06), "dart": Vector2(0.0, -0.04),
+	"drop": Vector2(-0.05, -0.17), "spearhead": Vector2(0.03, -0.07)}
+## Turn the engraving with a stone cut on a slant, so it lies along the stone and not across
+## it: Mithridate's capsule leans over, and its blade leans with it; Renown's lance head leans
+## the way a lance is carried, and the lance in its emblem is turned to lie along it (the
+## emblem's own lance leans `LANCE_LEAN`). Degrees, counter-clockwise seen from the front, the
+## same sense as `_tilted`.
+const PILL_TILT: float = -28.0
+const SPEAR_TILT: float = 24.0
+const LANCE_LEAN: float = 37.0
+const EMBLEM_TURN := {"pill": PILL_TILT, "spearhead": SPEAR_TILT - LANCE_LEAN}
 ## Two of the cuts are not brilliants, and a brilliant's proportions would make them lie.
 ## A rose cut has no table worth the name: its crown is a dome of facets rising to a point,
 ## and its back is left flat, because the whole cut exists to save weight. These scale the
@@ -208,33 +235,54 @@ const EMBLEM_OFFSET := {"shield": Vector2(0.0, 0.12), "briolette": Vector2(0.0, 
 ## The Birthstone cuts lean on the same three. An emerald cut is a shallow crown over a
 ## broad table; a briolette keeps a long drop outline over a shallow body; a checkerboard
 ## domes its crown the way a cabochon does but keeps its facets.
+##
+## The later Birthstones lean on them harder, because half of them are not gem cuts at all
+## but things: a seal, a cameo and a playing card are flat faces with a low rim, so they
+## get a broad table over a shallow crown and very little underneath; an Asscher octagon is
+## the reverse, a small table at the top of a tall staircase.
 const SHAPE_TABLE := {"dutch_rose": 0.30, "cabochon": 0.0,
-	"step": 0.86, "briolette": 1.12, "pear": 1.08, "checkerboard": 0.44, "shield": 0.92, "marquise": 0.80, "heptagon": 1.02}
+	"step": 0.86, "briolette": 1.12, "pear": 1.08, "checkerboard": 0.44, "shield": 0.92, "marquise": 0.80, "heptagon": 1.02,
+	"spearhead": 1.00, "card": 1.36, "cameo": 1.22, "octagon": 0.78, "cushion": 0.92, "dart": 0.94,
+	"pill": 1.06, "drop": 1.10, "lozenge": 0.96, "tower": 1.30, "lucky_star": 1.10}
 const SHAPE_CROWN := {"dutch_rose": 1.25, "cabochon": 1.55,
-	"step": 0.72, "briolette": 0.90, "pear": 0.90, "checkerboard": 1.30, "shield": 0.88, "marquise": 0.80, "heptagon": 0.78}
+	"step": 0.72, "briolette": 0.90, "pear": 0.90, "checkerboard": 1.30, "shield": 0.88, "marquise": 0.80, "heptagon": 0.78,
+	"spearhead": 0.92, "card": 0.55, "cameo": 0.70, "octagon": 1.05, "tower": 0.86, "fan": 0.90,
+	"pill": 0.90, "drop": 0.90, "lucky_star": 0.86}
 const SHAPE_PAVILION := {"dutch_rose": 0.40, "cabochon": 0.22,
-	"step": 1.02, "briolette": 0.48, "pear": 0.72, "checkerboard": 0.66, "shield": 1.06, "heptagon": 0.74}
+	"step": 1.02, "briolette": 0.48, "pear": 0.72, "checkerboard": 0.66, "shield": 1.06, "heptagon": 0.74,
+	"spearhead": 0.80, "card": 0.50, "cameo": 0.52, "tower": 0.82, "fan": 0.70, "dart": 0.80,
+	"pill": 0.70, "drop": 0.72, "lozenge": 0.92, "lucky_star": 0.76, "cushion": 0.90}
 ## A marquise has the same shallow face on either side of its girdle.
 const SHAPE_SYMMETRIC := ["marquise"]
 ## How many bands of facets the crown is built from, where the shape overrules Cut. A step
 ## cut is nothing but bands — that is what the name means — and a checkerboard needs enough
-## of them for its grid to be a grid.
-const SHAPE_BANDS := {"step": 3, "checkerboard": 3}
+## of them for its grid to be a grid. An antique cushion is a brilliant with a deep crown,
+## so it takes two and lets them stagger.
+const SHAPE_BANDS := {"step": 3, "checkerboard": 3, "octagon": 3, "cushion": 2}
 ## Shapes whose bands are laid concentrically instead of staggered half a step. The stagger
 ## is what makes a brilliant sparkle, facet meeting facet point to edge; a step cut is the
 ## opposite idea, a staircase of parallel tiers, and a checkerboard wants its grid square.
-const SHAPE_STEPPED := ["step", "checkerboard"]
+## The octagon is an Asscher, which is a step cut on eight sides.
+const SHAPE_STEPPED := ["step", "checkerboard", "octagon"]
+## Outlines with a notch cut deep into them, whose pavilion keeps its bands in step for a
+## different reason. The stagger sets each vertex between two neighbours, and across a notch
+## two neighbours stand at very different reaches, so the facet strung between them twists
+## over and faces into the stone. Their crowns are one band and never stagger anyway.
+const SHAPE_NOTCHED := ["tower", "dart", "spearhead", "lucky_star"]
 ## Metal grown into the stone rather than cut on it. Pyrite is fool's gold and comes out of
 ## the rock in leaves, so a stone cut from that matrix carries them: not a flaw, the whole
 ## reason to cut it. See `gem_flaws.gd`, which draws them with what is frozen inside.
 ## Pyrite comes out of the rock in leaves of fool's gold; a black opal throws the pinprick
 ## flashes it is prized for. Both are specks of light caught in a body rather than cut on
 ## one. The pyrite also reflects the lamps from its smaller, evenly spaced plates.
-const SHAPE_FLAKES := {"heptagon": 36, "marquise": 44}
-const SHAPE_FLAKE_TONE := {"heptagon": "ffd166", "marquise": "cfe8ff"}
+## Two of the later Birthstones are named for what is caught in them the same way: snowflake
+## obsidian is black glass with pale blooms through it, and bloodstone is green with spots
+## of red. Neither is metal, so both are drawn flat, like the opal's flashes.
+const SHAPE_FLAKES := {"heptagon": 36, "marquise": 44, "cushion": 20, "drop": 14}
+const SHAPE_FLAKE_TONE := {"heptagon": "ffd166", "marquise": "cfe8ff", "cushion": "e6e6ee", "drop": "d2342a"}
 ## How large each one is cut. A leaf of pyrite is something you can see the shape of; an
 ## opal's flash is a pinprick, and at anything near the same size it read as confetti.
-const SHAPE_FLAKE_SIZE := {"heptagon": 0.60, "marquise": 0.22}
+const SHAPE_FLAKE_SIZE := {"heptagon": 0.60, "marquise": 0.22, "cushion": 0.50, "drop": 0.42}
 const FLAKE_TONE := "ffd166"
 ## The cabochon is the one cut in the game with no facets at all: an opal's color lives in
 ## its body rather than in the light a facet throws back, and a real cutter domes it for
@@ -508,6 +556,79 @@ static func outline(shape: String) -> PackedVector2Array:
 			# all, which is the point: an opal is not one of the six, and the eye should
 			# not go looking for the round brilliant White wears.
 			return _wound(_oval(24, 0.76))
+		# The delvers' later Birthstones. Twelve more outlines, and the rule they are held to
+		# is the one the first six were: each has to be told from every other stone in the
+		# game as a silhouette, at the size of a thumbnail. Every facet is drawn from the
+		# girdle towards the middle, so an outline may be notched or lobed but the middle has
+		# to be able to see all of it: a wall that turns its back on the middle is cut as a
+		# fold, and a fold shows as a smear.
+		"tower":
+			# Rampart's: a castle tower, a rook. A plinth, a body drawn in at the neck, and a
+			# parapet of three merlons. The gaps between them open towards the top, which is
+			# as upright as their walls can stand and still face the middle of the stone.
+			return _wound(_unit(_mirrored(PackedVector2Array([
+				Vector2(0.70, -0.90), Vector2(0.70, -0.68), Vector2(0.58, -0.52), Vector2(0.54, 0.26),
+				Vector2(0.72, 0.44), Vector2(0.72, 0.90), Vector2(0.46, 0.90), Vector2(0.32, 0.64),
+				Vector2(0.20, 0.64), Vector2(0.18, 0.90)]))))
+		"spearhead":
+			# Renown's: a lance head, leaning the way a lance is carried. A long leaf of a blade,
+			# widest low down, its foot cut square where the shaft goes in. (Picked by the owner
+			# on November 13, 2026 over a swallow-tailed guidon and a tourney banner; it replaced
+			# a signet's oval, which read as no shape at all.)
+			return _wound(_unit(_tilted(_mirrored(PackedVector2Array([Vector2(0.22, -0.92),
+				Vector2(0.46, -0.34), Vector2(0.38, 0.30), Vector2(0.05, 1.0)])), SPEAR_TILT)))
+		"cushion":
+			# Ill Omen's: an antique cushion, stood on end. A cushion cut on a square is what
+			# the checkerboard already is, and a rounded upright box is the emerald, so this
+			# one is the pillow the cut is named for: full at the four corners and drawn in a
+			# little along each side between them.
+			return _wound(_unit(_pillow(32, 5.0, 0.78, 0.20)))
+		"fan":
+			# Fan of Knives': a hand fan held open. Straight sticks from a pivot at the foot
+			# to a wide arc, the arc scalloped where each of its five leaves ends.
+			return _wound(_unit(_fan(58.0, 5, 0.075)))
+		"dart":
+			# Nocturne's: an arrowhead, point up, its base notched between two barbs. The kite
+			# is widest a third of the way up and closes to a point below; this is widest at
+			# the very bottom and open there.
+			return _wound(_unit(_truncated(PackedVector2Array([Vector2(0.0, 1.0), Vector2(0.72, -0.74),
+				Vector2(0.0, -0.30), Vector2(-0.72, -0.74)]), 0.06)))
+		"octagon":
+			# Arpeggio's: eight even sides, a flat one uppermost. An Asscher cut, so what makes
+			# it is the staircase of tiers over it (`SHAPE_BANDS`, `SHAPE_STEPPED`): the
+			# princess is a square with its corners nicked and the emerald is a long box.
+			return _wound(_regular(8, PI * 0.125))
+		"pill":
+			# Mithridate's: a capsule, straight sides and round ends, tipped over the way one
+			# lies in the hand. Upright it was only a narrow oval. Each side carries a vertex
+			# at its middle, so a seam runs across the crown where the two halves would join.
+			return _wound(_unit(_tilted(_stadium(7, 0.46), PILL_TILT)))
+		"drop":
+			# Bloodroot's: a drop of blood caught as it falls. The pear and the briolette are
+			# both drops too, and both stand straight, so this one is fat and round below and
+			# its short tip is swept over to one side.
+			return _wound(_unit(_hooked_drop()))
+		"cameo":
+			# Highs and Lows': a cameo brooch, an upright oval with a beaded rim. The beads
+			# are the whole of the difference from an opal's cabochon, so there are few
+			# enough of them to count.
+			return _wound(_unit(_scalloped(14, 0.78, 0.085)))
+		"lozenge":
+			# Patchwork's: one diamond of a harlequin's coat, tall, with all four tips taken
+			# off. Top and bottom are the same half, which is what the kite is not, and its
+			# sides are straight, which the marquise's are not.
+			return _wound(_unit(_mirrored(PackedVector2Array([
+				Vector2(0.10, -1.0), Vector2(0.62, -0.10), Vector2(0.62, 0.10), Vector2(0.10, 1.0)]))))
+		"lucky_star":
+			# One-Armed Bandit's: the fruit machine's star. Five fat points, their tips blunted so
+			# a Poor cut has corners to chip, the middle wide enough to carry the reels. (Picked
+			# by the owner on November 13, 2026 over a slot machine's arched cabinet and a bell;
+			# it replaced a trefoil.)
+			return _wound(_truncated(_star_points(5, 1.0, 0.62), 0.10))
+		"card":
+			# Blackjack's: a playing card, dealt a little askew. Its corners are only just
+			# rounded, where the emerald's are cut right off, and it is nearly all table.
+			return _wound(_unit(_tilted(_boxed(0.64, 0.92, 0.10, 2), 10.0)))
 	return _wound(_regular(20, -PI * 0.5))
 
 static func _wound(points: PackedVector2Array) -> PackedVector2Array:
@@ -617,6 +738,124 @@ static func _pear(taper: float) -> PackedVector2Array:
 	for index in steps:
 		var t := TAU * float(index) / float(steps)
 		built.append(Vector2(sin(t) * pow(sin(t * 0.5), taper), cos(t)))
+	return built
+
+static func _mirrored(half: PackedVector2Array) -> PackedVector2Array:
+	## A whole outline from its right-hand side, written from the bottom up: the left side
+	## is the same points across the middle, walked back down.
+	var built := PackedVector2Array(half)
+	for index in range(half.size() - 1, -1, -1):
+		built.append(Vector2(-half[index].x, half[index].y))
+	return built
+
+static func _tilted(points: PackedVector2Array, degrees: float) -> PackedVector2Array:
+	## An outline turned about the middle of the stone, counter-clockwise seen from the front.
+	var built := PackedVector2Array()
+	for point in points:
+		built.append(point.rotated(deg_to_rad(degrees)))
+	return built
+
+static func _pillow(steps: int, squareness: float, waist: float, pinch: float) -> PackedVector2Array:
+	## A cushion with its sides drawn in: the same superellipse, each point pulled towards
+	## the middle by how far round it stands from a corner. `pinch` is how deep the middle of
+	## a side sits, so at nothing this is `_cushion` again.
+	var power := 2.0 / maxf(squareness, 0.5)
+	var built := PackedVector2Array()
+	for index in steps:
+		var angle := -PI * 0.5 + TAU * float(index) / float(steps)
+		var drawn := 1.0 - pinch * pow(cos(2.0 * angle), 2.0)
+		built.append(Vector2(signf(cos(angle)) * pow(absf(cos(angle)), power) * waist,
+			signf(sin(angle)) * pow(absf(sin(angle)), power)) * drawn)
+	return built
+
+static func _fan(spread: float, leaves: int, scallop: float) -> PackedVector2Array:
+	## A hand fan: an arc of `leaves` scallops swung `spread` degrees either side of upright
+	## about a pivot, and two straight sticks back down to it. The middle of the stone is put
+	## on the line between the two ends of the arc, which is where the smallest circle round
+	## a fan is centred, and the pivot is blunt, so a Poor cut has a corner there to chip
+	## rather than a needle to lose.
+	var half := deg_to_rad(spread)
+	var lift := cos(half)
+	var steps := leaves * 4
+	var built := PackedVector2Array()
+	for index in steps + 1:
+		var angle := lerpf(half, -half, float(index) / float(steps))
+		var reach := 1.0 - scallop * (1.0 - sin(PI * float(index % 4) / 4.0))
+		built.append(Vector2(sin(angle) * reach, cos(angle) * reach - lift))
+	for side in [-1.0, 1.0]:
+		built.append(Vector2(side * sin(half) * 0.08, cos(half) * 0.08 - lift))
+	return built
+
+static func _stadium(steps: int, waist: float) -> PackedVector2Array:
+	## A capsule standing upright: two half circles `waist` in radius joined by straight
+	## sides, with a vertex at the middle of each side.
+	var rise := 1.0 - waist
+	var built := PackedVector2Array([Vector2(waist, 0.0)])
+	for index in steps + 1:
+		var angle := PI * float(index) / float(steps)
+		built.append(Vector2(cos(angle) * waist, rise + sin(angle) * waist))
+	built.append(Vector2(-waist, 0.0))
+	for index in steps + 1:
+		var angle := PI + PI * float(index) / float(steps)
+		built.append(Vector2(cos(angle) * waist, -rise + sin(angle) * waist))
+	return built
+
+static func _hooked_drop() -> PackedVector2Array:
+	## A drop with its tip swept over to the right: a round belly, a full shoulder running
+	## up the left of it to the tip, and a hollow one coming back down the right. The hollow
+	## is as deep as it can be cut: any deeper and the tip would hide it from the middle of
+	## the stone, which every facet is drawn towards.
+	var belly := Vector2(-0.13, -0.32)
+	var radius := 0.62
+	var tip := Vector2(0.37, 0.90)
+	var built := PackedVector2Array()
+	# The belly, from its right shoulder down round the bottom and up to its left one.
+	for index in 15:
+		var angle := deg_to_rad(lerpf(20.0, -210.0, float(index) / 14.0))
+		built.append(belly + Vector2(cos(angle), sin(angle)) * radius)
+	# Each flank leaves the belly along the belly's own line, so neither meets it at a corner.
+	var left: Vector2 = built[built.size() - 1]
+	var right: Vector2 = built[0]
+	var full := left + Vector2(0.5, 0.866) * 0.90
+	var hollow := right - Vector2(0.342, -0.940) * 0.60
+	for index in range(1, 7):
+		var t := float(index) / 6.0
+		built.append(left.lerp(full, t).lerp(full.lerp(tip, t), t))
+	for index in range(1, 6):
+		var t := float(index) / 6.0
+		built.append(tip.lerp(hollow, t).lerp(hollow.lerp(right, t), t))
+	return built
+
+static func _scalloped(beads: int, waist: float, depth: float) -> PackedVector2Array:
+	## An upright oval with a beaded rim: `beads` round bumps of four edges each, the dip
+	## between two of them `depth` of the way back to the middle. A bead sits square on the
+	## top and on the bottom, so the oval keeps its full height.
+	var steps := beads * 4
+	var built := PackedVector2Array()
+	for index in steps:
+		var angle := -PI * 0.5 + TAU * float(index - 2) / float(steps)
+		var swell := sin(PI * float(index % 4) / 4.0)
+		built.append(Vector2(cos(angle) * waist, sin(angle)) * (1.0 - depth * (1.0 - swell)))
+	return built
+
+static func _star_points(points: int, outer: float, inner: float) -> PackedVector2Array:
+	## A star standing on two points with one straight up: tips `outer` out, the hollows
+	## between them `inner`.
+	var built := PackedVector2Array()
+	for index in points * 2:
+		var angle := PI * 0.5 + PI * float(index) / float(points)
+		built.append(Vector2(cos(angle), sin(angle)) * (outer if index % 2 == 0 else inner))
+	return built
+
+static func _boxed(half_width: float, half_height: float, radius: float, steps: int) -> PackedVector2Array:
+	## An upright rectangle, each corner turned through a quarter circle of `steps` edges.
+	var built := PackedVector2Array()
+	for corner in 4:
+		var centre := Vector2((half_width - radius) * (1.0 if corner == 0 or corner == 3 else -1.0),
+			(half_height - radius) * (1.0 if corner < 2 else -1.0))
+		for index in steps + 1:
+			var angle := PI * 0.5 * (float(corner) + float(index) / float(steps))
+			built.append(centre + Vector2(cos(angle), sin(angle)) * radius)
 	return built
 
 static func _resample(base: PackedVector2Array, steps: int) -> PackedVector2Array:
@@ -768,7 +1007,7 @@ static func build(gem: Dictionary) -> ArrayMesh:
 	for band in range(1, pavilion + 1):
 		var t := float(band) / float(pavilion)
 		rings.append(_ring(base, lerpf(1.0, float(env.back_table), t), lerpf(-GIRDLE, -pavilion_depth, t),
-			not stepped and band % 2 == 1 and band < pavilion))
+			not stepped and not SHAPE_NOTCHED.has(shape) and band % 2 == 1 and band < pavilion))
 
 	var surface := SurfaceTool.new()
 	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -879,6 +1118,7 @@ static func etch_plate(gem: Dictionary) -> ArrayMesh:
 	var span: float = minf(clampf(table * 1.05, 0.42, 0.60),
 		float(EMBLEM_SPAN.get(shape, 1.0)) * 0.5)
 	var offset: Vector2 = EMBLEM_OFFSET.get(shape, Vector2.ZERO)
+	var turn: float = deg_to_rad(float(EMBLEM_TURN.get(shape, 0.0)))
 	# The plate is a slice of the stone at that height, not a square: a square one pushed its
 	# corners out through the notch wherever a Poor cut had chipped one away, and the emblem
 	# hung in the air outside the gem. Following the worn girdle means it cannot escape.
@@ -893,7 +1133,7 @@ static func etch_plate(gem: Dictionary) -> ArrayMesh:
 			surface.set_normal(Vector3.BACK)
 			# The emblem occupies an offset square of its own; the rest of the slice reads
 			# the transparent border of the mask, so only the emblem is ever drawn.
-			var ink_point: Vector2 = point - offset
+			var ink_point: Vector2 = (point - offset).rotated(-turn)
 			surface.set_uv(Vector2(ink_point.x / (span * 2.0) + 0.5, 0.5 - ink_point.y / (span * 2.0)))
 			surface.add_vertex(Vector3(point.x, point.y, depth))
 	return surface.commit()

@@ -144,6 +144,27 @@ static func unlock_socket(profile: Dictionary, character_key: String) -> Diction
 	record.sockets = DeepProfile.open_sockets(profile, character_key) + 1
 	return {"ok": true, "paid": price, "sockets": int(record.sockets)}
 
+# --- Birthstones ------------------------------------------------------------------------------
+
+static func unlock_birthstone(profile: Dictionary, character_key: String, key: String) -> Dictionary:
+	## Buys one of this delver's variant Birthstones, for good. It is theirs to wear from then
+	## on (`DeepProfile.wear_birthstone`); buying it does not put it on.
+	var record: Dictionary = profile.get("characters", {}).get(character_key, {})
+	if record.is_empty() or not bool(record.get("unlocked", false)):
+		return {"ok": false, "error": "that delver has not joined the workshop"}
+	if key.is_empty() or DeepContent.birthstone_key(character_key, key).is_empty():
+		return {"ok": false, "error": "that is not one of their Birthstones"}
+	if DeepProfile.owns_birthstone(profile, character_key, key):
+		return {"ok": false, "error": "that Birthstone is already theirs"}
+	var price: int = DeepContent.birthstone_price(character_key, key)
+	if int(profile.get("gold", 0)) < price:
+		return {"ok": false, "error": "%s costs %d gold" % [str(DeepContent.birthstone_def(character_key, key).get("name", "that Birthstone")), price]}
+	profile.gold = int(profile.get("gold", 0)) - price
+	if not record.get("birthstones", null) is Array:
+		record.birthstones = []
+	record.birthstones.append(key)
+	return {"ok": true, "paid": price, "key": key}
+
 # --- coming up --------------------------------------------------------------------------------
 
 static func conquest_purse(mine_key: String) -> int:
@@ -1296,6 +1317,17 @@ static func daily_plan(date: String = "") -> Dictionary:
 		plan.birthstone = str(others[rng.randi_range(0, others.size() - 1)]) if not others.is_empty() else lapidary
 	if rail == "ONE_TRICK":
 		plan.trick = _trick_skill(rng, lapidary, str(plan.mine))
+	## The day's Birthstone: one of the lapidary's three (`worn`), lent whether or not anyone
+	## owns it, and on a Borrowed Birthstone day one of the lender's three (`birthstone_key`).
+	## Drawn from numbers of their own, so the rest of the day's plan is what it was before
+	## there were variants.
+	var stones := RandomNumberGenerator.new()
+	stones.seed = hash("%s birthstone" % date)
+	var own: Array = DeepContent.birthstone_keys(lapidary)
+	plan.worn = str(own[stones.randi_range(0, own.size() - 1)])
+	if plan.has("birthstone"):
+		var lent: Array = DeepContent.birthstone_keys(str(plan.birthstone))
+		plan.birthstone_key = str(lent[stones.randi_range(0, lent.size() - 1)])
 	return plan
 
 static func _trick_skill(rng: RandomNumberGenerator, lapidary: String, mine_key: String) -> String:
@@ -1484,11 +1516,12 @@ static func daily_config(date: String, players: Array, run_id: String = "") -> D
 		var member: Dictionary = players[seat]
 		seated.append({"id": str(member.get("id", "p%d" % seat)), "name": str(member.get("name", DeepProfile.DEFAULT_NAME)), "character": character,
 			"rail": daily_rail(plan, character, seat), "dice": daily_dice(plan, character, seat), "bag": daily_bag(plan, character, seat),
-			"sockets": DeepContent.character(character).get("sockets", []).size(), "insured": false, "last_depth": 0, "last_outcome": ""})
+			"sockets": DeepContent.character(character).get("sockets", []).size(), "insured": false, "last_depth": 0, "last_outcome": "",
+			"birthstone": str(plan.get("worn", ""))})
 	if run_id.is_empty():
 		run_id = "daily%s%06x" % [date.replace("-", ""), randi() & 0xffffff]
 	var daily: Dictionary = {"date": date, "rail": str(plan.rail), "mods": plan.mods.duplicate()}
-	for key in ["drought", "birthstone", "trick"]:
+	for key in ["drought", "birthstone", "birthstone_key", "worn", "trick"]:
 		if plan.has(key):
 			daily[key] = plan[key]
 	return {"seed": int(plan.seed), "run_id": run_id, "mine": str(plan.mine), "players": seated, "daily": daily}

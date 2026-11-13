@@ -572,7 +572,7 @@ func _show_choices() -> void:
 	if _shatters:
 		_title.text = "Shattered"
 		_title.add_theme_color_override("font_color", DeepUi.BAD)
-		_subtitle.text = "Void made it Fragile. It breaks under the loupe, leaving nothing to keep or sell."
+		_subtitle.text = "Void made it Fragile. It shatters under the loupe, leaving nothing to keep or sell."
 		if _shattered_count > 1:
 			_title.text = "%d fragile gems shattered" % _shattered_count
 			_subtitle.text = "The loupe revealed Void in all of them. None could be kept or sold."

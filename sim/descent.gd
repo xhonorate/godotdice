@@ -71,7 +71,8 @@ const WISH_MOST: int = 1000
 static func new_run(config: Dictionary) -> Dictionary:
 	## config: seed (int), mine (key), run_id, boons (bool, default true),
 	##   players: [{id, name, character, rail: [stones|null], dice: [die instances], last_depth, last_outcome,
-	##   last_warden_unbeaten (see DeepBoons.standing), sockets (how many the lapidary has open; three by default), insured (bool)}]
+	##   last_warden_unbeaten (see DeepBoons.standing), sockets (how many the lapidary has open; three by default), insured (bool),
+	##   birthstone (the key of the variant Birthstone they wear; "" or left out for their first)}]
 	var seed_value: int = int(config.get("seed", randi()))
 	var mine_key: String = str(config.get("mine", DeepContent.starter_mine()))
 	var mine_def: Dictionary = DeepContent.mine(mine_key)
@@ -120,7 +121,7 @@ static func new_run(config: Dictionary) -> Dictionary:
 				stone.lent = true
 				brought += 1
 		var unit: Dictionary = DeepBattle.make_player(str(entry.get("id", "p%d" % seat)), str(shown[seat]), str(entry.get("character", DeepContent.starter_character())),
-			rail, entry.get("dice", []))
+			rail, entry.get("dice", []), -1, [], str(entry.get("birthstone", "")))
 		## Travelling light or heavy: every stone fewer than three on the rail is luck on
 		## every stone the mine gives this player, every stone more is luck off it.
 		unit.merge({"seat": seat, "haul": [], "bag_dice": [], "ore": int(mine_def.get("start_pyrite", 0)), "vote": "", "seen": [],
@@ -138,6 +139,7 @@ static func new_run(config: Dictionary) -> Dictionary:
 				unit.temps = _temporary_offers(state, unit, temps)
 			_dress_for_the_day(state, unit, mine_def)
 		_dress_for_the_hazard(state, unit, not daily.is_empty())
+		_head_start(unit, mine_key)
 		seat += 1
 	_unique_rails(state)
 	state.rng = DeepRng.save(streams)
@@ -185,9 +187,9 @@ static func _dress_for_the_day(state: Dictionary, unit: Dictionary, _mine_def: D
 		unit.sockets = unit.get("sockets", []).map(func(_s: Variant) -> String: return DeepContent.SOCKET_ANY)
 	var borrowed: String = str(state.daily.get("birthstone", ""))
 	if has_mod(state, "BORROWED_BIRTHSTONE") and not borrowed.is_empty():
-		## The battle fires the Birthstone it is handed; the screens draw the one it names.
-		unit.birthstone_of = borrowed
-		unit.birthstone = DeepContent.character(borrowed).get("birthstone", {}).duplicate(true)
+		## The battle fires the Birthstone it is handed; the screens draw the one it names. The
+		## day lends any of the other delver's three (`birthstone_key`), owned or not.
+		DeepBattle.wear(unit, borrowed, str(state.daily.get("birthstone_key", "")))
 	if has_mod(state, "EXTRA_DIE"):
 		unit.dice.append(DeepDice.make("D6", "daily_extra_%s" % str(unit.id)))
 	var biggest: Dictionary = {}
@@ -450,6 +452,38 @@ static func _take_temporary(state: Dictionary, unit: Dictionary, index: int, pic
 const DICE_OFFER_AXES: Array = ["pattern", "etching", "material"]
 ## How many times a die is drawn again when it comes out the same as one already offered.
 const DICE_OFFER_TRIES: int = 6
+
+static func birthstone_head_start(unit: Dictionary, mine_key: String) -> Dictionary:
+	## What a Birthstone that grows all run opens a run in this mine with: a Renown its
+	## Trophies, a Bloodroot its max health, each so much (a percent, the stone's `head_start`)
+	## for every floor of the mines the party did not fight down through. A little under what a
+	## walk down would have grown, so walking still pays best and nobody has to (docs/DEEP_START.md).
+	var floors: int = 0
+	for key in skipped_mines(mine_key):
+		floors += DeepContent.mine_bottom(str(key))
+	var out: Dictionary = {}
+	var rates: Variant = unit.get("birthstone", {}).get("head_start", {})
+	if floors <= 0 or not rates is Dictionary:
+		return out
+	for what in rates:
+		var given: int = floors * int(rates[what]) / 100
+		if given > 0:
+			out[str(what)] = given
+	return out
+
+static func _head_start(unit: Dictionary, mine_key: String) -> void:
+	var given: Dictionary = birthstone_head_start(unit, mine_key)
+	if given.is_empty():
+		return
+	if int(given.get("trophies", 0)) > 0:
+		var counts: Dictionary = unit.get("run_counts", {})
+		counts[DeepBattle.TROPHIES] = int(counts.get(DeepBattle.TROPHIES, 0)) + int(given.trophies)
+		unit.run_counts = counts
+	if int(given.get("max_hp", 0)) > 0:
+		unit.max_hp = int(unit.max_hp) + int(given.max_hp)
+		unit.hp = int(unit.max_hp)
+	## For the shaft head to say (`descent_screen`).
+	unit.head_start = given
 
 ## How many mines below the first a run starts: 0 in the starter mine, 1 in the Seeps and so
 ## on, read off the content's mine order (`DeepContent.mines_in_order`).
@@ -3203,6 +3237,9 @@ static func results(state: Dictionary) -> Dictionary:
 			"rail": unit.rail.duplicate(true), "riders": unit.get("riders", []).duplicate(true), "seen": unit.get("seen", []).duplicate(), "shattered": unit.get("shattered", []).duplicate(true),
 			"ore": int(unit.get("ore", 0)), "insured": bool(unit.get("insured", false)),
 			"name": str(unit.get("name", "")), "character": str(unit.get("character", "")), "seat": int(unit.get("seat", 0)),
+			## The Birthstone they wore, for the records kept by stone: their own variant's key, ""
+			## for their first, and nothing at all when the day lent them another delver's.
+			"birthstone": str(unit.get("birthstone_key", "")), "birthstone_of": str(unit.get("birthstone_of", "")),
 			"connected": bool(unit.get("connected", true)), "left_depth": int(unit.get("left_depth", -1)),
 			"vault_spent": unit.get("vault_spent", []).duplicate(), "transcended": unit.get("transcended", []).duplicate()}
 	return out

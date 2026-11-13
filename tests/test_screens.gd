@@ -80,6 +80,7 @@ func _init() -> void:
 	app.home.open("descend")
 	app.home._roster_pick = ""
 	await _loadout_drags(app)
+	await _birthstones(app)
 	app._depart(9001)
 	await process_frame
 	check(app.descent.visible and not app.home.visible and app.session.in_run(), "departing shows the run")
@@ -376,6 +377,7 @@ func _init() -> void:
 		app._profile_changed()
 	check(true, "appraisal decisions flow through")
 	await _conquest_again(app)
+	await _worn_stone(app)
 	print("Screens: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
 		printerr("FAIL: " + str(failure))
@@ -923,6 +925,192 @@ func _loadout_drags(app: Control) -> void:
 	check(profile.characters.ARDOR.rail.slice(0, 3) == ["STRIKE", "GUARD", "MEND"], "then clicking a stone sets it: %s" % str(profile.characters.ARDOR.rail))
 	screen.queue_free()
 
+func _birthstones(app: Control) -> void:
+	## A delver's three Birthstones at home (November 12, 2026). The dossier shows all three
+	## and reads the one pressed, bought or not; one not bought is unlocked by a second press
+	## and nothing less; one owned is put on by one; and the rail's Birthstone tile swaps
+	## between the ones owned. What is worn is saved and told to the party.
+	var home: Control = app.home
+	var who: String = "ARDOR"
+	var keys: Array = DeepContent.birthstone_keys(who)
+	check(keys.size() == 3 and str(keys[0]).is_empty(), "a delver has a first Birthstone and two variants: %s" % str(keys))
+	var cheap: String = str(keys[1])
+	var dear: String = str(keys[2])
+	var cheap_name: String = str(DeepContent.birthstone_def(who, cheap).get("name", ""))
+	var price: int = DeepContent.birthstone_price(who, cheap)
+	var purse: int = int(app.profile.gold)
+	app.profile.gold = price + 40
+	app._profile_changed()
+	home._roster_pick = who
+	home.open("delvers", true)
+	await _frames(2)
+	var row: Node = home.find_child("BirthStones", true, false)
+	check(row != null and row.get_child_count() == 3, "the dossier shows the delver's three Birthstones side by side")
+	check(home.birth_read(who) == "" and home.find_child("Worn", true, false) != null and home.find_child("Wear", true, false) == null and home.find_child("Unlock", true, false) == null,
+		"the stone worn is the one read first, with a quiet line and no button")
+	check(_named_count(home, "WornMark") == 1, "one stone on the card wears the Worn mark")
+	## A press reads another stone, bought or not: that is how it is sold.
+	(home.find_child("Stone_" + cheap, true, false) as Button).pressed.emit()
+	await _frames(2)
+	check(home.birth_read(who) == cheap and _find_label(home, cheap_name) != null, "pressing a stone reads it on the card")
+	var named: int = 0
+	for tier in DeepContent.birthstone_def(who, cheap).get("tiers", []):
+		named += 1 if _find_label(home, str(tier.get("name", ""))) != null else 0
+	check(named == DeepContent.birthstone_def(who, cheap).get("tiers", []).size() and named > 0, "a stone not bought shows every tier of its ladder (%d)" % named)
+	check(bool((home.find_child("Stone_" + cheap, true, false) as Button).get_meta("read", false)) and not bool((home.find_child("Stone_FIRST", true, false) as Button).get_meta("read", true)), "the stone being read is the one ringed")
+	var unlock: Button = home.find_child("Unlock", true, false)
+	check(unlock != null and not unlock.disabled and _price_on(unlock) == "1,000", "a locked stone offers Unlock with its price (%s)" % _price_on(unlock))
+	## The first press only asks, where the button stood.
+	unlock.pressed.emit()
+	await _frames(2)
+	var ask: Node = home.find_child("UnlockAsk", true, false)
+	check(ask is Label and (ask as Label).text == "Unlock %s for 1,000 gold?" % cheap_name and home.find_child("Unlock", true, false) == null, "the first press turns the button into the question")
+	check(int(app.profile.gold) == price + 40 and not DeepProfile.owns_birthstone(app.profile, who, cheap), "and buys nothing")
+	check(home.find_child("UnlockYes", true, false) is Button and home.find_child("UnlockNo", true, false) is Button and not _inspector_open(), "with its two answers, and nothing popped up")
+	## A press on the answer that lands with the one that asked is the tail of a double-click.
+	(home.find_child("UnlockYes", true, false) as Button).pressed.emit()
+	check(not DeepProfile.owns_birthstone(app.profile, who, cheap) and home._birth_sure == cheap, "a double-click on Unlock does not answer its own question")
+	## Not yet calls it off.
+	(home.find_child("UnlockNo", true, false) as Button).pressed.emit()
+	await _frames(2)
+	check(home._birth_sure.is_empty() and home.find_child("Unlock", true, false) != null and home.find_child("UnlockAsk", true, false) == null, "Not yet puts the button back")
+	check(int(app.profile.gold) == price + 40 and not DeepProfile.owns_birthstone(app.profile, who, cheap), "and nothing was bought")
+	## So does reading another stone, Escape, and leaving the page.
+	(home.find_child("Unlock", true, false) as Button).pressed.emit()
+	(home.find_child("Stone_" + dear, true, false) as Button).pressed.emit()
+	await _frames(2)
+	check(home._birth_sure.is_empty() and home.birth_read(who) == dear, "reading another stone calls the question off")
+	## A purse too short greys the unlock and says why.
+	var short: Button = home.find_child("Unlock", true, false)
+	check(short != null and short.disabled and _price_on(short) == "2,500", "a stone the purse cannot meet has its Unlock greyed")
+	var why: Variant = (short.get_meta("tip_build") as Callable).call() if short != null and short.has_meta("tip_build") else null
+	check(why is Control and _rich_count(why, "You have") > 0, "and says what it costs against what there is")
+	if why is Control:
+		(why as Control).free()
+	home._birth_asked_msec = -100000
+	home.buy_birthstone(who, dear)
+	check(not DeepProfile.owns_birthstone(app.profile, who, dear) and int(app.profile.gold) == price + 40, "nor can it be bought past the button")
+	(home.find_child("Stone_" + cheap, true, false) as Button).pressed.emit()
+	await _frames(2)
+	(home.find_child("Unlock", true, false) as Button).pressed.emit()
+	_key(KEY_ESCAPE)
+	check(home._birth_sure.is_empty() and home.tab == "delvers" and not app.menu.is_open(), "Escape calls the question off before anything else")
+	(home.find_child("Unlock", true, false) as Button).pressed.emit()
+	home.open("vault")
+	home.open("delvers")
+	await _frames(2)
+	check(home._birth_sure.is_empty() and home._roster_pick == who and home.birth_read(who) == "", "leaving the page calls it off, and the page comes back reading the stone worn")
+	## The second press buys: the gold is taken, the stone is theirs, and it is not put on.
+	(home.find_child("Stone_" + cheap, true, false) as Button).pressed.emit()
+	await _frames(2)
+	(home.find_child("Unlock", true, false) as Button).pressed.emit()
+	await _frames(2)
+	home._birth_asked_msec -= 1000
+	(home.find_child("UnlockYes", true, false) as Button).pressed.emit()
+	await _frames(2)
+	check(DeepProfile.owns_birthstone(app.profile, who, cheap) and int(app.profile.gold) == 40, "the second press unlocks it and takes the gold (%d left)" % int(app.profile.gold))
+	check(DeepProfile.worn_birthstone(app.profile, who).is_empty(), "unlocking a stone does not put it on")
+	check(app.saves.load_profile().characters[who].get("birthstones", []) == [cheap], "the unlocked stone is saved")
+	var wear: Button = home.find_child("Wear", true, false)
+	check(wear != null and home.find_child("Unlock", true, false) == null and home.birth_read(who) == cheap, "an unlocked stone offers Wear")
+	## Wear: one press, saved, and the party told.
+	wear.pressed.emit()
+	await _frames(2)
+	check(DeepProfile.worn_birthstone(app.profile, who) == cheap, "one press on Wear puts the stone on")
+	check(str(app.saves.load_profile().characters[who].get("birthstone", "")) == cheap, "the stone worn is saved")
+	check(str(app.session.local_member().get("birthstone", "")) == cheap, "and the party is told (%s)" % str(app.session.local_member().get("birthstone", "")))
+	check(home.find_child("Worn", true, false) != null and home.find_child("Wear", true, false) == null, "the stone worn has no button")
+	## Every mine conquered wearing a stone is a crown on it, counted.
+	DeepProfile.note_stone_conquest(app.profile, who, cheap, DeepContent.starter_mine())
+	home._render()
+	await _frames(2)
+	var crowned: Node = home.find_child("Stone_" + cheap, true, false)
+	check(crowned != null and crowned.find_child("Conquests", true, false) != null and _label_count(crowned.find_child("Conquests", true, false), "1") == 1, "a stone wears a crown and a count for the mines conquered with it")
+	check(home.find_child("Stone_FIRST", true, false).find_child("Conquests", true, false) == null, "and none where there are none")
+	check(HomeParts.conquest_words(app.profile, who, cheap) == "Conquered wearing %s: %s" % [cheap_name, DeepContent.mine_name(DeepContent.starter_mine())], "its tip names the mines: %s" % HomeParts.conquest_words(app.profile, who, cheap))
+	app.profile.erase("stone_conquests")
+	## The rail's Birthstone tile shows the stone worn, and a click on it hangs the three under it.
+	home.edit_loadout(who)
+	await _frames(2)
+	var tile: Control = home.find_child("BirthstoneTile", true, false)
+	check(tile != null and _label_count(tile, cheap_name) == 1 and home._overlay.find_child("SwapCard", true, false) == null, "the rail's Birthstone tile shows the stone worn")
+	_press(tile)
+	await _frames(2)
+	var card: Node = home._overlay.find_child("SwapCard", true, false)
+	check(home._birth_swap and card != null and _count_choices(card) == 3, "a click on the tile lists the delver's three stones")
+	var locked: Node = card.find_child("Swap_" + dear, true, false) if card != null else null
+	check(locked != null and bool(locked.get_meta("disabled", false)) and _label_count(locked, "Unlock on the dossier") == 1 and _label_count(locked, "2,500") == 1, "one not bought is greyed, with its price and where it is unlocked")
+	if locked != null:
+		_press(locked)
+	home.wear_birthstone(who, dear)
+	await _frames(2)
+	check(DeepProfile.worn_birthstone(app.profile, who) == cheap, "and cannot be picked there")
+	## Escape, or a press anywhere else, closes it and leaves the page where it was.
+	home._birth_swap = true
+	home._render()
+	await _frames(2)
+	_key(KEY_ESCAPE)
+	await _frames(2)
+	check(not home._birth_swap and home._overlay.find_child("SwapCard", true, false) == null and home._roster_view == "sockets", "Escape closes the swap, not the page")
+	_press(home.find_child("BirthstoneTile", true, false))
+	await _frames(2)
+	var catch: Node = home._overlay.find_child("BirthSwap", true, false)
+	check(catch != null, "the swap opens again")
+	if catch != null:
+		var press := InputEventMouseButton.new()
+		press.button_index = MOUSE_BUTTON_LEFT
+		press.pressed = true
+		catch._gui_input(press)
+	await _frames(2)
+	check(not home._birth_swap and home._overlay.find_child("SwapCard", true, false) == null, "a press anywhere else closes it")
+	## A stone they own is put on at once, and the swap closes.
+	_press(home.find_child("BirthstoneTile", true, false))
+	await _frames(2)
+	card = home._overlay.find_child("SwapCard", true, false)
+	if card != null:
+		_press(card.find_child("Swap_FIRST", true, false))
+	await _frames(2)
+	check(DeepProfile.worn_birthstone(app.profile, who).is_empty() and not home._birth_swap and home._overlay.find_child("SwapCard", true, false) == null, "picking a stone they own wears it and closes the swap")
+	check(str(app.session.local_member().get("birthstone", "x")).is_empty() and _label_count(home.find_child("BirthstoneTile", true, false), cheap_name) == 0, "the party and the tile follow")
+	## A delver who has not joined shows their three stones and sells none.
+	home._roster_view = "dossier"
+	home._roster_pick = "FLORIN"
+	home.open("delvers", true)
+	await _frames(2)
+	var theirs: String = str(DeepContent.birthstone_keys("FLORIN")[1])
+	(home.find_child("Stone_" + theirs, true, false) as Button).pressed.emit()
+	await _frames(2)
+	check(home.birth_read("FLORIN") == theirs and home.find_child("Unlock", true, false) == null and home.find_child("Wear", true, false) == null and _named_count(home, "WornMark") == 0,
+		"a delver who has not joined shows their three stones, with nothing to buy or wear")
+	app.profile.gold = 99999
+	home._birth_asked_msec = -100000
+	home.buy_birthstone("FLORIN", theirs)
+	home.wear_birthstone("FLORIN", theirs)
+	check(not DeepProfile.owns_birthstone(app.profile, "FLORIN", theirs) and int(app.profile.gold) == 99999, "and nothing is bought for them")
+	## As it was, for the run that follows.
+	app.profile.characters[who].erase("birthstones")
+	app.profile.characters[who].erase("birthstone")
+	app.profile.gold = purse
+	app._profile_changed()
+	home._roster_view = "dossier"
+	home._roster_pick = ""
+	home.open("descend")
+
+func _inspector_open() -> bool:
+	return bool(load("res://view/inspect/inspector.gd").call("is_open"))
+
+func _press(control: Node) -> void:
+	## A left click on a control that listens to `gui_input` itself (a tile, a choice card):
+	## the button down and up, in its middle.
+	if not control is Control:
+		return
+	for down in [true, false]:
+		var event := InputEventMouseButton.new()
+		event.button_index = MOUSE_BUTTON_LEFT
+		event.pressed = down
+		event.position = (control as Control).size * 0.5
+		(control as Control).gui_input.emit(event)
+
 func _vault_tile(home: Control, caption: String) -> Control:
 	## The loadout's vault tile whose caption is this.
 	var tray: Control = home._targets[home._targets.size() - 1].node
@@ -1100,3 +1288,110 @@ func _find_label(node: Node, text: String) -> Label:
 		if found != null:
 			return found
 	return null
+
+# --- the worn Birthstone at home (November 12, 2026) -----------------------------------------------
+
+func _worn_said(node: Node, named: String) -> String:
+	## What the line called `named` says ("" when it is not there): a label, or a mark and its words.
+	var found: Node = node.find_child(named, true, false)
+	if found is Label:
+		return (found as Label).text
+	var value: Node = found.find_child("Value", true, false) if found != null else null
+	return (value as Label).text if value is Label else ""
+
+func _worn_day(borrowed: bool) -> String:
+	## The next day whose seam lends its delver a variant of their own, or borrows another's.
+	var stamp: int = int(Time.get_unix_time_from_datetime_string("2026-11-12"))
+	for i in range(800):
+		var date: String = Time.get_date_string_from_unix_time(stamp + i * 86400)
+		var plan: Dictionary = DeepEconomy.daily_plan(date)
+		var lent: bool = plan.get("mods", []).has("BORROWED_BIRTHSTONE")
+		if borrowed and lent and not str(plan.get("birthstone_key", "")).is_empty():
+			return date
+		if not borrowed and not lent and not str(plan.get("worn", "")).is_empty():
+			return date
+	return ""
+
+func _worn_stone(app: Control) -> void:
+	## The Birthstone a delver wears shows wherever the Birthstone does in the workshop: the way
+	## down names it and what a deep start gives it, the day's seam names the stone it lends, and
+	## the ledger names it beside the delver and keeps its conquests by stone.
+	var roster: Script = load("res://view/home/roster.gd")
+	var profile_page: Script = load("res://view/home/profile_page.gd")
+	var home: Control = app.home
+	var me_id: String = app.session.local_id
+	var kept: Dictionary = app.profile.duplicate(true)
+	## Not held on the tray of a run just come home: the pages themselves are looked at.
+	app.profile.homecoming = false
+	DeepProfile.unlock_character(app.profile, "ARDOR")
+	app.profile.current_character = "ARDOR"
+	app.profile.characters.ARDOR.birthstones = ["RAMPART", "RENOWN"]
+	app.profile.characters.ARDOR.birthstone = "RENOWN"
+	app.profile.mines.WARRENS.unlocked = true
+	var lobby: Dictionary = app.session.lobby.duplicate(true)
+	lobby.daily = ""
+	lobby.mine = DeepContent.starter_mine()
+	home.refresh(app.profile, lobby, "hosting", true, me_id, false, app.settings, "")
+	home.open("descend")
+	check(_worn_said(home, "WornStone") == "Renown", "the way down names the Birthstone worn (%s)" % _worn_said(home, "WornStone"))
+	check(home.find_child("StartWith", true, false) == null, "the first mine gives no head start")
+	lobby.mine = "WARRENS"
+	home.refresh(app.profile, lobby, "hosting", true, me_id, false, app.settings, "")
+	home.open("descend")
+	var given: Dictionary = DeepDescent.birthstone_head_start({"birthstone": DeepContent.birthstone_def("ARDOR", "RENOWN")}, "WARRENS")
+	var purse: int = int(DeepContent.mine("WARRENS").get("start_pyrite", 0))
+	check(int(given.get("trophies", 0)) > 0 and _worn_said(home, "StartWith") == "start with %d pyrite and %d Trophies" % [purse, int(given.get("trophies", 0))],
+		"a deeper mine says what Renown opens with: '%s'" % _worn_said(home, "StartWith"))
+	var start_tip: String = str((home.find_child("StartWith", true, false) as Control).tooltip_text) if home.find_child("StartWith", true, false) != null else ""
+	check(start_tip.contains("Renown opens with %d Trophies." % int(given.get("trophies", 0))), "and its tip names the stone")
+	app.profile.characters.ARDOR.birthstone = "RAMPART"
+	home.open("descend")
+	check(_worn_said(home, "WornStone") == "Rampart" and _worn_said(home, "StartWith") == "start with %d pyrite" % purse, "Rampart is named, and opens a deep start with nothing more")
+	app.profile.characters.ARDOR.birthstone = ""
+	home.open("descend")
+	check(_worn_said(home, "WornStone") == str(DeepStone.birthstone("ARDOR").name), "the first stone is named when it is the one worn")
+	lobby.mine = DeepContent.starter_mine()
+	## The day's seam lends a stone with its delver: one of their own three, or a borrowed one.
+	for borrowed in [false, true]:
+		var date: String = _worn_day(borrowed)
+		check(not date.is_empty(), "a day %s is found" % ("that borrows a Birthstone" if borrowed else "that lends a variant"))
+		if date.is_empty():
+			continue
+		var plan: Dictionary = DeepEconomy.daily_plan(date)
+		var stone: Dictionary = roster.daily_stone(plan)
+		var who: String = str(DeepContent.character(str(plan.lapidary)).get("name", ""))
+		lobby.daily = date
+		home.refresh(app.profile, lobby, "hosting", true, me_id, false, app.settings, "")
+		home.open("descend")
+		check(_worn_said(home, "LentAs") == "%s, wearing %s" % [who, str(stone.name)], "the day's delver is named with the stone it lends: '%s'" % _worn_said(home, "LentAs"))
+		if borrowed:
+			var lender: String = str(DeepContent.character(str(plan.birthstone)).get("name", ""))
+			check(str(stone.get("character", "")) == str(plan.birthstone) and _worn_said(home, "LentStone") == "%s is %s's Birthstone, borrowed for the day." % [str(stone.name), lender],
+				"a borrowed stone is named by its own name: '%s'" % _worn_said(home, "LentStone"))
+			var card_words: String = "%s's %s" % [lender, str(stone.name)]
+			check(home.find_children("*", "Label", true, false).any(func(l: Node) -> bool: return (l as Label).text.ends_with(card_words)), "and the day's card names it (%s)" % card_words)
+		else:
+			check(_worn_said(home, "LentStone") == "%s is lent for the day, whether or not you own it." % str(stone.name), "a lent variant says it is the day's: '%s'" % _worn_said(home, "LentStone"))
+	lobby.daily = ""
+	home.refresh(app.profile, lobby, "hosting", true, me_id, false, app.settings, "")
+	## The ledger: the stone beside the delver, and its conquests kept by stone.
+	app.profile.history = [{"date": "2026-11-01", "mine": DeepContent.starter_mine(), "depth": 8, "outcome": "extracted", "stones": 2, "character": "ARDOR"},
+		{"date": "2026-11-02", "mine": DeepContent.starter_mine(), "depth": 16, "outcome": "conquered", "stones": 3, "character": "ARDOR", "birthstone": "RAMPART"}]
+	DeepProfile.note_stone_conquest(app.profile, "ARDOR", "RAMPART", DeepContent.starter_mine())
+	home.open("profile")
+	var dug: Array = home.find_children("DugAs", "Label", true, false).map(func(l: Node) -> String: return (l as Label).text)
+	check(dug == ["Ardor · Rampart", "Ardor"], "the ledger's runs name the stone worn, newest first: %s" % str(dug))
+	var marks: Array = home.find_children("*", "Control", true, false).filter(func(n: Node) -> bool: return is_instance_of(n, profile_page.StoneMarks))
+	var met: int = DeepProfile.unlocked_characters(app.profile).size()
+	var bottoms: int = DeepContent.mines_in_order().filter(func(k: Variant) -> bool:
+		return bool(app.profile.mines.get(str(k), {}).get("unlocked", false)) and not DeepContent.is_endless(str(k))).size()
+	check(marks.size() == met * bottoms, "every open mine with a bottom has a column of marks for every delver met (%d, wanted %d x %d)" % [marks.size(), met, bottoms])
+	var lit: int = 0
+	for mark in marks:
+		lit += int(mark.lit_count())
+	check(lit == 1 and marks.all(func(m: Node) -> bool: return m.marks.size() == 3), "three marks a delver, and the one conquest lit (%d lit)" % lit)
+	for key in app.profile.keys():
+		app.profile.erase(key)
+	app.profile.merge(kept, true)
+	app._profile_changed()
+	await _frames(1)

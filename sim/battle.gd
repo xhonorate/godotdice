@@ -121,7 +121,17 @@ const RUSH_MOST: float = 64.0
 ## out, the rail that was firing and every rail queued after it, so a heal, a shield or a
 ## purse on a later rail is not lost because an ally's gem got there first; nothing else does.
 const RUNG_STEPS: Array = ["rail_begin", "gem", "birthstone", "rail_end", "skip"]
-const BIRTHSTONE_KINDS: Array = ["replay_rail", "tick_poison", "stone_drop", "pot"]
+const BIRTHSTONE_KINDS: Array = ["replay_rail", "tick_poison", "stone_drop", "pot",
+	"arpeggio", "prize", "quilt", "second_act", "grow_dice", "fight_count"]
+## What each of the six colors gives when a Patchwork's Quilt pays, as [effect kind, target],
+## in the order they are paid.
+const QUILT_GIFTS: Dictionary = {"RED": ["damage", "enemy"], "BLUE": ["block", "self"], "GREEN": ["heal", "self"],
+	"VIOLET": ["poison", "enemy"], "GOLD": ["gold", "self"], "WHITE": ["charged", "self"]}
+## Where a Renown keeps its Trophies: with the run's other counts, so they come out of every
+## fight with the fighter (see `DeepDescent._settle_fight`).
+const TROPHIES: String = "birthstone:trophies"
+## The max health a Birthstone has grown its wearer this run (`run_counts`).
+const GROWN: String = "birthstone:grown"
 ## What a Cleanse clears, a stack at a time in this order (then Dread, then bound dice), and
 ## what a Combo Breaker sheds whole.
 const CLEANSED: Array = ["poison", "burn", "stun", "curse", "marked", "dulled", "clouded", "festering", "scorched"]
@@ -130,16 +140,17 @@ const STOPPERS: Array = ["stun", "die_steal", "clouded", "dice_dread"]
 
 # --- setup -------------------------------------------------------------------------------
 
-static func make_player(id: String, name: String, character_key: String, rail: Array, dice: Array, hp: int = -1, riders: Array = []) -> Dictionary:
+static func make_player(id: String, name: String, character_key: String, rail: Array, dice: Array, hp: int = -1, riders: Array = [], worn: String = "") -> Dictionary:
 	## A player unit for a fight. `rail` is stones by socket (null for empty), `riders` the
 	## Void gems riding each socket, `dice` five die instances. HP, sockets, passive and
-	## Birthstone come from the character. The rail is kept by socket here; `begin` lays it
-	## flat for the fight.
+	## Birthstone come from the character: `worn` is the key of the variant Birthstone they
+	## wear, "" for their first. The rail is kept by socket here; `begin` lays it flat for the fight.
 	var character: Dictionary = DeepContent.character(character_key)
 	var sockets: Array = character.get("sockets", [DeepContent.SOCKET_RAINBOW]).duplicate()
 	var max_hp: int = int(character.get("hp", 60))
 	var unit: Dictionary = {"id": id, "name": name, "side": "player", "character": character_key, "sockets": sockets, "rail": rail.duplicate(true), "riders": riders.duplicate(true),
-		"birthstone": character.get("birthstone", {}).duplicate(true), "flips": 0, "fired_sockets": [], "fizzled_sockets": [], "tailings_paid": {},
+		"birthstone": DeepContent.birthstone_def(character_key, worn).duplicate(true), "birthstone_key": DeepContent.birthstone_key(character_key, worn),
+		"flips": 0, "fired_sockets": [], "fizzled_sockets": [], "tailings_paid": {},
 		"rank_buff": {"carat": 0, "cut": 0}, "gem_buffs": {}, "buff_sources": {}, "pyrite_delta": 0, "repeat_next": 0, "replaying": false, "stone_drops": 0, "pot": 0,
 		"hp": hp if hp >= 0 else max_hp, "max_hp": max_hp, "block": 0, "statuses": {}, "dice": dice.duplicate(true), "hand": [],
 		"rerolls": 0, "rerolls_max": 0, "locked": false, "target": "", "passive": character.get("passive", {"kind": "none"}),
@@ -676,6 +687,7 @@ static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGen
 			unit.fired_colors = []
 			unit.gem_results = {}
 			unit.resonance_mult = 1
+			unit.second_act = false
 			## A Flawless Lodestone: a turn begun Charged, the first gem to fire goes twice.
 			if int(unit.initial_resonance) > 0:
 				for stone in _flawless_gems(unit, "charged_first"):
@@ -1449,15 +1461,28 @@ static func resolve_birthstone(state: Dictionary, unit: Dictionary, opts: Dictio
 	var defs: Array = def.get("tiers", [])
 	var evaluated: Array = []
 	var exclusive_hit: int = -1
+	## The Resonance the stone opened on: an Arpeggio raises what it reads as its notes play.
+	var opened: int = resonance
+	## How many of the six colors this rail has fired this turn, for a Patchwork.
+	var colors: int = colors_fired(unit)
 	for index in range(defs.size()):
 		var tier: Dictionary = defs[index]
-		var trig: Dictionary = DeepPatterns.evaluate(tier.get("trigger", {"kind": "always"}), 0, a, {"resonance": resonance})
-		if replay and trig.active and _has_effect(tier, "replay_rail"):
+		var trig: Dictionary = DeepPatterns.evaluate(tier.get("trigger", {"kind": "always"}), 0, a, {"resonance": resonance, "colors": colors})
+		if replay and trig.active and (_has_effect(tier, "replay_rail") or _has_effect(tier, "second_act")):
 			trig.active = false
 			trig.reason = "Once a turn."
 		if trig.active and bool(tier.get("exclusive", false)) and exclusive_hit < 0:
 			exclusive_hit = index
 		evaluated.append(trig)
+	## A tier may take the place of the ones it names (`eclipses`): a Jinx curses every creature
+	## instead of Omen's one, a Flourish throws the Fan's knives its own way. Only a tier that
+	## fires does, and one an exclusive tier has eclipsed fires nothing.
+	var eclipsed_by: Dictionary = {}
+	for index in range(defs.size()):
+		if not bool(evaluated[index].active) or (exclusive_hit >= 0 and index != exclusive_hit):
+			continue
+		for name in defs[index].get("eclipses", []):
+			eclipsed_by[str(name)] = str(defs[index].get("name", ""))
 	var tiers: Array = []
 	var fired: bool = false
 	var all_dice: Array = []
@@ -1466,19 +1491,29 @@ static func resolve_birthstone(state: Dictionary, unit: Dictionary, opts: Dictio
 	for index in range(defs.size()):
 		var tier: Dictionary = defs[index]
 		var trig: Dictionary = evaluated[index]
-		var entry: Dictionary = {"name": str(tier.get("name", "")), "active": bool(trig.active), "dice": trig.get("dice", []),
+		## `counted` is what the trigger counted (the colors fired, the dice showing 1), for the
+		## screens: the dice a tier lights say only which, and colors are no dice at all.
+		var entry: Dictionary = {"name": str(tier.get("name", "")), "active": bool(trig.active), "dice": trig.get("dice", []), "counted": int(trig.get("count", 0)),
 			"reason": str(trig.get("reason", "")), "effects": [], "trigger": DeepPatterns.describe(tier.get("trigger", {"kind": "always"}), 0)}
 		if exclusive_hit >= 0 and index != exclusive_hit and entry.active:
 			entry.active = false
 			entry.eclipsed = true
 			entry.reason = "%s takes its place." % str(defs[exclusive_hit].get("name", ""))
+		if entry.active and eclipsed_by.has(str(entry.name)):
+			entry.active = false
+			entry.eclipsed = true
+			entry.reason = "%s takes its place." % str(eclipsed_by[str(entry.name)])
 		if entry.active:
 			fired = true
 			for id in entry.dice:
 				if not all_dice.has(id):
 					all_dice.append(id)
+			## Whoever the stone is aimed at as this tier fires, for a term that reads them
+			## (`target_curse`): looked up tier by tier, since the tier before may have killed them.
+			var aimed: Array = _targets(state, unit, "enemy")
 			var tc: Dictionary = {"a": a, "trig": trig, "unit": unit, "resonance": resonance, "previous_amount": int(unit.get("previous_amount", 0)),
-				"depth": int(state.get("depth", 0)), "turn": int(state.get("turn", 0)), "party": int(state.get("party", 1))}
+				"depth": int(state.get("depth", 0)), "turn": int(state.get("turn", 0)), "party": int(state.get("party", 1)),
+				"colors": colors, "target_unit": aimed[0] if not aimed.is_empty() else {}}
 			## Each tier reads its own results and no one else's, the way a gem does: All In
 			## is paid for the blow All In landed, not for what Raise took off them first.
 			var reactions: Dictionary = {}
@@ -1501,9 +1536,24 @@ static func resolve_birthstone(state: Dictionary, unit: Dictionary, opts: Dictio
 					## A Motif plays the gem before the Birthstone again: the last one that fired.
 					did = [_self_effect(state, unit, applied, -1, int(unit.get("previous_socket", -1)), dry, rng)]
 				elif kind in BIRTHSTONE_KINDS:
+					## What the stone reads as this effect lands, and the sets its tier found: an
+					## Arpeggio climbs from the one, a Bandit pays the other.
+					applied.reads = resonance
+					applied.sets = trig.get("sets", [])
 					did = [_birthstone_effect(state, unit, applied, dry, replay, rng)]
+					## An Arpeggio's notes have raised the Resonance, for what is left of this firing too.
+					var climbed: int = int(did[0].get("gained", 0))
+					if climbed > 0:
+						resonance = DeepRules.sat_add(resonance, climbed)
+						tc.resonance = resonance
 				else:
 					did = _apply(state, unit, applied, rng, "", reactions)
+					## What the stone has added to its wearer's max health for the run (a Bloodroot's
+					## Tap), kept for the screens: the ring says how far it has grown.
+					if kind == "max_hp" and not dry and not bool(applied.get("for_fight", false)) and not did.is_empty():
+						if not unit.get("run_counts", null) is Dictionary:
+							unit.run_counts = {}
+						unit.run_counts[GROWN] = DeepRules.sat_add(int(unit.run_counts.get(GROWN, 0)), maxi(0, int(applied.get("amount", 0))))
 				results.append_array(did)
 				resolved.append([effect_def, applied, did])
 				if done(state):
@@ -1556,9 +1606,33 @@ static func resolve_birthstone(state: Dictionary, unit: Dictionary, opts: Dictio
 		if bool(entry.active):
 			played += tier_span(entry)
 	return _event(state, "birthstone", {"unit": unit.id, "name": str(def.get("name", "Birthstone")), "style": str(def.get("style", "")),
-		"tiers": tiers, "fired": fired, "dice": all_dice, "resonance": resonance, "replay": replay, "promised": promised, "answers": answered, "doubled": doubled,
+		"tiers": tiers, "fired": fired, "dice": all_dice, "resonance": opened, "climbed": resonance - opened, "replay": replay, "promised": promised, "answers": answered, "doubled": doubled,
 		"face": face, "change": change,
 		"duration": (BASE_DURATION.birthstone + played) if fired else BASE_DURATION.gem_fizzle})
+
+static func colors_fired(unit: Dictionary) -> int:
+	## How many of the six colors have fired on this rail this turn (an opal is none of them).
+	var seen: Dictionary = {}
+	for colors in unit.get("fired_colors", []):
+		for color in colors:
+			if DeepContent.color_KEYS.has(str(color)):
+				seen[str(color)] = true
+	return seen.size()
+
+static func wear(unit: Dictionary, character_key: String, worn: String = "") -> void:
+	## Puts another Birthstone on a unit: one of its own delver's, or another delver's lent for
+	## the day. The fight fires the stone it is handed; the screens draw the one it names
+	## (`DeepStone.birthstone_for`).
+	if character_key != str(unit.get("character", "")):
+		unit.birthstone_of = character_key
+	else:
+		unit.erase("birthstone_of")
+	unit.birthstone = DeepContent.birthstone_def(character_key, worn).duplicate(true)
+	unit.birthstone_key = DeepContent.birthstone_key(character_key, worn)
+
+static func trophies(unit: Dictionary) -> int:
+	## The Trophies a Renown has taken this run.
+	return int(unit.get("run_counts", {}).get(TROPHIES, 0))
 
 static func face_of(a: Dictionary) -> String:
 	## The face a hand wears for Motley: "odd" when every die is odd, "even" when every die is
@@ -1783,6 +1857,125 @@ static func _birthstone_effect(state: Dictionary, unit: Dictionary, effect: Dict
 			if not dry:
 				unit.stone_drops = int(unit.get("stone_drops", 0)) + amount
 			out.stone_drops = int(unit.get("stone_drops", 0))
+		"arpeggio":
+			## An Arpeggio: the scale is played a note at a time. Each die in it adds the number
+			## it shows to the Resonance, and then that share of the Resonance lands on every
+			## creature. What it adds stays on the rail, so a second pass climbs from the first.
+			var reads: int = int(effect.get("reads", unit.get("resonance", 0)))
+			var climb: Dictionary = DeepHand.analyze(unit.hand).get("scale", {})
+			var notes: Array = []
+			var landed: Array = []
+			var gained: int = 0
+			for index in range(climb.get("dice", []).size()):
+				var by: int = maxi(0, int(climb.values[index]))
+				gained = DeepRules.sat_add(gained, by)
+				unit.resonance = DeepRules.sat_add(int(unit.get("resonance", 0)), by)
+				var blow: int = DeepRules.sat_muldiv(DeepRules.sat_add(reads, gained), maxi(0, amount), 100)
+				var hits: Array = _apply(state, unit, {"kind": "damage", "amount": blow, "target": "enemies", "repeat": 1}, rng) if blow > 0 else []
+				notes.append({"die": str(climb.dice[index]), "value": by, "resonance": DeepRules.sat_add(reads, gained), "amount": blow, "hits": hits})
+				landed.append_array(hits)
+				if done(state):
+					break
+			out.notes = notes
+			out.hits = landed
+			out.gained = gained
+			out.resonance_after = DeepRules.sat_add(reads, gained)
+			if notes.is_empty():
+				out.nothing = true
+		"prize":
+			## A One-Armed Bandit: every set its tier read pays the prize its number names in the
+			## stone's `prizes`, worth so many times the Resonance, `amount` times over. A number
+			## with no prize of its own takes the `other` one, worth a point more for every point
+			## the number is over `value_less`.
+			var reads: int = int(effect.get("reads", unit.get("resonance", 0)))
+			var table: Dictionary = unit.get("birthstone", {}).get("prizes", {})
+			var paid: Array = []
+			var landed: Array = []
+			for group in effect.get("sets", []):
+				var number: int = int(group.get("value", 0))
+				var prize: Dictionary = table.get(str(number), table.get("other", {}))
+				if prize.is_empty():
+					continue
+				var mult: int = int(prize.get("mult", 1))
+				if prize.has("value_less"):
+					mult = maxi(1, number - int(prize.value_less))
+				var worth: int = DeepRules.sat_mul(reads, mult)
+				var hits: Array = _apply(state, unit, {"kind": str(prize.get("kind", "damage")), "amount": worth, "target": str(prize.get("target", "enemy")), "repeat": maxi(1, amount)}, rng) if worth > 0 else []
+				paid.append({"value": number, "count": int(group.get("count", 0)), "dice": group.get("dice", []).duplicate(), "prize": str(prize.get("kind", "damage")),
+					"amount": worth, "times": maxi(1, amount), "hits": hits})
+				landed.append_array(hits)
+				if done(state):
+					break
+			out.paid = paid
+			out.hits = landed
+			if paid.is_empty():
+				out.nothing = true
+		"quilt":
+			## A Patchwork's Quilt: every color that has fired this turn gives its own gift, each
+			## worth the amount, in the six colors' order.
+			var seen: Dictionary = {}
+			for colors in unit.get("fired_colors", []):
+				for color in colors:
+					seen[str(color)] = true
+			var given: Array = []
+			var gifts: Array = []
+			var sewn: int = 0
+			for color in QUILT_GIFTS:
+				if seen.has(color):
+					sewn += 1
+			for color in QUILT_GIFTS:
+				if not seen.has(color) or amount <= 0:
+					continue
+				var gift: Array = QUILT_GIFTS[color]
+				## White's gift opens the next rail, so it is worth a point for each color sewn
+				## and not the Resonance: worth the Resonance, every Quilt paid for a bigger one
+				## the turn after (341, 804, 1,459, 2,582 a turn on the balance bench).
+				var worth: int = sewn if str(gift[0]) == "charged" else amount
+				for hit in _apply(state, unit, {"kind": str(gift[0]), "amount": worth, "target": str(gift[1]), "repeat": 1}, rng):
+					hit.color = color
+					given.append(hit)
+				gifts.append(color)
+				if done(state):
+					break
+			out.colors = gifts
+			out.hits = given
+			if given.is_empty():
+				out.nothing = true
+		"second_act":
+			## A Patchwork's Whole Cloth: every die is thrown again and the whole rail plays once
+			## more on the new hand, the Birthstone after it. Once a turn: the Birthstone's second
+			## go is a replay, on which this tier stays dark.
+			if dry or replay or bool(unit.get("second_act", false)):
+				out.nothing = true
+			else:
+				unit.second_act = true
+				out.thrown = _restart_rail(state, unit, rng)
+				var after: int = 0
+				while after < state.queue.size() and str(state.queue[after].get("kind", "")) == "gem" and str(state.queue[after].get("unit", "")) == str(unit.id):
+					after += 1
+				state.queue.insert(after, {"kind": "birthstone", "unit": unit.id, "replay": true})
+		"grow_dice":
+			## A Standing Ovation: every die in the bowl a size bigger for the rest of the fight
+			## (the fight gives them back as they were, see `dice_after_fight`).
+			var grown: Array = []
+			for die in unit.get("dice", []):
+				if bool(die.get("bonus", false)) or not DeepOddities.resize_refusal(die, maxi(1, amount)).is_empty():
+					continue
+				if not dry:
+					## Counted, not copied: the fight files each die back down by as many sizes
+					## (`dice_after_fight`), so a face raised for good after the Ovation stays raised.
+					if not unit.has("fight_grown"):
+						unit.fight_grown = {}
+					DeepOddities.resize(die, maxi(1, amount))
+					unit.fight_grown[str(die.get("id", ""))] = int(unit.fight_grown.get(str(die.get("id", "")), 0)) + maxi(1, amount)
+				grown.append(str(die.get("id", "")))
+			out.dice = grown
+			if grown.is_empty():
+				out.nothing = true
+		"fight_count":
+			## A Bloodroot counts the 1s it has been shown this fight.
+			unit.fight_ones = DeepRules.sat_add(int(unit.get("fight_ones", 0)), maxi(0, amount))
+			out.total = int(unit.fight_ones)
 		"pot":
 			## What is on the table. Staking moves Pyrite out of the bank in the same breath,
 			## so what the Gambler owns is the ceiling on what he can ever have riding, and a
@@ -2099,7 +2292,7 @@ static func blows(effects: Array) -> int:
 	for effect in effects:
 		if str(effect.get("kind", "")) == "damage":
 			count += maxi(1, int(effect.get("repeat", 1))) * (1 + effect.get("splash", []).size())
-		elif str(effect.get("kind", "")) == "invert_previous":
+		elif str(effect.get("kind", "")) in ["invert_previous", "arpeggio", "prize", "quilt"]:
 			count += blows(effect.get("hits", []))
 	return count
 
@@ -2693,14 +2886,17 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 			var dark_sockets: Array = []
 			var dark: Array = unit.get("fizzled_sockets", []).duplicate()
 			dark.sort()
+			## The Birthstone (socket -1) comes after the whole rail, so it reaches every socket; a
+			## Small Hours wakes each of them `repeat` times over.
 			for other in dark:
 				var at: int = int(other)
 				if dark_sockets.size() >= maxi(1, amount):
 					break
-				if at >= socket or not repeatable(unit, at):
+				if (socket >= 0 and at >= socket) or not repeatable(unit, at):
 					continue
 				dark_sockets.append(at)
-				woken.append({"kind": "gem", "unit": unit.id, "socket": at, "retrigger": true, "force": true})
+				for _again in range(maxi(1, int(effect.get("repeat", 1)))):
+					woken.append({"kind": "gem", "unit": unit.id, "socket": at, "retrigger": true, "force": true})
 			out.sockets = dark_sockets
 			if dry or woken.is_empty():
 				out.nothing = true
@@ -3225,6 +3421,16 @@ static func _targets(state: Dictionary, source: Dictionary, target: String, inte
 			return [chosen] if not chosen.is_empty() else []
 		"enemies":
 			return foes
+		"enemy_weakest":
+			## The creature with the least health left (a Renown's Tourney); the first of them on a tie.
+			## A Collapsar bends it as it bends any blow aimed at one creature.
+			var weakest: Dictionary = {}
+			for foe in foes:
+				if DeepCreatures.has_trait(foe, "taunt"):
+					return [foe]
+				if weakest.is_empty() or int(foe.hp) < int(weakest.hp):
+					weakest = foe
+			return [weakest] if not weakest.is_empty() else []
 		"enemy_adjacent":
 			var chosen: Dictionary = enemy(state, aim(source))
 			if (chosen.is_empty() or bool(chosen.get("burrowed", false))) and not foes.is_empty():
@@ -3305,6 +3511,8 @@ static func _apply(state: Dictionary, source: Dictionary, effect: Dictionary, rn
 			var foes: Array = _targets(state, source, "enemies")
 			if not foes.is_empty():
 				targets = [foes[count % foes.size()]]
+		elif target_kind == "enemy_random":
+			targets = _random_foe(state, source, rng)
 		else:
 			targets = _targets(state, source, target_kind, intent_target)
 		for target in targets:
@@ -3314,13 +3522,27 @@ static func _apply(state: Dictionary, source: Dictionary, effect: Dictionary, rn
 				var survivors: Array = targetable(state.enemies)
 				if survivors.is_empty():
 					break
-				hit = _apply_one(state, source, survivors[0], kind, int(effect.amount), effect, rng, reactions)
+				## A knife thrown at a creature picked at random is thrown again at another picked the same way.
+				var next: Dictionary = _random_foe(state, source, rng)[0] if target_kind == "enemy_random" else survivors[0]
+				hit = _apply_one(state, source, next, kind, int(effect.amount), effect, rng, reactions)
+				hit.chained = true
 				results.append(hit)
 		## A party-wide hit reaches all victims before retaliation can settle the fight.
 		_check_outcome(state)
 		if done(state):
 			return results
 	return results
+
+static func _random_foe(state: Dictionary, source: Dictionary, rng: RandomNumberGenerator) -> Array:
+	## One creature that can be hit, picked at random with the fight's own numbers (a Fan of
+	## Knives, a Heartsblood). With one standing nothing is drawn, and a Collapsar takes it.
+	var foes: Array = _targets(state, source, "enemies")
+	for foe in foes:
+		if DeepCreatures.has_trait(foe, "taunt"):
+			return [foe]
+	if foes.size() <= 1 or rng == null:
+		return foes.slice(0, 1)
+	return [foes[rng.randi_range(0, foes.size() - 1)]]
 
 ## What a gem gives its owner that a creature drinking its color takes instead.
 const ABSORBED_GIFTS: Array = ["block", "heal", "retain", "regeneration", "ward", "spikes", "max_hp"]
@@ -3483,6 +3705,12 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 			out.amount = amount
 			out.merge(_damage(state, source, target, amount, rng, false, reactions, false, bool(effect.get("piercing", false))), true)
 			reactions.result_damage = DeepRules.sat_add(int(reactions.get("result_damage", 0)), int(out.hp_loss))
+			## A Renown's Lance: a kill it makes is a Trophy, kept for the run.
+			if bool(effect.get("trophy", false)) and bool(out.get("killed", false)) and str(source.get("side", "")) == "player":
+				var counts: Dictionary = source.get("run_counts", {})
+				counts[TROPHIES] = DeepRules.sat_add(int(counts.get(TROPHIES, 0)), 1)
+				source.run_counts = counts
+				out.trophy = int(counts[TROPHIES])
 			## A Flawless Barrage: a hit that got past Block rings, and the screen ticks it up as it lands.
 			if int(effect.get("ring_past_block", 0)) > 0 and int(out.get("hp_loss", 0)) > 0:
 				out.rang = int(effect.ring_past_block)
@@ -3548,6 +3776,7 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 		"heal":
 			out.healed = _heal(target, amount)
 			out.hp_after = target.hp
+			reactions.result_healed = DeepRules.sat_add(int(reactions.get("result_healed", 0)), int(out.healed))
 			_note_result(source, target, "heal", int(out.healed))
 			if str(source.get("side", "")) == "player":
 				source.healed = DeepRules.sat_add(int(source.get("healed", 0)), int(out.healed))
@@ -3613,6 +3842,12 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 				if not target.get("timed", null) is Dictionary:
 					target.timed = {}
 				target.timed[kind] = int(target.timed.get(kind, 0)) + maxi(0, amount)
+			## A Rampart's Thornwork: Spikes a delver holds up until their own next turn opens.
+			if str(effect.get("until", "")) == "next_turn" and str(target.get("side", "")) == "player":
+				if not target.get("timed", null) is Dictionary:
+					target.timed = {}
+				target.timed[kind] = DeepRules.sat_add(int(target.timed.get(kind, 0)), maxi(0, amount))
+				out.timed = int(target.timed[kind])
 			## Poison and Burn a creature puts on a player are kept apart from the rest, so only
 			## its stacks carry the weight its blows carry (`tick_amount`).
 			if kind in ["poison", "burn"] and str(target.get("side", "")) == "player":
@@ -3690,7 +3925,9 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 					source.healed = DeepRules.sat_add(int(source.get("healed", 0)), int(out.healed))
 		"max_hp":
 			target.max_hp = DeepRules.sat_add(int(target.max_hp), maxi(0, amount))
-			target.hp = DeepRules.sat_add(int(target.hp), maxi(0, amount))
+			## A Bloodroot's Take Root raises the ceiling and leaves the health where it was (`empty`).
+			if not bool(effect.get("empty", false)):
+				target.hp = DeepRules.sat_add(int(target.hp), maxi(0, amount))
 			## A Flawless Green Seam's: the fight gives it back (see `DeepDescent._settle_fight`).
 			if bool(effect.get("for_fight", false)):
 				target.fight_max_hp = DeepRules.sat_add(int(target.get("fight_max_hp", 0)), maxi(0, amount))
@@ -3709,7 +3946,7 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 			var kept: int = int(target.statuses.get("retain", 0))
 			## No cap on either side (a player's stopped at 20 until Nov 5 2026); a creature told
 			## to keep it all keeps every point.
-			if str(target.get("side", "")) == "enemy" and bool(effect.get("keep_all", false)):
+			if bool(effect.get("keep_all", false)):
 				target.statuses.retain = DeepRules.CEILING
 			else:
 				target.statuses.retain = DeepRules.sat_add(kept, maxi(0, amount))
@@ -4548,7 +4785,8 @@ static func _remember_die(unit: Dictionary, die: Dictionary) -> void:
 	for index in range(unit.get("dice", []).size()):
 		if str(unit.dice[index].get("id", "")) == id:
 			at = index
-	unit.fight_dice[id] = {"was": die.duplicate(true), "at": at}
+	## `grown` is how many sizes a Standing Ovation had already put on it: they come off the copy too.
+	unit.fight_dice[id] = {"was": die.duplicate(true), "at": at, "grown": int(unit.get("fight_grown", {}).get(id, 0))}
 
 static func dice_after_fight(unit: Dictionary) -> Array:
 	## The bowl a hero walks out of a fight with: every die the fight shrank, blanked, ground
@@ -4561,10 +4799,18 @@ static func dice_after_fight(unit: Dictionary) -> Array:
 	for entry in unit.get("broken_dice", []):
 		dice.insert(clampi(int(entry.get("at", 0)), 0, dice.size()), _regrown_die(unit, entry))
 	var kept: Dictionary = unit.get("fight_dice", {})
+	## A Standing Ovation's sizes come off again: each die filed down by as many as it grew,
+	## keeping its own faces (a die the fight kept a copy of is seen to below).
+	var ovation: Dictionary = unit.get("fight_grown", {})
+	for die in dice:
+		if ovation.has(str(die.get("id", ""))) and not kept.has(str(die.get("id", ""))):
+			DeepOddities.resize(die, -int(ovation[str(die.get("id", ""))]))
 	var ids: Array = kept.keys()
 	ids.sort_custom(func(a: Variant, b: Variant) -> bool: return int(kept[a].get("at", 0)) < int(kept[b].get("at", 0)))
 	for id in ids:
 		var was: Dictionary = kept[id].get("was", {}).duplicate(true)
+		if int(kept[id].get("grown", 0)) > 0:
+			DeepOddities.resize(was, -int(kept[id].grown))
 		var found: bool = false
 		for index in range(dice.size()):
 			if str(dice[index].get("id", "")) == str(id):
@@ -5315,6 +5561,15 @@ static func _begin_turn(state: Dictionary, rng_dice: RandomNumberGenerator, rng_
 			unit.erase("clung")
 		## Retain preserves part of the unspent Block once. Spikes stay for the fight.
 		_reset_defenses(unit)
+		## What was held up only until this turn (a Thornwork's Spikes) comes down.
+		if unit.get("timed", null) is Dictionary:
+			for status in unit.timed:
+				var left: int = maxi(0, int(unit.statuses.get(str(status), 0)) - int(unit.timed[status]))
+				if left > 0:
+					unit.statuses[str(status)] = left
+				else:
+					unit.statuses.erase(str(status))
+			unit.erase("timed")
 		## What a Chainmail, a Contagion or a Rebound set up lasted the turn that has ended.
 		unit.after_fire = []
 		unit.on_block = []
@@ -5661,13 +5916,21 @@ static func forecast(state: Dictionary, player_id: String) -> Dictionary:
 	var birthstone: Dictionary = {}
 	if not unit.get("birthstone", {}).is_empty():
 		var preview: Dictionary = resolve_birthstone(copy, unit, {"dry": true}, rng)
+		## `colors` is every color the rail fired on the way to the stone, gem by gem (a Patchwork
+		## reads them); `climbed` what the stone itself added to the Resonance (an Arpeggio's notes).
 		birthstone = {"name": str(preview.get("name", "")), "fired": bool(preview.get("fired", false)), "tiers": preview.get("tiers", []),
-			"resonance": int(preview.get("resonance", 0))}
+			"resonance": int(preview.get("resonance", 0)), "climbed": int(preview.get("climbed", 0)), "colors": unit.get("fired_colors", []).duplicate(true)}
 		for tier in preview.get("tiers", []):
 			if not bool(tier.get("active", false)):
 				continue
 			for effect in tier.get("effects", []):
 				var kind: String = str(effect.get("kind", ""))
+				## What a stone's notes, prizes and gifts landed counts with the rest.
+				if kind in ["arpeggio", "prize", "quilt"]:
+					for hit in effect.get("hits", []):
+						var landed: String = str(hit.get("kind", ""))
+						if totals.has(landed):
+							totals[landed] += int(hit.get("raw", hit.get("amount", 0))) if landed == "damage" else int(hit.get("amount", 0))
 				if totals.has(kind):
 					var amount: int = int(effect.get("amount", 0))
 					if kind == "damage":

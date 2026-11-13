@@ -6,6 +6,10 @@ import { I } from './numbers.js';
 export const KINDS = ['all_odd', 'all_even', 'always', 'pair', 'two_pair', 'triple', 'full_house', 'quad', 'quint', 'straight',
 	'odd', 'even', 'distinct', 'value', 'at_most', 'at_least', 'total_pct_at_least', 'total_pct_at_most',
 	'high_pct_at_least', 'held', 'rerolled', 'resonance', 'low_count', 'crowns', 'crowns_at_most', 'skip_straight', 'distinct_dominant', 'pyrite', 'fizzles', 'below', 'kills',
+	// What the variant Birthstones read (sim/patterns.gd): dice showing `value` or more, a total
+	// as a number or in a window (`max`), a scale (see hand.js), every die a crown or a 1, the
+	// colors the rail has fired this turn (the fight says how many), sets by size (`max`).
+	'high_count', 'total_at_most', 'total_window', 'scale', 'all_faces', 'colors', 'set',
 	'each_turn', 'every_nth_turn', 'emerge', 'on_death', 'hp_below', 'action_begin', 'countdown'];
 // The kinds a creature reads from the turn rather than from a die: each fires at most once an
 // action, on its first die (on_death never during an action: it fires when the creature dies;
@@ -14,6 +18,9 @@ export const TURN_KINDS = ['each_turn', 'every_nth_turn', 'emerge', 'on_death', 
 // The turn kinds the fight calls itself, never on a die the creature throws.
 export const CALLED_KINDS = ['on_death', 'hp_below', 'action_begin'];
 export const isTurnKind = (kind) => TURN_KINDS.includes(kind);
+// The kinds a stone reads from the fight rather than from the dice: how often one fires cannot
+// be told from a bowl alone.
+export const FIGHT_KINDS = ['resonance', 'pyrite', 'fizzles', 'kills', 'colors'];
 export const SET_SIZES = { pair: 2, triple: 3, quad: 4, quint: 5 };
 export const STEPS = 5;
 
@@ -283,6 +290,50 @@ export function evaluate(trigger, cutStep, a, context = {}) {
 				result.dice = dice; result.count = a.distinct; result.value = a.high;
 			}
 			break;
+		case 'high_count': {
+			const floorValue = I(trigger.value ?? 6);
+			const dice = Hand.matching(a, (v) => v >= floorValue);
+			if (dice.length >= Math.max(1, need)) { result.active = true; result.dice = dice; result.count = dice.length; result.value = floorValue; }
+			break;
+		}
+		case 'total_at_most': {
+			// A wild is any value, so a hand that wants a low total reads it as a 1.
+			const quiet = I(a.total) - I(a.wild_total) + (a.wilds || []).length;
+			if (I(a.dice_count) > 0 && quiet <= need) { result.active = true; result.dice = allDice(a); result.value = quiet; result.count = result.dice.length; }
+			break;
+		}
+		case 'total_window': {
+			const most = I(trigger.max ?? -1);
+			if (I(a.dice_count) > 0 && I(a.total) >= need && (most < 0 || I(a.total) <= most)) { result.active = true; result.dice = allDice(a); result.value = I(a.total); result.count = result.dice.length; }
+			break;
+		}
+		case 'scale': {
+			const climb = a.scale || {};
+			if (I(climb.length) >= Math.max(1, need)) { result.active = true; result.dice = (climb.dice || []).slice(); result.count = I(climb.length); result.value = I(climb.total); }
+			break;
+		}
+		case 'all_faces': {
+			const faced = (a.crown_ids || []).slice();
+			for (const id of a.one_ids || []) if (!faced.includes(id)) faced.push(id);
+			if (I(a.dice_count) >= Math.max(2, need) && faced.length >= I(a.dice_count)) { result.active = true; result.dice = faced; result.count = faced.length; result.value = faced.length; }
+			break;
+		}
+		case 'colors':
+			// The colors this rail has fired this turn: the fight counts them, not the dice.
+			result.active = I(context.colors) >= Math.max(1, need); result.count = I(context.colors); result.value = I(context.colors);
+			break;
+		case 'set': {
+			// Every set at least the rung big and no bigger than `max` is read (`sets`).
+			const biggest = I(trigger.max ?? 0);
+			const found = [];
+			for (const group of a.groups || []) if (I(group.count) >= Math.max(2, need) && (biggest <= 0 || I(group.count) <= biggest)) found.push({ value: I(group.value), count: I(group.count), dice: group.dice.slice() });
+			if (found.length) {
+				result.active = true; result.sets = found;
+				result.dice = found.flatMap((group) => group.dice);
+				result.value = found[0].value; result.count = found[0].count;
+			}
+			break;
+		}
 	}
 	if (!result.active) result.reason = words(trigger, cutStep);
 	return result;
@@ -311,6 +362,12 @@ export function label(trigger, cutStep) {
 		case 'action_begin': return 'action opens';
 		case 'at_most': return `≤${need}`;
 		case 'at_least': return `≥${need}`;
+		case 'high_count': return `${I(trigger.value ?? 6)}+ ×${Math.max(1, need)}`;
+		case 'total_at_most': return `≤${need}`;
+		case 'total_window': { const most = I(trigger.max ?? -1); return most < 0 ? `≥${need}` : most === need ? `=${need}` : `${need}-${most}`; }
+		case 'scale': case 'colors': return `×${Math.max(1, need)}`;
+		case 'all_faces': return '';
+		case 'set': { const biggest = I(trigger.max ?? 0); const least = Math.max(2, need); return biggest === least ? `×${least}` : biggest <= 0 ? `×${least}+` : `×${least}-${biggest}`; }
 		case 'total_pct_at_least': case 'high_pct_at_least': return `≥${need}%`;
 		case 'total_pct_at_most': return `≤${need}%`;
 	}
@@ -383,6 +440,22 @@ export function words(trigger, cutStep) {
 		case 'crowns_at_most': return need === 0 ? 'No crowns: no die on its top face.' : `No more than ${need} ${need === 1 ? 'crown' : 'crowns'}.`;
 		case 'skip_straight': return `${need} different values, all odd or all even, like 2-4-6-8-10.`;
 		case 'distinct_dominant': return `${need} different values, the highest die outrolling the other ${need - 1} combined.`;
+		case 'high_count': return `At least ${dice(Math.max(1, need))} showing ${I(trigger.value ?? 6)} or more.`;
+		case 'total_at_most': return `Your total is ${need} or less.`;
+		case 'total_window': {
+			const most = I(trigger.max ?? -1);
+			if (most < 0) return `Your total is ${need} or more.`;
+			return most === need ? `Your total is exactly ${need}.` : `Your total is from ${need} to ${most}.`;
+		}
+		case 'scale': return `A scale of ${Math.max(1, need)}: dice that climb from your smallest die to your largest, each showing more than the last.`;
+		case 'all_faces': return 'Every die on its own top face or on a 1.';
+		case 'colors': return `At least ${Math.max(1, need)} different colors have fired this turn.`;
+		case 'set': {
+			const biggest = I(trigger.max ?? 0);
+			const least = Math.max(2, need);
+			if (biggest === least) return `A set of exactly ${least} matching dice.`;
+			return biggest <= 0 ? `A set of ${least} or more matching dice.` : `A set of ${least} to ${biggest} matching dice.`;
+		}
 		case 'each_turn': return 'Every action, once, before its dice.';
 		case 'every_nth_turn': return `Every ${ordinal(need)} action, once, before its dice.`;
 		case 'countdown': return `When its countdown from ${need} reaches 0, once, before its dice.`;
@@ -401,6 +474,7 @@ export const KIND_NAMES = {
 	at_least: 'High die', total_pct_at_least: 'Total ≥ % of max', total_pct_at_most: 'Total ≤ % of max', high_pct_at_least: 'Die ≥ % of its top',
 	held: 'Held dice', rerolled: 'Rerolled dice', resonance: 'Resonance', low_count: 'Low dice', crowns: 'Crowns', crowns_at_most: 'Few crowns',
 	skip_straight: 'Skip straight', distinct_dominant: 'Dominant high die', pyrite: 'Pyrite in hand', fizzles: 'Earlier fizzles', kills: 'Kills this turn', all_odd: 'All odd', all_even: 'All even',
+	high_count: 'High dice', total_at_most: 'Low total', total_window: 'Total in a window', scale: 'Scale', all_faces: 'Every die a crown or a 1', colors: 'Colors fired', set: 'Sets by size',
 	each_turn: 'Each action', every_nth_turn: 'Every nth action', emerge: 'When it comes up', on_death: 'When it dies',
 	hp_below: 'Health falls to', action_begin: 'Action opens', countdown: 'Countdown',
 };

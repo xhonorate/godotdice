@@ -385,7 +385,7 @@ static func _yours(home: Control, columns: HBoxContainer, owned: Dictionary) -> 
 	if not wearing.is_empty():
 		var row := DeepUi.hbox(box, 6)
 		for key in wearing:
-			row.add_child(Roster.Portrait.new(key, Vector2(24, 24)))
+			row.add_child(Roster.Portrait.new(key, Vector2(24, 24), false, false, false, Roster.worn_stone(home.profile, key)))
 		## Two names fit beside their faces; more are counted, named in the tooltip, so a stone
 		## every delver wears (each joins with the starters set) never widens the card.
 		var names: Array = wearing.map(func(k: Variant) -> String: return str(DeepContent.character(str(k)).get("name", k)))

@@ -49,6 +49,7 @@ func _init() -> void:
 	await _three_faces(descent)
 	await _round5(app, descent)
 	await _round6(app, descent)
+	await _worn_stone(app, descent)
 	print("Run UI: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
 		printerr("FAIL: " + str(failure))
@@ -667,6 +668,170 @@ func _click(control: Control) -> void:
 	event.pressed = true
 	event.button_index = MOUSE_BUTTON_LEFT
 	control.gui_input.emit(event)
+
+# --- the worn Birthstone (November 12, 2026) -------------------------------------------------------
+
+func _worn_config(mine: String, me_id: String, worn: String, character: String = "ARDOR") -> Dictionary:
+	## A run set out in `mine` by this player wearing `worn`, with a teammate: an Ardor in his first stone.
+	var players: Array = []
+	for entry in [[me_id, "Ada", character, worn, ["STRIKE", "GUARD", "MEND"]], ["worn_bo", "Bo", "ARDOR", "", ["CLEAVE", "CRUSH", "BARRAGE"]]]:
+		var id: String = str(entry[0])
+		var rail: Array = []
+		for skill in entry[4]:
+			var stone: Dictionary = DeepStone.make(str(skill), 4, 2, 3, [], {}, "%s_%s" % [id, str(skill).to_lower()])
+			stone.appraised = true
+			rail.append(stone)
+		var dice: Array = []
+		var keys: Array = DeepContent.character(str(entry[2])).dice
+		for index in range(keys.size()):
+			dice.append(DeepForge.die_from(keys[index], "%s_d%d" % [id, index]))
+		players.append({"id": id, "name": str(entry[1]), "character": str(entry[2]), "rail": rail, "dice": dice, "birthstone": str(entry[3])})
+	return {"seed": 4242, "mine": mine, "boons": true, "players": players}
+
+func _birth_sheet(unit: Dictionary) -> CanvasLayer:
+	## The close look at the Birthstone a delver wears, built by hand: it will not open without a display.
+	var sheet: CanvasLayer = load("res://view/inspect/inspector.gd").new()
+	screen.add_child(sheet)
+	sheet.call("_frame", DeepUi.ACCENT, {})
+	sheet.call("_fill_birthstone", DeepStone.birthstone_for(unit), {"unit": unit})
+	return sheet
+
+func _said(node: Node, named: String) -> String:
+	## What the line called `named` says ("" when it is not there): a label, or a mark and its words.
+	var found: Node = node.find_child(named, true, false)
+	if found is Label:
+		return (found as Label).text
+	var value: Node = found.get_node_or_null("Value") if found != null else null
+	return (value as Label).text if value is Label else ""
+
+func _worn_stone(app: Control, descent: Control) -> void:
+	## A delver goes down in one of three Birthstones, and the one worn shows wherever the
+	## Birthstone does: on the party's lines, the run dock and its tabs, the stone's sheet and
+	## tip. A Renown says its Trophies there and a Bloodroot its growth, and a deep start says
+	## what either opens with at the shaft head.
+	var roster: Script = load("res://view/home/roster.gd")
+	var plates: Script = load("res://view/ui/plates.gd")
+	var gem_mesh: Script = load("res://view/gems/gem_mesh.gd")
+	var me_id: String = app.session.local_id
+	var first: Dictionary = DeepStone.birthstone("ARDOR")
+	var rampart: Dictionary = DeepStone.birthstone("ARDOR", "RAMPART")
+	check(str(rampart.get("name", "")) == "Rampart" and str(first.get("name", "")) != "Rampart", "Ardor's variant is Rampart")
+	check(roster.named("ARDOR", first) == DeepContent.character_title("ARDOR") and roster.named("ARDOR", first, false) == "Ardor" and roster.named("ARDOR", rampart) == "Ardor · Rampart",
+		"a delver is named with the stone they wear only when it is not their first (%s, %s)" % [roster.named("ARDOR", first), roster.named("ARDOR", rampart)])
+	## The party's lines at home: two Ardors read as two delvers.
+	var worn_before: Dictionary = app.profile.characters.ARDOR.duplicate(true)
+	app.profile.characters.ARDOR.birthstones = ["RAMPART", "RENOWN"]
+	app.profile.characters.ARDOR.birthstone = "RAMPART"
+	app.profile.current_character = "ARDOR"
+	check(str(app.member().get("birthstone", "")) == "RAMPART", "the lobby is told the stone worn")
+	var lobby: Dictionary = app.session.lobby.duplicate(true)
+	lobby.members[me_id].character = "ARDOR"
+	lobby.members[me_id].birthstone = "RAMPART"
+	for entry in [["worn_bo", "Bo", ""], ["worn_cy", "Cy", "RENOWN"]]:
+		lobby.order.append(str(entry[0]))
+		lobby.members[str(entry[0])] = {"name": str(entry[1]), "character": "ARDOR", "birthstone": str(entry[2]), "ready": true, "connected": true, "showcase": []}
+	app.home.refresh(app.profile, lobby, "hosting", true, me_id, false, app.settings, "")
+	app.home._party_open = true
+	app.home._render()
+	var lines: Array = app.home.find_children("GoingAs", "Label", true, false).map(func(l: Node) -> String: return (l as Label).text)
+	check(lines == ["Ardor · Rampart", DeepContent.character_title("ARDOR"), "Ardor · Renown"], "the party's lines name each member's stone: %s" % str(lines))
+	var plate_class: Variant = roster.Portrait
+	var faces: Array = app.home._overlay.find_children("*", "Control", true, false).filter(func(n: Node) -> bool: return is_instance_of(n, plate_class))
+	var lit: Array = faces.map(func(f: Node) -> String: return str(f.worn.get("id", "")))
+	check(lit == ["birthstone_ARDOR_RAMPART", "birthstone_ARDOR", "birthstone_ARDOR_RENOWN"] and faces[0].tint == gem_mesh.tint(rampart) and faces[0].tint != faces[1].tint,
+		"each member's plate is lit by the stone they wear: %s" % str(lit))
+	app.home._party_open = false
+	## A run set out in Rampart: the dock's rail, its face and the party's tabs.
+	var state: Dictionary = DeepDescent.new_run(_worn_config(DeepContent.starter_mine(), me_id, "RAMPART"))
+	var unit: Dictionary = DeepDescent.player(state, me_id)
+	check(str(unit.get("birthstone_key", "")) == "RAMPART" and str(DeepStone.birthstone_for(unit).get("name", "")) == "Rampart", "a run started with RAMPART carries Rampart")
+	descent._hold = {}
+	descent._stake_choosing = ""
+	descent.show_state(state)
+	await _frames(2)
+	var dock: Control = descent._run_dock
+	check(_label_count(dock._dock, "Rampart") >= 1 and _label_count(dock._dock, str(first.name)) == 0, "the run dock's rail ends in Rampart, not %s" % str(first.name))
+	check(str(dock._ring.portrait.worn.get("id", "")) == "birthstone_ARDOR_RAMPART" and dock._ring.portrait.tint == gem_mesh.tint(rampart), "the dock's face is lit by Rampart")
+	var mine_tab: Variant = dock._tabs.get(me_id, null)
+	var their_tab: Variant = dock._tabs.get("worn_bo", null)
+	check(mine_tab != null and their_tab != null and str(mine_tab.portrait.worn.get("id", "")) == "birthstone_ARDOR_RAMPART" and str(their_tab.portrait.worn.get("id", "")) == "birthstone_ARDOR"
+		and mine_tab.portrait.tint != their_tab.portrait.tint, "two Ardors' tabs are lit apart, each by its own stone")
+	check(roster.unit_named(unit) == "Ardor · Rampart" and roster.unit_named(DeepDescent.player(state, "worn_bo")) == DeepContent.character_title("ARDOR"), "and named apart")
+	var strip_faces: Array = descent._strip.find_children("*", "Control", true, false).filter(func(n: Node) -> bool: return is_instance_of(n, plate_class))
+	check(strip_faces.size() == 2 and strip_faces.any(func(f: Node) -> bool: return str(f.worn.get("id", "")) == "birthstone_ARDOR_RAMPART"), "the strip's faces wear their stones too (%d faces)" % strip_faces.size())
+	## Its tip and its sheet: Rampart, with no count to keep.
+	var tip: Control = dock._birth_plate(unit, DeepStone.birthstone_for(unit))
+	check(_label_count(tip, "Rampart") == 1 and tip.find_child("BirthCount", true, false) == null and tip.find_child("BirthOpened", true, false) == null, "Rampart's tip names it and keeps no count")
+	tip.free()
+	var sheet: CanvasLayer = _birth_sheet(unit)
+	check(_label_count(sheet, "Rampart") >= 1 and _label_count(sheet, "Ardor's Birthstone") == 1 and _label_count(sheet, "Parapet") == 1 and sheet.find_child("BirthCount", true, false) == null,
+		"the close look at the worn stone is Rampart's sheet")
+	sheet.free()
+	## Another player looking at them reads the same.
+	var member: CanvasLayer = load("res://view/inspect/inspector.gd").new()
+	screen.add_child(member)
+	member.call("_frame", DeepUi.ACCENT, {})
+	member.call("_fill_member", unit, DeepUi.ACCENT)
+	check(_label_count(member, "Ardor · Rampart") == 1 and _label_count(member, "Rampart") >= 2, "a party member's sheet names Rampart beside them and at the end of their rail")
+	member.free()
+	## The bench's rail ends in it too.
+	descent.open_bench("gems")
+	await _frames(1)
+	var birth_card: Node = descent._bench.find_child("BirthCard", true, false)
+	check(birth_card != null and _label_count(birth_card, "Rampart") == 1, "the bench's Birthstone card is Rampart's")
+	descent._bench.close()
+	## Rampart grows nothing: a deep start says nothing for it.
+	var plain: Dictionary = DeepDescent.new_run(_worn_config("WARRENS", me_id, "RAMPART"))
+	descent.show_state(plain)
+	await _frames(2)
+	check(descent._page_holder.find_child("DeepStart", true, false) != null and descent._page_holder.find_child("HeadStart", true, false) == null, "a deep start in Rampart says no head start")
+	## A Renown that starts deep: its head start at the shaft head, its Trophies on tip and sheet.
+	var deep: Dictionary = DeepDescent.new_run(_worn_config("WARRENS", me_id, "RENOWN"))
+	var knight: Dictionary = DeepDescent.player(deep, me_id)
+	var given: int = int(knight.get("head_start", {}).get("trophies", 0))
+	check(given > 0 and DeepBattle.trophies(knight) == given, "a Renown starting in the Warrens opens with Trophies (%d)" % given)
+	descent.show_state(deep)
+	await _frames(2)
+	check(_said(descent._page_holder, "HeadStart") == "Renown opens with %d Trophies." % given, "the shaft head says what Renown opens with: '%s'" % _said(descent._page_holder, "HeadStart"))
+	var head_line: Control = descent._page_holder.find_child("HeadStart", true, false)
+	check(head_line != null and Rect2(Vector2.ZERO, Vector2(CANVAS)).encloses(head_line.get_global_rect()) and head_line.get_global_rect().end.y <= dock._dock.get_global_rect().position.y, "and the line stands on the page, over the dock")
+	knight.run_counts[DeepBattle.TROPHIES] = 14
+	check(plates.birth_count(knight) == "Trophies 14 · Lance deals Resonance + 14", "a Renown's count line: '%s'" % plates.birth_count(knight))
+	tip = dock._birth_plate(knight, DeepStone.birthstone_for(knight))
+	check(_said(tip, "BirthCount") == "Trophies 14 · Lance deals Resonance + 14" and _said(tip, "BirthOpened") == "Opened with %d Trophies from the mines above" % given, "Renown's tip says its Trophies and what it opened with")
+	tip.free()
+	sheet = _birth_sheet(knight)
+	check(_said(sheet, "BirthCount") == "Trophies 14 · Lance deals Resonance + 14" and _said(sheet, "BirthOpened") == "Opened with %d Trophies from the mines above" % given, "and so does its sheet")
+	sheet.free()
+	## The count is on the tip and the sheet only: the dock wears no counter.
+	check(_label_count(dock._dock, "Troph") == 0, "the dock itself shows no Trophy count")
+	knight.run_counts[DeepBattle.TROPHIES] = 0
+	knight.erase("head_start")
+	check(plates.birth_count(knight).begins_with("No Trophies yet") and plates.birth_opened(knight).is_empty(), "a Renown with none says so, and one that started at the top opened with nothing")
+	## A Bloodroot: the max health it opens with, and what its Tap has grown.
+	var rooted: Dictionary = DeepDescent.new_run(_worn_config("WARRENS", me_id, "BLOODROOT", "RUE"))
+	var rue: Dictionary = DeepDescent.player(rooted, me_id)
+	var more: int = int(rue.get("head_start", {}).get("max_hp", 0))
+	check(more > 0 and int(rue.max_hp) == int(DeepContent.character("RUE").hp) + more, "a Bloodroot starting in the Warrens opens with more max health (+%d)" % more)
+	descent.show_state(rooted)
+	await _frames(2)
+	check(_said(descent._page_holder, "HeadStart") == "Bloodroot opens with +%d max health." % more, "the shaft head says what Bloodroot opens with: '%s'" % _said(descent._page_holder, "HeadStart"))
+	check(plates.birth_count(rue).begins_with("No max health grown yet"), "a Bloodroot that has grown nothing says so: '%s'" % plates.birth_count(rue))
+	rue.run_counts = {DeepBattle.GROWN: 9}
+	sheet = _birth_sheet(rue)
+	check(_said(sheet, "BirthCount") == "Grown +9 max health this run" and _said(sheet, "BirthOpened") == "Opened with +%d max health from the mines above" % more, "Bloodroot's sheet says its growth and what it opened with")
+	sheet.free()
+	## A stone the day lent from another delver is drawn and named as itself.
+	var lent: Dictionary = DeepDescent.player(state, me_id).duplicate(true)
+	DeepBattle.wear(lent, "FLORIN", "BLACKJACK")
+	check(roster.unit_named(lent) == "Ardor · Blackjack", "a borrowed stone is named by its own name (%s)" % roster.unit_named(lent))
+	sheet = _birth_sheet(lent)
+	check(_label_count(sheet, "Blackjack") >= 1 and _label_count(sheet, "Florin's Birthstone") == 1 and _label_count(sheet, "Lent to Ardor for the day") == 1 and _label_count(sheet, "ARDOR'S PASSIVE") == 1,
+		"a borrowed stone's sheet says whose it is, who it is lent to, and keeps the wearer's passive")
+	sheet.free()
+	app.profile.characters.ARDOR = worn_before
+	descent.show_state(app.session.run)
+	await _frames(1)
 
 # --- helpers ------------------------------------------------------------------------------------
 

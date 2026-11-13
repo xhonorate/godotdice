@@ -93,14 +93,32 @@ func _test_gems() -> void:
 		var mark: String = GemIcons.emblem(str(key))
 		check(not worn.has(mark), "%s shares its emblem (%s) with %s" % [str(key), mark, str(worn.get(mark, ""))])
 		worn[mark] = str(key)
+	## Every Birthstone a delver can wear, their first and each one bought after it.
+	var stones: int = 0
 	for key in DeepContent.section("characters"):
-		var birthstone: Dictionary = DeepContent.character(str(key)).get("birthstone", {})
-		if birthstone.is_empty():
-			continue
-		var mark: String = str(birthstone.get("emblem", "gem"))
-		check(GemIcons.known(mark), "%s's Birthstone has a known emblem (%s)" % [str(key), mark])
-		check(not worn.has(mark), "%s's Birthstone shares its emblem (%s) with %s" % [str(key), mark, str(worn.get(mark, ""))])
-		worn[mark] = str(key)
+		for stone_key in DeepContent.birthstone_keys(str(key)):
+			var birthstone: Dictionary = DeepContent.birthstone_def(str(key), str(stone_key))
+			if birthstone.is_empty():
+				continue
+			stones += 1
+			var who: String = _stone_name(str(key), str(stone_key))
+			var mark: String = str(birthstone.get("emblem", "gem"))
+			check(GemIcons.known(mark), "%s's Birthstone has a known emblem (%s)" % [who, mark])
+			check(not worn.has(mark), "%s's Birthstone shares its emblem (%s) with %s" % [who, mark, str(worn.get(mark, ""))])
+			worn[mark] = who
+	check(stones == 18, "all eighteen Birthstones were held to it: %d" % stones)
+	## The marks those stones' ladders are drawn from: each comes as an outline for a die that
+	## does not count yet and a solid for one that does, and the solid is the heavier of the two.
+	for mark in ["die", "crown_die", "one_die", "even_die", "high_die", "patch"]:
+		check(GemIcons.known(mark) and GemIcons.known(mark + "_solid"), "the ladder mark %s is drawn both ways" % mark)
+		check(not GemIcons.hint(mark).is_empty() and not GemIcons.hint(mark + "_solid").is_empty(), "the ladder mark %s is explained both ways" % mark)
+		check(_glyph_ink(mark) < _glyph_ink(mark + "_solid"), "%s is an outline and its solid is solid" % mark)
+	for mark in ["scale3", "scale5", "total_window"]:
+		check(GemIcons.known(mark) and not GemIcons.hint(mark).is_empty(), "the requirement mark %s is drawn and explained" % mark)
+	check(_glyph_ink("scale3") != _glyph_ink("straight3") and _glyph_ink("scale5") != _glyph_ink("straight5"), "a scale is not drawn as a straight")
+	for mark in ["lever", "pennant", "mask_happy", "mask_sad", "blade", "note", "moon"]:
+		check(GemIcons.known(mark), "the mark %s is drawn" % mark)
+	check(_glyph_ink("mask_happy") != _glyph_ink("mask_sad"), "the two masks are two drawings")
 	check(GemMesh.color_key(DeepStone.make("HEX", 1, 0, 3)) == "VIOLET", "color comes from the skill")
 	check(is_equal_approx(GemMesh.brilliance(5), 1.0) and is_equal_approx(GemMesh.brilliance(3), 0.6) and is_equal_approx(GemMesh.brilliance(0), 0.0), "the clarity ladder maps to brilliance")
 	check(GemMesh.cut_rank(DeepStone.make("STRIKE", 1, 4, 3)) == 5 and GemMesh.cut_rank(DeepStone.make("STRIKE", 1, 0, 3)) == 1, "Cut 0..4 becomes the geometry's 1..5")
@@ -126,41 +144,102 @@ func _test_gems() -> void:
 	_test_cuts()
 	_test_birthstone_finish()
 
+func _stone_name(character_key: String, stone_key: String) -> String:
+	## A Birthstone as a failure names it: the delver, and which of their stones if not the first.
+	return character_key if stone_key.is_empty() else "%s (%s)" % [character_key, stone_key]
+
+func _glyph_ink(glyph: String) -> float:
+	## How much of its square a mark fills, at the size of a line of text.
+	var image: Image = GemIcons.raster(glyph, 24)
+	var total := 0.0
+	for y in image.get_height():
+		for x in image.get_width():
+			total += image.get_pixel(x, y).a
+	return total / float(image.get_width() * image.get_height())
+
+func _outline_mark(shape: String) -> String:
+	## An outline as three numbers: the face it covers and the box it sits in. Two cuts that
+	## come out alike here are one outline under two names.
+	var outline: PackedVector2Array = GemMesh.outline(shape)
+	var low := Vector2(INF, INF)
+	var high := Vector2(-INF, -INF)
+	for point in outline:
+		low = low.min(point)
+		high = high.max(point)
+	return "%.2f|%.2f|%.2f" % [GemMesh.outline_area(shape), high.x - low.x, high.y - low.y]
+
 func _test_cuts() -> void:
 	## Every Birthstone is cut to a solid of its own. They used to borrow the nearest of the
 	## six outlines, which put Ardor in a Red trilliant and Cadence in a Blue princess, so
 	## what this guards is that no two of them — and none of them and one of the six — are
-	## the same shape any more.
+	## the same shape any more. A delver's later stones are held to it with their first.
 	var shapes: Dictionary = {}
-	for key in DeepContent.section("characters"):
-		var born: Dictionary = DeepStone.birthstone(str(key))
+	## Every outline already spoken for: the six Colors', the opals' and the Transcendents'.
+	var outlines: Dictionary = {}
+	for taken in GemMesh.CUTS.values() + DeepContent.TRANSCENDENT_CUTS:
+		outlines[_outline_mark(str(taken))] = str(taken)
+	for pair in DeepContent.all_birthstones():
+		var born: Dictionary = DeepStone.birthstone(str(pair[0]), str(pair[1]))
 		if born.is_empty():
 			continue
+		var key: String = _stone_name(str(pair[0]), str(pair[1]))
 		var shape: String = GemMesh.shape_of(born)
 		check(GemMesh.STYLE_SHAPES.has(str(born.style)), "%s names a cut this can build: %s" % [key, born.style])
 		check(not GemMesh.CUTS.values().has(shape), "%s is not wearing one of the six Colors' cuts" % key)
+		check(not DeepContent.TRANSCENDENT_CUTS.has(shape), "%s is not wearing a Transcendent's cut" % key)
 		check(not shapes.has(shape), "%s does not share its cut with %s" % [key, str(shapes.get(shape, ""))])
-		shapes[shape] = str(key)
+		shapes[shape] = key
+		var mark: String = _outline_mark(shape)
+		check(not outlines.has(mark), "%s's outline is not the %s under another name" % [key, str(outlines.get(mark, ""))])
+		outlines[mark] = shape
+		check(GemMesh.SHAPE_NAMES.has(shape) and GemMesh.EMBLEM_SPAN.has(shape), "%s's cut has a name and a size for its emblem" % key)
 		var girdle: PackedVector2Array = GemMesh.girdle(born)
 		check(girdle.size() >= 5, "%s has a girdle" % key)
 		var reach := 0.0
 		for point in girdle:
 			reach = maxf(reach, point.length())
 		check(reach > 0.55 and reach <= 1.0001, "%s is cut in unit space: %f" % [key, reach])
-		check(GemMesh.build(born) != null, "%s cuts to a real solid" % key)
+		## Every facet is drawn from the girdle towards the middle, so an outline may be
+		## notched or lobed but the middle has to see all of it: a wall turned away is a fold.
+		var outline: PackedVector2Array = GemMesh.outline(shape)
+		var seen := true
+		for index in outline.size():
+			seen = seen and outline[index].cross(outline[(index + 1) % outline.size()]) > 0.0
+		check(seen, "%s's outline faces the middle of the stone all the way round" % key)
+		## And it is a real solid however badly it is cut: no facet without a face to it.
+		for cut in [0, 4]:
+			var cut_stone: Dictionary = born.duplicate(true)
+			cut_stone.cut = cut
+			var mesh: ArrayMesh = GemMesh.build(cut_stone)
+			var sound: bool = mesh != null and mesh.get_surface_count() == 1 and mesh.surface_get_array_len(0) > 30
+			if sound:
+				for normal: Vector3 in mesh.surface_get_arrays(0)[Mesh.ARRAY_NORMAL]:
+					sound = sound and is_finite(normal.x) and is_finite(normal.y) and is_finite(normal.z) and normal.length() > 0.5
+			check(sound, "%s cuts to a real solid at Cut %d" % [key, cut])
+		check(GemMesh.etch_plate(born) != null and GemMesh.etch_material(born) != null, "%s has a face to carry its emblem" % key)
 		check(GemMesh.describe(born).begins_with(str(born.name)), "%s is described by its own name" % key)
-	check(shapes.size() == 6, "all six Birthstones are cut differently")
+	check(shapes.size() == 18, "all eighteen Birthstones are cut differently")
 	## Rue is a drop and Violet is a pear, and before this they were the same curve. The
 	## briolette has to come to the sharper point or the two read as one stone.
 	var drop: PackedVector2Array = GemMesh.outline("briolette")
 	var pear: PackedVector2Array = GemMesh.outline("pear")
 	check(_waist(drop) < _waist(pear), "a briolette tapers harder than a pear: %f vs %f" % [_waist(drop), _waist(pear)])
-	## Both colors belong to the shell, with no internal dividing wall to cross the icon.
-	for key in ["CADENCE", "PUCK"]:
-		var born: Dictionary = DeepStone.birthstone(key)
+	## Both colors belong to the shell, with no internal dividing wall to cross the icon:
+	## Cadence's and Puck's first stones, and every later stone that names a second hue.
+	var blended: Array = []
+	for pair in DeepContent.all_birthstones():
+		var born: Dictionary = DeepStone.birthstone(str(pair[0]), str(pair[1]))
+		if born.is_empty() or GemMesh.tint2(born).a <= 0.0:
+			continue
+		var key: String = _stone_name(str(pair[0]), str(pair[1]))
+		blended.append(key)
 		var front := GemMesh.body_material(born)
 		var back := GemMesh.interior_material(born)
-		check(GemMesh.inside(born) == null, "%s has no color wall inside its engraving" % key)
+		## The one thing a blended stone may hold is what its cut grows in it, flake for flake.
+		var flakes: int = int(GemMesh.envelope(born).get("flakes", 0))
+		var held: ArrayMesh = GemMesh.inside(born)
+		check(held == null if flakes == 0 else held != null and held.get_surface_count() == 1 and held.surface_get_array_len(0) == flakes * 6,
+			"%s has no color wall inside its engraving" % key)
 		check(front.albedo_texture is GradientTexture2D and back.albedo_texture is GradientTexture2D,
 			"%s blends both shell faces" % key)
 		var gradient: Gradient = front.albedo_texture.gradient
@@ -169,20 +248,30 @@ func _test_cuts() -> void:
 			"%s has a blended middle, not a hard color split" % key)
 		check(gradient.sample(0.25).is_equal_approx(back.albedo_texture.gradient.sample(0.25)),
 			"%s keeps its color field when turned over" % key)
+	check(blended.has("CADENCE") and blended.has("PUCK") and blended.size() > 2, "the two-colored Birthstones were found: %s" % str(blended))
 	check(GemMesh.tint2(DeepStone.birthstone("ARDOR")).a <= 0.0, "a one-colored Birthstone names no second hue")
-	## Florin's fool's gold and Vesper's pinprick flashes are both metal in the body.
-	for key in ["FLORIN", "VESPER"]:
-		var born: Dictionary = DeepStone.birthstone(str(key))
-		check(int(GemMesh.envelope(born).get("flakes", 0)) > 0 and GemMesh.inside(born) != null,
-			"%s carries what its words promise" % key)
+	## Florin's fool's gold and Vesper's pinprick flashes are both metal in the body, and two
+	## of the later stones are named for what is caught in them: the pale blooms in Ill Omen's
+	## snowflake obsidian and the red spots in Bloodroot's bloodstone.
+	for pair in [["FLORIN", ""], ["VESPER", ""], ["VESPER", "ILL_OMEN"], ["RUE", "BLOODROOT"]]:
+		var born: Dictionary = DeepStone.birthstone(str(pair[0]), str(pair[1]))
+		check(str(born.get("variant", "")) == str(pair[1]) and int(GemMesh.envelope(born).get("flakes", 0)) > 0 and GemMesh.inside(born) != null,
+			"%s carries what its words promise" % _stone_name(str(pair[0]), str(pair[1])))
 
 func _test_birthstone_finish() -> void:
 	## Each is drawn at its style's by-eye socket fit (GemMesh.STYLE_SCALE), never area-matched.
-	for key in ["ARDOR", "VESPER", "CADENCE", "RUE", "PUCK", "FLORIN"]:
-		var born := DeepStone.birthstone(key)
+	var fitted: int = 0
+	for pair in DeepContent.all_birthstones():
+		var born := DeepStone.birthstone(str(pair[0]), str(pair[1]))
+		if born.is_empty():
+			continue
+		fitted += 1
+		var key: String = _stone_name(str(pair[0]), str(pair[1]))
 		var reduction: float = float(GemMesh.STYLE_SCALE.get(str(born.get("style", "")), -1.0))
 		check(int(born.carat) == 24 and reduction > 0.0 and is_equal_approx(GemMesh.span(born) / GemMesh.carat_span(24), reduction),
 			"%s keeps 24 carats while fitting its socket" % key)
+		check(reduction >= 0.70 and reduction <= 1.0, "%s's socket fit is in the range the sockets were set for: %f" % [key, reduction])
+	check(fitted == 18, "all eighteen Birthstones have a socket fit: %d" % fitted)
 	# Every front vertex has its reflected partner behind the thin girdle, at every Cut.
 	for cut in 5:
 		var vesper := DeepStone.birthstone("VESPER")

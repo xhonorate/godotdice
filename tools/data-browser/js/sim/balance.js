@@ -76,6 +76,11 @@ export function sweepSettings(settings, sweep) {
 		bossHp: Math.max(1, s.bossHp | 0), bossDice: (s.bossDice || DEFAULTS.bossDice).slice(), bossGuard: s.bossGuard | 0,
 		pyrite: s.pyrite | 0, depth: s.depth | 0, carat: s.carat | 0, cut: s.cut | 0, clarity: s.clarity, birthstone: Boolean(s.birthstone), passive: Boolean(s.passive), mine: s.mine, seed: s.seed | 0,
 		samples: typeof s.samples === 'number' ? s.samples : Number((s.samples || {})[sweep] ?? DEFAULTS.samples[sweep]) };
+	// The variant Birthstones worn, when any are (`worn`: keys, as a list or "A,B"): each delver
+	// wears the one that is theirs and the rest their first stone. Left out when none is worn, so
+	// a sweep played in the first stones reads as it always has.
+	const worn = (typeof s.worn === 'string' ? s.worn.split(',') : Array.isArray(s.worn) ? s.worn : []).map((k) => String(k).trim()).filter(Boolean);
+	if (worn.length) out.worn = worn;
 	if (sweep === 'rails') out.hosts = Math.max(1, s.hosts | 0);
 	if (sweep === 'carats' || sweep === 'growth') { out.caratHosts = Math.max(1, s.caratHosts | 0); out.hosts = out.caratHosts; }
 	if (sweep === 'growth') { out.runFights = Math.max(2, s.runFights | 0); out.longTurns = Math.max(2, s.longTurns | 0); }
@@ -162,8 +167,15 @@ function bandAt(key, depth, endless) {
 
 export const bandOf = (key) => bands().find((b) => b.key === key) || null;
 
+// The variant Birthstone a bowl wears among `worn` (a list of keys): the one that is this
+// delver's, or '' for their first stone.
+export function wornBy(bowl, worn) {
+	for (const key of worn || []) if (C.birthstoneKey(bowl, String(key))) return String(key);
+	return '';
+}
+
 // The two fights' dummies, as played on their own or at a band.
-function fightsFor(s, band) {
+export function fightsFor(s, band) {
 	const hit = band ? band.damage : 1;
 	const wall = band ? band.bossHp : s.bossHp;
 	return {
@@ -341,7 +353,7 @@ export function runTask(task) {
 	const results = [];
 	for (const rail of task.rails) {
 		const spec = { character: task.bowl, rail: rail.stones.map((st, i) => Stone.make(st[0], st[1], st[2], st[3], st[4] || [], `g${i}`)), policy: rail.policy, turns: s.turns,
-			pyrite: s.pyrite, depth: band ? band.depth : s.depth, birthstone: s.birthstone, passive: s.passive, seed: s.seed + (task.seedOffset | 0), stopOnRunaway: true, stopAtWall: Boolean(task.stopAtWall), opalsApart: Boolean(s.opalsApart), gemPlays: s.gemPlays | 0 };
+			pyrite: s.pyrite, depth: band ? band.depth : s.depth, birthstone: s.birthstone, passive: s.passive, worn: wornBy(task.bowl, s.worn), seed: s.seed + (task.seedOffset | 0), stopOnRunaway: true, stopAtWall: Boolean(task.stopAtWall), opalsApart: Boolean(s.opalsApart), gemPlays: s.gemPlays | 0 };
 		if (task.growth) { results.push([rail.key, growthVector(spec, F, s, samples)]); continue; }
 		const sums = new Array(VECTOR.length).fill(0);
 		let played = 0;

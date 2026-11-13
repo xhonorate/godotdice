@@ -306,7 +306,7 @@ func _add_member(id: String, member: Dictionary) -> void:
 	var said: Dictionary = clean_member_fields(member)
 	var profile_id: Variant = member.get("id", "")
 	var record: Dictionary = {"id": id, "profile": str(profile_id).left(64) if profile_id is String else "", "name": str(said.get("name", DeepProfile.DEFAULT_NAME)),
-		"character": str(said.get("character", DeepContent.starter_character())), "rail": said.get("rail", []), "dice": said.get("dice", []),
+		"character": str(said.get("character", DeepContent.starter_character())), "birthstone": str(said.get("birthstone", "")), "rail": said.get("rail", []), "dice": said.get("dice", []),
 		"ready": bool(said.get("ready", false)), "connected": true, "last_depth": int(said.get("last_depth", 0)), "last_outcome": str(said.get("last_outcome", "")),
 		"last_warden_unbeaten": bool(said.get("last_warden_unbeaten", false)), "gold": int(said.get("gold", 0)), "insured": bool(said.get("insured", false)), "sockets": int(said.get("sockets", DeepProfile.starting_rail_cap())),
 		"daily_state": str(said.get("daily_state", "locked")), "showcase": said.get("showcase", []),
@@ -402,7 +402,7 @@ func _apply_member(id: String, fields: Dictionary) -> void:
 		return
 	for key in said:
 		record[key] = said[key]
-	if said.has("character") or said.has("rail") or said.has("dice"):
+	if said.has("character") or said.has("rail") or said.has("dice") or said.has("birthstone"):
 		if not said.has("ready"):
 			record.ready = false
 	if said.has("hazard_top"):
@@ -425,6 +425,11 @@ static func clean_member_fields(fields: Dictionary) -> Dictionary:
 			"character":
 				if value is String and DeepContent.section("characters").has(value):
 					out.character = value
+			"birthstone":
+				## The key of a variant Birthstone, or "" for the delver's first. Whose it is is
+				## settled when the run sets out, against the delver they go down as.
+				if value is String and (value.is_empty() or not DeepContent.birthstone_owner(value).is_empty()):
+					out.birthstone = value
 			"last_outcome":
 				if value is String:
 					out.last_outcome = value.left(32)
@@ -613,6 +618,7 @@ func start_run(seed_value: int = 0) -> Dictionary:
 		if not bool(member.get("connected", true)):
 			continue
 		players.append({"id": id, "name": str(shown.get(id, member.name)), "character": member.character, "rail": member.get("rail", []), "dice": member.get("dice", []),
+			"birthstone": DeepContent.birthstone_key(str(member.character), str(member.get("birthstone", ""))),
 			"last_depth": int(member.get("last_depth", 0)), "last_outcome": str(member.get("last_outcome", "")), "last_warden_unbeaten": bool(member.get("last_warden_unbeaten", false)),
 			"sockets": int(member.get("sockets", DeepProfile.starting_rail_cap())), "insured": bool(member.get("insured", false))})
 	var chosen_seed: int = seed_value if seed_value != 0 else randi()

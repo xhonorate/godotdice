@@ -265,6 +265,8 @@ const KEYWORDS: Dictionary = {
 	"Stunned": "Skips a turn: a stunned player's rail does not fire.",
 	"Drink": "It drinks a colour: gems of that colour do it no damage, and what they would give their owner (block, healing, Ward) goes to it.",
 	"Drinks": "It drinks a colour: gems of that colour do it no damage, and what they would give their owner (block, healing, Ward) goes to it.",
+	"Break": "Takes a die out of your bowl. Broken for the fight, it is back as it was once the fight ends. Granite can't break.",
+	"Breaks": "Takes a die out of your bowl. Broken for the fight, it is back as it was once the fight ends. Granite can't break.",
 	"Resonance": "Builds as your gems fire and powers your Birthstone.",
 	"Acid Armour": "Whoever hits it takes Poison for it.",
 	"Sturdy": "No single hit takes more than a share of its health off it.",

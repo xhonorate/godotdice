@@ -9,6 +9,7 @@ const MineMap = preload("res://view/home/mine_map.gd")
 const Roster = preload("res://view/home/roster.gd")
 const Tips = preload("res://view/ui/tips.gd")
 const Plates = preload("res://view/ui/plates.gd")
+const GemMesh = preload("res://view/gems/gem_mesh.gd")
 
 const RUNS_PAGE: int = 9
 
@@ -107,11 +108,87 @@ static func _showcase(home: Control, content: VBoxContainer) -> void:
 		home.enter(plate, 0.04 * index)
 	home.enter(card, 0.05)
 
+# --- conquests, by Birthstone ---------------------------------------------------------------------
+##
+## A mine's final boss is beaten by a delver wearing one of their three Birthstones, and the
+## ledger keeps it by stone (`DeepProfile.stone_conquests`). Each mine's row ends in a small
+## column for every delver met: three cut marks, one a stone, lit in the stone's own color
+## once it has won there. The delvers' faces head the columns.
+
+## A mark's edge, the gap between a delver's three, and the gap between delvers.
+const MARK: float = 10.0
+const MARK_GAP: float = 3.0
+const MARK_SPACE: int = 8
+
+static func marks_width(edge: float = MARK) -> float:
+	return edge * 3.0 + MARK_GAP * 2.0
+
+class StoneMarks extends Control:
+	## One delver's Birthstones against one mine: [tint, won] for each.
+	var marks: Array = []
+	var edge: float = 10.0
+	func _init(profile: Dictionary, character_key: String, mine_key: String, mark_edge: float) -> void:
+		edge = mark_edge
+		var said: Array = []
+		for key in DeepContent.birthstone_keys(character_key):
+			var stone: Dictionary = DeepStone.birthstone(character_key, str(key))
+			var won: bool = DeepProfile.stone_conquests(profile, character_key, str(key)).has(mine_key)
+			marks.append([GemMesh.tint(stone), won])
+			said.append("%s: %s" % [str(stone.get("name", "")), "beaten" if won else "not yet"])
+		custom_minimum_size = Vector2(edge * 3.0 + MARK_GAP * 2.0, edge)
+		size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		mouse_filter = Control.MOUSE_FILTER_PASS
+		tooltip_text = "%s in %s, by the Birthstone worn\n%s" % [str(DeepContent.character(character_key).get("name", character_key)), DeepContent.mine_name(mine_key), "\n".join(said)]
+	func lit_count() -> int:
+		return marks.filter(func(m: Array) -> bool: return bool(m[1])).size()
+	func _draw() -> void:
+		var half: float = edge * 0.5
+		for index in range(marks.size()):
+			var centre := Vector2(half + (edge + MARK_GAP) * float(index), size.y * 0.5)
+			var cut := PackedVector2Array([centre + Vector2(0, -half), centre + Vector2(half, 0), centre + Vector2(0, half), centre + Vector2(-half, 0)])
+			var tint: Color = marks[index][0]
+			if bool(marks[index][1]):
+				draw_colored_polygon(cut, tint.lightened(0.15))
+				cut.append(cut[0])
+				draw_polyline(cut, tint.lightened(0.55), 1.5, true)
+			else:
+				## An empty setting: the outline alone, dim.
+				cut.append(cut[0])
+				draw_polyline(cut, Color(DeepUi.LINE_HI, 0.75), 1.0, true)
+
+static func stone_heads(row: Node, met: Array, face: float, edge: float = MARK) -> void:
+	## The faces over the columns, each as wide as a delver's three marks.
+	var cells := DeepUi.hbox(row, MARK_SPACE)
+	cells.name = "StoneHeads"
+	for key in met:
+		var cell := DeepUi.center(cells)
+		cell.custom_minimum_size.x = marks_width(edge)
+		cell.mouse_filter = Control.MOUSE_FILTER_PASS
+		cell.tooltip_text = "%s: the final bosses beaten, one mark a Birthstone, lit once it has won." % DeepContent.character_title(str(key))
+		var plate := Roster.Portrait.new(str(key), Vector2(face, face))
+		plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		cell.add_child(plate)
+
+static func stone_marks(row: Node, profile: Dictionary, met: Array, mine_key: String, edge: float = MARK) -> void:
+	## The columns on a mine's row; an endless mine has no bottom to beat, and keeps their room.
+	var cells := DeepUi.hbox(row, MARK_SPACE)
+	cells.name = "StoneMarks"
+	cells.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	for key in met:
+		if DeepContent.is_endless(mine_key):
+			DeepUi.gap(cells, marks_width(edge)).mouse_filter = Control.MOUSE_FILTER_IGNORE
+		else:
+			cells.add_child(StoneMarks.new(profile, str(key), mine_key, edge))
+
 static func _mines(home: Control, columns: HBoxContainer) -> void:
 	var card := DeepUi.card(columns, DeepUi.LINE, 14)
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var box := DeepUi.vbox(card, 8)
-	DeepUi.section(box, "map", "Mines")
+	var head := DeepUi.hbox(box, 10)
+	DeepUi.section(head, "map", "Mines").size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## Conquests are kept by Birthstone: a column a delver, their face over it.
+	var met: Array = DeepProfile.unlocked_characters(home.profile)
+	stone_heads(head, met, 22.0)
 	for key in DeepContent.mines_in_order():
 		var record: Dictionary = home.profile.get("mines", {}).get(str(key), {})
 		var open: bool = bool(record.get("unlocked", false))
@@ -134,7 +211,8 @@ static func _mines(home: Control, columns: HBoxContainer) -> void:
 		var crowns: int = mine.get("warden_depths", []).size() + 1
 		DeepUi.stat(row, "stairs", "%d%s" % [deepest, (" / %d" % bottom) if bottom > 0 else ""], DeepUi.INFO, 12, "Deepest reached")
 		DeepUi.stat(row, "crown", "%d / %d" % [mini(record.get("wardens", []).size(), crowns), crowns] if bottom > 0 else str(record.get("wardens", []).size()), DeepUi.ACCENT, 12, "Wardens and the final boss beaten")
-		DeepUi.stat(row, "pick", str(int(record.get("runs", 0))), DeepUi.MUTED, 12, "Runs")
+		DeepUi.stat(row, "pick", str(int(record.get("runs", 0))), DeepUi.MUTED, 12, "Runs").custom_minimum_size.x = 44
+		stone_marks(row, home.profile, met, str(key))
 	home.enter(card, 0.1)
 
 static func _runs(home: Control, columns: HBoxContainer) -> void:
@@ -164,7 +242,16 @@ static func _runs(home: Control, columns: HBoxContainer) -> void:
 		where.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var character: String = str(run.get("character", ""))
 		if not DeepContent.character(character).is_empty():
-			row.add_child(Roster.Portrait.new(character, Vector2(22, 22)))
+			## Who dug it, and in which Birthstone when it was not their first: "Ardor · Rampart".
+			var stone: Dictionary = Roster.record_stone(run)
+			row.add_child(Roster.Portrait.new(character, Vector2(22, 22), false, false, false, stone))
+			var who := DeepUi.label(row, Roster.named(character, stone, false), 12, DeepUi.MUTED if Roster.is_first(character, stone) else Roster.stone_tone(stone))
+			who.name = "DugAs"
+			who.custom_minimum_size.x = 180
+			who.clip_text = true
+			who.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+			who.mouse_filter = Control.MOUSE_FILTER_PASS
+			who.tooltip_text = DeepContent.character_title(character) if Roster.is_first(character, stone) else "%s, wearing %s" % [DeepContent.character_title(character), str(stone.get("name", ""))]
 		var depth := DeepUi.bar(row, 6.0, DeepUi.INFO, Color(DeepUi.LINE, 0.5))
 		depth.custom_minimum_size = Vector2(80, 6)
 		depth.size_flags_horizontal = Control.SIZE_SHRINK_END

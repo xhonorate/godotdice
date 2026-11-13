@@ -39,16 +39,29 @@ const HINTS := {
 	"die_solid": "One die of a set of matching dice, counted.",
 	"crown_die": "A crown: a die showing its own top face.",
 	"crown_die_solid": "A crown in your hand: a die showing its own top face.",
+	"one_die": "A die showing 1.",
+	"one_die_solid": "A die showing 1, counted.",
+	"even_die": "An even die.",
+	"even_die_solid": "An even die, counted.",
+	"high_die": "A die showing 6 or more.",
+	"high_die_solid": "A die showing 6 or more, counted.",
+	"patch": "A color that has not fired yet.",
+	"patch_solid": "A color that has fired.",
 	"full_house": "Full house: three dice of one value and two of another.",
 	"straight3": "Straight of 3: three consecutive values, in any order.",
 	"straight4": "Straight of 4: four consecutive values, in any order.",
 	"straight5": "Straight of 5: five consecutive values, in any order.",
+	"scale2": "A scale of 2: dice that climb from your smallest die to your largest, each showing more than the last.",
+	"scale3": "A scale of 3: dice that climb from your smallest die to your largest, each showing more than the last.",
+	"scale4": "A scale of 4: dice that climb from your smallest die to your largest, each showing more than the last.",
+	"scale5": "A scale of 5: dice that climb from your smallest die to your largest, each showing more than the last.",
 	"odd": "Odd dice: results of 1, 3, 5 and so on.",
 	"even": "Even dice: results of 2, 4, 6 and so on.",
 	"distinct": "Different values: no two of the counted dice alike.",
 	"face": "A die showing one exact value.",
 	"total_high": "Your five dice added together, at or above a line.",
 	"total_low": "Your five dice added together, at or below a line.",
+	"total_window": "Your five dice added together, inside a window.",
 	"peak": "Your highest die, at or above a line.",
 	"climb": "A die you rerolled that came back higher than it started.",
 	"once": "Once per battle.",
@@ -158,6 +171,27 @@ static func _stair(steps: int) -> Array:
 		built.append({"op": "add", "poly": _rect(x0, top, x0 + width, 0.96)})
 		var hole: float = width * 0.46
 		built.append({"op": "sub", "poly": _rect(x0 + (width - hole) * 0.5, top + width * 0.22, x0 + (width + hole) * 0.5, top + width * 0.22 + hole)})
+	return built
+
+static func _growing_dice(count: int) -> Array:
+	## A scale: dice standing in a row on one line, each a size up from the one before and
+	## showing one more pip. A straight is a stair of columns all one width; here it is the
+	## dice themselves that grow, which is the whole of the difference between the two hands.
+	var gap := 0.03
+	var growth: float = 0.6 + 0.2 * float(count - 1)
+	var total := 0.0
+	for index in count:
+		total += 1.0 + growth * float(index) / float(maxi(1, count - 1))
+	var unit: float = (0.98 - gap * float(count - 1)) / total
+	var faces: Array = [[[0.5, 0.5]], [[0.3, 0.3], [0.7, 0.7]], [[0.27, 0.27], [0.5, 0.5], [0.73, 0.73]],
+		[[0.29, 0.29], [0.71, 0.29], [0.29, 0.71], [0.71, 0.71]], [[0.27, 0.27], [0.73, 0.27], [0.5, 0.5], [0.27, 0.73], [0.73, 0.73]]]
+	var floor_line: float = 0.5 + (1.0 + growth) * unit * 0.5
+	var built: Array = []
+	var x0 := 0.01
+	for index in count:
+		var edge: float = (1.0 + growth * float(index) / float(maxi(1, count - 1))) * unit
+		built += _dice([[x0, floor_line - edge]], edge, 0.0, faces[mini(index, faces.size() - 1)], edge * 0.115)
+		x0 += edge + gap
 	return built
 
 static func _moved(shapes: Array, offset: Vector2, scale: float) -> Array:
@@ -399,6 +433,31 @@ static func _shapes(glyph: String) -> Array:
 			var solid := glyph == "crown_die_solid"
 			var crown := _poly([[0.25, 0.70], [0.25, 0.30], [0.375, 0.47], [0.5, 0.26], [0.625, 0.47], [0.75, 0.30], [0.75, 0.70]])
 			return _dice([[0.08, 0.08]], 0.84, 0.0 if solid else 0.11, []) + [ {"op": "sub" if solid else "add", "poly": crown}]
+		# The dice the later Birthstones count, drawn the same way and in the same box: an outline
+		# while the die does not count, solid with its mark punched through once it does.
+		"one_die", "one_die_solid":
+			# A die showing 1, as the numeral. One pip is already the die of a matching set.
+			var solid := glyph == "one_die_solid"
+			var numeral := _poly([[0.44, 0.24], [0.58, 0.24], [0.58, 0.66], [0.68, 0.66], [0.68, 0.76], [0.34, 0.76],
+				[0.34, 0.66], [0.44, 0.66], [0.44, 0.40], [0.34, 0.46], [0.34, 0.34]])
+			return _dice([[0.08, 0.08]], 0.84, 0.0 if solid else 0.11, []) + [ {"op": "sub" if solid else "add", "poly": numeral}]
+		"even_die", "even_die_solid":
+			# A die on an even face: four pips, one in each corner.
+			return _dice([[0.08, 0.08]], 0.84, 0.11 if glyph == "even_die" else 0.0, [[0.31, 0.31], [0.69, 0.31], [0.31, 0.69], [0.69, 0.69]], 0.085)
+		"high_die", "high_die_solid":
+			# A die showing 6 or more: a chevron pointing up where the pip was.
+			var solid := glyph == "high_die_solid"
+			var chevron := _poly([[0.50, 0.26], [0.77, 0.55], [0.77, 0.73], [0.50, 0.44], [0.23, 0.73], [0.23, 0.55]])
+			return _dice([[0.08, 0.08]], 0.84, 0.0 if solid else 0.11, []) + [ {"op": "sub" if solid else "add", "poly": chevron}]
+		"patch", "patch_solid":
+			# One patch of a motley coat, for a Birthstone that counts colors: the outline of a
+			# lozenge while that color has not fired, the whole patch once it has.
+			var patch: Array = [ {"op": "add", "poly": _diamond(Vector2(0.5, 0.5), 0.37, 0.44)}]
+			if glyph == "patch":
+				patch.append({"op": "sub", "poly": _diamond(Vector2(0.5, 0.5), 0.225, 0.268)})
+			return patch
+		"scale2", "scale3", "scale4", "scale5":
+			return _growing_dice(int(glyph.substr(5)))
 		"full_house":
 			return _dice([[0.02, 0.07], [0.35, 0.07], [0.68, 0.07]], 0.30, 0.065, [[0.5, 0.5]]) \
 				+ _dice([[0.185, 0.60], [0.515, 0.60]], 0.30, 0.0, [[0.5, 0.5]])
@@ -420,6 +479,15 @@ static func _shapes(glyph: String) -> Array:
 			var up := glyph == "total_high"
 			return _moved(_shapes("sum"), Vector2(-0.02, 0.06), 0.66) + [ {"op": "add", "poly": _poly(
 				[[0.82, 0.18], [1.0, 0.48], [0.64, 0.48]] if up else [[0.82, 0.82], [1.0, 0.52], [0.64, 0.52]])}]
+		"total_window":
+			# The same total held between two posts: it has to land inside a window, not past a line.
+			var window: Array = _moved(_shapes("sum"), Vector2(0.185, 0.185), 0.63)
+			for side in [0.0, 1.0]:
+				var post := PackedVector2Array()
+				for point in [[0.02, 0.06], [0.20, 0.06], [0.20, 0.17], [0.13, 0.17], [0.13, 0.83], [0.20, 0.83], [0.20, 0.94], [0.02, 0.94]]:
+					post.append(Vector2(absf(side - float(point[0])), float(point[1])))
+				window.append({"op": "add", "poly": post})
+			return window
 		"peak":
 			return _dice([[0.04, 0.40]], 0.52, 0.085, [[0.5, 0.5]]) \
 				+[ {"op": "add", "poly": _rect(0.0, 0.22, 0.60, 0.30)},
@@ -801,6 +869,11 @@ static func _arrowhead(tip: Vector2, from: Vector2, length: float, width: float)
 	var base := tip - dir * length
 	return {"op": "add", "poly": PackedVector2Array([tip, base + side, base - side])}
 
+static func _spike(from: Vector2, to: Vector2, width: float) -> PackedVector2Array:
+	## A stroke that tapers: `width` across where it starts and nothing where it ends.
+	var side := (to - from).normalized().orthogonal() * (width * 0.5)
+	return PackedVector2Array([from + side, to, from - side])
+
 static func _tilted_die(centre: Vector2, half: float, turn: float, pips: Array, pip_radius: float) -> Array:
 	## A solid die turned on its corner, pips punched through, `pips` in units of its half edge.
 	var square := PackedVector2Array()
@@ -826,6 +899,17 @@ static func _regular(centre: Vector2, radius: float, sides: int) -> PackedVector
 	for index in sides:
 		var angle := -PI * 0.5 + TAU * float(index) / float(sides)
 		out.append(centre + Vector2(cos(angle), sin(angle)) * radius)
+	return out
+
+static func _mask(centre: Vector2, half_width: float, half_height: float) -> PackedVector2Array:
+	## A theatre mask seen face on: a broad flat brow, cheeks drawing in to a round chin.
+	var out := PackedVector2Array()
+	for index in 40:
+		var angle := TAU * float(index) / 40.0
+		var down: float = sin(angle)
+		var narrow: float = 1.0 - 0.30 * maxf(down, 0.0)
+		var rise: float = signf(down) * pow(absf(down), 0.72 if down < 0.0 else 1.0)
+		out.append(centre + Vector2(cos(angle) * half_width * narrow, rise * half_height))
 	return out
 
 static func _rock(centre: Vector2, radius: float, turn: float, wobble: Array) -> PackedVector2Array:
@@ -1579,6 +1663,157 @@ static func _emblem_shapes(glyph: String) -> Array:
 			# Hydrophane: a die that came up 1, its one pip a drop of water.
 			return [ {"op": "add", "poly": _rounded(0.06, 0.06, 0.94, 0.94, 0.16)},
 				{"op": "sub", "poly": _drop(Vector2(0.5, 0.20), Vector2(0.5, 0.58), 0.20)}]
+		## The delvers' later Birthstones, a mark each. A Birthstone names its emblem in the pack
+		## (`emblem` in content/deep_cut.json), so none of these is in SKILL_EMBLEMS, but the
+		## rule is the same one: nobody shares.
+		"battlement":
+			# Rampart: a stretch of wall under three merlons, a loophole in each and a course of
+			# stone cut across below them. The interface's `rampart` is one mass with a way
+			# through at its foot; this has none.
+			var wall: Array = [ {"op": "add", "poly": _rect(0.05, 0.48, 0.95, 0.92)}]
+			for x in [0.05, 0.39, 0.73]:
+				wall.append({"op": "add", "poly": _rect(x, 0.08, x + 0.22, 0.50)})
+				wall.append({"op": "sub", "poly": _rect(x + 0.075, 0.18, x + 0.145, 0.40)})
+			wall.append({"op": "sub", "poly": _rect(0.0, 0.60, 1.0, 0.655)})
+			return wall
+		"pennant_lance":
+			# Renown: a lance carried at a tilt, a swallow-tailed pennant streaming from under its
+			# head and the guard for the hand low on the shaft. The pennant flies on the open
+			# side of the lean: hung in the crook of it, lance and pennant together drew a 7.
+			var butt := Vector2(0.84, 0.95)
+			var head := Vector2(0.20, 0.10)
+			var along := (head - butt).normalized()
+			var across := along.orthogonal()
+			var grip := butt.lerp(head, 0.20)
+			var hoist := butt.lerp(head, 0.86)
+			var foot := butt.lerp(head, 0.48)
+			return _fitted([ {"op": "add", "poly": _bar(butt, head, 0.09)},
+				{"op": "add", "poly": PackedVector2Array([head + along * 0.09, head - along * 0.08 + across * 0.075,
+					head - along * 0.16, head - along * 0.08 - across * 0.075])},
+				{"op": "add", "poly": PackedVector2Array([hoist, Vector2(0.97, hoist.y + 0.03), Vector2(0.77, (hoist.y + foot.y) * 0.5 + 0.03),
+					Vector2(0.97, foot.y + 0.03), foot])},
+				{"op": "add", "circle": [grip.x, grip.y, 0.09]}])
+		"evil_eye":
+			# Ill Omen: an eye with a slit for a pupil, and five lashes hanging under it like
+			# rays. Curse's `eye` is round-pupilled and fills the square; this one sits high
+			# and looks down.
+			var lens := PackedVector2Array()
+			for index in range(13):
+				var t := float(index) / 12.0
+				lens.append(Vector2(lerpf(0.03, 0.97, t), 0.34 - 0.25 * sin(PI * t)))
+			for index in range(13):
+				var t := 1.0 - float(index) / 12.0
+				lens.append(Vector2(lerpf(0.03, 0.97, t), 0.34 + 0.25 * sin(PI * t)))
+			var omen: Array = [ {"op": "add", "poly": lens}, {"op": "sub", "circle": [0.5, 0.34, 0.19]},
+				{"op": "add", "poly": _diamond(Vector2(0.5, 0.34), 0.075, 0.19)}]
+			for index in 5:
+				var lean := deg_to_rad(-44.0 + 22.0 * float(index))
+				var way := Vector2(sin(lean), cos(lean))
+				var x: float = 0.5 + 0.40 * sin(lean)
+				var foot := Vector2(x, 0.34 + 0.25 * sin(PI * (x - 0.03) / 0.94)) + way * 0.07
+				omen.append({"op": "add", "poly": PackedVector2Array([foot - way.orthogonal() * 0.06, foot + way.orthogonal() * 0.06,
+					foot + way * (0.30 - 0.05 * absf(float(index) - 2.0))])})
+			return _fitted(omen)
+		"knife_fan":
+			# Fan of Knives: three throwing knives held by their grips at one point and spread.
+			# Five were tried and closed up into a comb at the size of a thumbnail.
+			var pivot := Vector2(0.5, 0.92)
+			var knives: Array = []
+			for lean in [-34.0, 0.0, 34.0]:
+				var way := Vector2(sin(deg_to_rad(lean)), -cos(deg_to_rad(lean)))
+				var across := way.orthogonal()
+				knives.append({"op": "add", "poly": _bar(pivot + way * 0.04, pivot + way * 0.32, 0.075)})
+				knives.append({"op": "add", "poly": PackedVector2Array([pivot + way * 0.37 - across * 0.05, pivot + way * 0.52 - across * 0.09,
+					pivot + way * 0.90, pivot + way * 0.52 + across * 0.09, pivot + way * 0.37 + across * 0.05])})
+			knives.append({"op": "add", "circle": [pivot.x, pivot.y, 0.075]})
+			return _fitted(knives)
+		"crescent_note":
+			# Nocturne: a crescent moon with one note held in the crook of it.
+			return _fitted([ {"op": "add", "circle": [0.44, 0.50, 0.42]}, {"op": "sub", "circle": [0.63, 0.43, 0.37]},
+				{"op": "add", "poly": _ellipse(Vector2(0.60, 0.63), 0.115, 0.085, -0.35)},
+				{"op": "add", "poly": _rect(0.655, 0.20, 0.735, 0.63)},
+				{"op": "add", "poly": _poly([[0.735, 0.20], [0.80, 0.30], [0.90, 0.36], [0.90, 0.52], [0.82, 0.44], [0.735, 0.40]])}])
+		"rising_scale":
+			# Arpeggio: four notes climbing under one beam, each head a size up from the last.
+			# Encore's `notes` are two of a size; these are a run, and it only goes up.
+			var climb: Array = [ {"op": "add", "poly": _poly([[0.13, 0.44], [0.98, 0.04], [0.98, 0.135], [0.13, 0.535]])}]
+			for note in [[0.115, 0.85, 0.075], [0.345, 0.735, 0.09], [0.595, 0.605, 0.105], [0.855, 0.46, 0.12]]:
+				var radius: float = float(note[2])
+				var stem: float = float(note[0]) + radius * 0.96
+				climb.append({"op": "add", "poly": _ellipse(Vector2(note[0], note[1]), radius * 1.2, radius * 0.9, -0.35)})
+				climb.append({"op": "add", "poly": _rect(stem - 0.055, 0.47 - 0.4706 * (stem - 0.13), stem, float(note[1]))})
+			return _fitted(climb)
+		"coated_blade":
+			# Mithridate: a dagger held point down, banded where the coat on its blade begins,
+			# a drop of it falling off the point.
+			return [ {"op": "add", "circle": [0.5, 0.065, 0.058]},
+				{"op": "add", "poly": _rect(0.452, 0.10, 0.548, 0.225)},
+				{"op": "add", "poly": _rect(0.27, 0.215, 0.73, 0.29)},
+				{"op": "add", "poly": _poly([[0.39, 0.29], [0.61, 0.29], [0.61, 0.62], [0.5, 0.81], [0.39, 0.62]])},
+				{"op": "sub", "poly": _bar(Vector2(0.34, 0.535), Vector2(0.66, 0.465), 0.05)},
+				{"op": "add", "poly": _drop(Vector2(0.5, 0.835), Vector2(0.5, 0.93), 0.06)}]
+		"bloodroot":
+			# Bloodroot: a drop of blood standing as a bulb on one long taproot, rootlets coming
+			# off it at different heights on either side. Three roots splayed evenly under the
+			# drop were arms, and the whole mark was a squid; a root has one line and no symmetry.
+			var roots: Array = [ {"op": "add", "poly": _drop(Vector2(0.5, 0.02), Vector2(0.5, 0.29), 0.22)},
+				{"op": "add", "poly": _poly([[0.41, 0.44], [0.59, 0.44], [0.545, 0.72], [0.56, 0.99], [0.45, 0.72]])}]
+			for rootlet in [[0.44, 0.58, 0.13, 0.72, 0.11], [0.55, 0.66, 0.88, 0.78, 0.11], [0.47, 0.80, 0.22, 0.94, 0.09], [0.55, 0.88, 0.80, 0.97, 0.08]]:
+				roots.append({"op": "add", "poly": _spike(Vector2(rootlet[0], rootlet[1]), Vector2(rootlet[2], rootlet[3]), float(rootlet[4]))})
+			return _fitted(roots)
+		"two_masks":
+			# Highs and Lows: the two masks of the theatre, the laughing one laid over the
+			# weeping one, with a gap cut round it so the two stay two.
+			var low := Vector2(0.70, 0.36)
+			var high := Vector2(0.31, 0.63)
+			return _fitted([ {"op": "add", "poly": _mask(low, 0.26, 0.31)},
+				{"op": "sub", "poly": _ellipse(low + Vector2(-0.11, -0.07), 0.065, 0.042, -0.45)},
+				{"op": "sub", "poly": _ellipse(low + Vector2(0.11, -0.07), 0.065, 0.042, 0.45)},
+				{"op": "sub", "poly": _band(low + Vector2(0.0, 0.20), 0.105, 0.08, 0.055, PI, TAU)},
+				{"op": "sub", "poly": _mask(high, 0.305, 0.355)},
+				{"op": "add", "poly": _mask(high, 0.26, 0.31)},
+				{"op": "sub", "poly": _band(high + Vector2(-0.11, -0.04), 0.06, 0.05, 0.05, PI, TAU)},
+				{"op": "sub", "poly": _band(high + Vector2(0.11, -0.04), 0.06, 0.05, 0.05, PI, TAU)},
+				{"op": "sub", "poly": _band(high + Vector2(0.0, 0.06), 0.125, 0.105, 0.055, 0.0, PI)}])
+		"patches":
+			# Patchwork: a quilt of five patches with the seams left open between them, one cut
+			# corner to corner and one sewn on askew over the rest with a cross stitch.
+			var middle := Vector2(0.745, 0.775)
+			var askew := PackedVector2Array()
+			var margin := PackedVector2Array()
+			for corner in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
+				askew.append(middle + (corner * 0.185).rotated(0.30))
+				margin.append(middle + (corner * 0.235).rotated(0.30))
+			return _fitted([ {"op": "add", "poly": _rect(0.05, 0.05, 0.47, 0.37)},
+				{"op": "add", "poly": _rect(0.05, 0.43, 0.47, 0.95)},
+				{"op": "sub", "poly": _bar(Vector2(0.02, 0.98), Vector2(0.48, 0.42), 0.055)},
+				{"op": "add", "poly": _rect(0.53, 0.05, 0.95, 0.52)},
+				{"op": "sub", "poly": margin}, {"op": "add", "poly": askew},
+				{"op": "sub", "poly": _bar(middle + Vector2(-0.075, -0.075), middle + Vector2(0.075, 0.075), 0.045)},
+				{"op": "sub", "poly": _bar(middle + Vector2(0.075, -0.075), middle + Vector2(-0.075, 0.075), 0.045)}])
+		"reels":
+			# One-Armed Bandit: a slot machine, the same stone come up in all three of its
+			# windows and the arm standing off its side.
+			var machine: Array = [ {"op": "add", "poly": _rounded(0.02, 0.20, 0.80, 0.84, 0.09)},
+				{"op": "add", "poly": _rounded(0.20, 0.08, 0.62, 0.30, 0.07)},
+				{"op": "add", "poly": _rect(0.0, 0.80, 0.82, 0.92)}]
+			for x in [0.17, 0.41, 0.65]:
+				machine.append({"op": "sub", "poly": _rect(x - 0.09, 0.34, x + 0.09, 0.70)})
+				machine.append({"op": "add", "poly": _diamond(Vector2(x, 0.52), 0.06, 0.10)})
+			machine += _stroke([[0.80, 0.60], [0.91, 0.60], [0.91, 0.30]], 0.065)
+			machine.append({"op": "add", "circle": [0.91, 0.22, 0.085]})
+			return _fitted(machine)
+		"ace_card":
+			# Blackjack: one playing card dealt askew, and it is the ace: a single spade cut
+			# through the middle of it and its mark in two corners.
+			var spade := PackedVector2Array()
+			for point in _heart(Vector2(0.5, 0.455), 0.185):
+				spade.append(Vector2(point.x, 0.91 - point.y))
+			return _fitted(_turned([ {"op": "add", "poly": _rounded(0.18, 0.03, 0.82, 0.97, 0.08)},
+				{"op": "sub", "poly": spade},
+				{"op": "sub", "poly": _poly([[0.5, 0.50], [0.575, 0.70], [0.425, 0.70]])},
+				{"op": "sub", "poly": _diamond(Vector2(0.285, 0.15), 0.04, 0.055)},
+				{"op": "sub", "poly": _diamond(Vector2(0.715, 0.85), 0.04, 0.055)}], 0.17))
 	if TRACED.has(glyph):
 		return _traced(glyph)
 	return _ui_shapes(glyph)
@@ -1829,6 +2064,54 @@ static func _ui_shapes(glyph: String) -> Array:
 		"flag":
 			return [ {"op": "add", "poly": _rect(0.16, 0.06, 0.25, 0.96)},
 				{"op": "add", "poly": _poly([[0.25, 0.08], [0.90, 0.28], [0.25, 0.50]])}]
+		# What the later Birthstones hang on a die or a button: each one thing, cut out of its
+		# stone's emblem and drawn alone, heavy enough to be read at the size of a pip.
+		"lever":
+			# A slot machine's arm: a ball on a rod leaning out of its base. Florin's throw.
+			return [ {"op": "add", "poly": _rounded(0.14, 0.76, 0.78, 0.96, 0.08)},
+				{"op": "add", "poly": _rect(0.32, 0.62, 0.60, 0.80)},
+				{"op": "add", "poly": _bar(Vector2(0.46, 0.70), Vector2(0.68, 0.26), 0.13)},
+				{"op": "add", "circle": [0.70, 0.21, 0.19]}]
+		"pennant":
+			# A swallow-tailed pennant on its staff: a pass with the lance. The plain `flag` is a
+			# triangle and marks a place on the chart.
+			return [ {"op": "add", "poly": _rect(0.12, 0.04, 0.25, 0.96)},
+				{"op": "add", "poly": _poly([[0.25, 0.08], [0.96, 0.08], [0.72, 0.32], [0.96, 0.56], [0.25, 0.56]])}]
+		"mask_happy", "mask_sad":
+			# One mask of the theatre's two. The laughing one has its eyes shut in arches and its
+			# mouth wide open; the weeping one's eyes fall away at the corners over a mouth
+			# turned down, and a tear has run from one of them.
+			var face: Array = [ {"op": "add", "poly": _mask(Vector2(0.5, 0.5), 0.44, 0.47)}]
+			var mouth := PackedVector2Array()
+			if glyph == "mask_happy":
+				for side in [-1.0, 1.0]:
+					var eye := PackedVector2Array()
+					for point in _along(Vector2(0.5 + side * 0.18, 0.42), 0.115, 0.11, PI, TAU, 12):
+						eye.append(point)
+					face.append({"op": "sub", "poly": eye})
+				for point in _along(Vector2(0.5, 0.56), 0.22, 0.21, 0.0, PI, 16):
+					mouth.append(point)
+			else:
+				face.append({"op": "sub", "poly": _ellipse(Vector2(0.32, 0.38), 0.115, 0.065, -0.55)})
+				face.append({"op": "sub", "poly": _ellipse(Vector2(0.68, 0.38), 0.115, 0.065, 0.55)})
+				face.append({"op": "sub", "poly": _drop(Vector2(0.27, 0.47), Vector2(0.27, 0.58), 0.05)})
+				for point in _along(Vector2(0.5, 0.82), 0.18, 0.17, PI, TAU, 16):
+					mouth.append(point)
+			face.append({"op": "sub", "poly": mouth})
+			return face
+		"blade":
+			# One throwing knife, point up: a leaf of a blade, a bare grip and the ring it is drawn by.
+			return [ {"op": "add", "poly": _poly([[0.50, 0.02], [0.72, 0.40], [0.63, 0.61], [0.37, 0.61], [0.28, 0.40]])},
+				{"op": "add", "poly": _rect(0.415, 0.65, 0.585, 0.84)},
+				{"op": "add", "circle": [0.5, 0.875, 0.12]}, {"op": "sub", "circle": [0.5, 0.875, 0.045]}]
+		"note":
+			# One note: a head, a stem and its flag.
+			return [ {"op": "add", "poly": _ellipse(Vector2(0.36, 0.79), 0.21, 0.155, -0.35)},
+				{"op": "add", "poly": _rect(0.47, 0.06, 0.60, 0.79)},
+				{"op": "add", "poly": _poly([[0.60, 0.06], [0.70, 0.24], [0.90, 0.36], [0.90, 0.62], [0.78, 0.46], [0.60, 0.40]])}]
+		"moon":
+			# A crescent moon, its horns turned up and to the right.
+			return _fitted([ {"op": "add", "circle": [0.46, 0.50, 0.44]}, {"op": "sub", "circle": [0.66, 0.42, 0.38]}], 0.04)
 		"calendar":
 			# A day's page: two rings holding it to the board, a heading band, and today
 			# picked out of the grid as the one filled square.

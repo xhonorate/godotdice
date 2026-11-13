@@ -113,9 +113,11 @@ static func stone(item: Dictionary, opts: Dictionary = {}) -> void:
 		geode(item.geode, {"sealed": true, "profile": opts.get("profile", {}), "fanfare": opts.get("fanfare", {})})
 		return
 	if DeepStone.is_birthstone(item):
+		## `opts.unit` is the delver wearing it down the mine: the sheet then says what the stone
+		## has come to this run (a Renown's Trophies) and whose passive goes down with it.
 		var own := _begin(GemMesh.tint(item), opts.get("fanfare", {}))
 		if own != null:
-			own.call("_fill_birthstone", item)
+			own.call("_fill_birthstone", item, opts)
 		return
 	var appraised: bool = bool(item.get("appraised", true))
 	var tone: Color = DeepUi.tier_color(str(DeepStone.grade(item).tier)) if appraised else DeepUi.color(DeepStone.color(item))
@@ -537,14 +539,15 @@ func _fill_member(unit: Dictionary, tone: Color) -> void:
 	if not character_key.is_empty():
 		## Their face as things stand with them: hurt, or down.
 		var roster: GDScript = load("res://view/home/roster.gd")
-		var face: Control = roster.Portrait.new(character_key, Vector2(320, 380), false, false, true)
+		var face: Control = roster.Portrait.new(character_key, Vector2(320, 380), false, false, true, DeepStone.birthstone_for(unit))
 		face.mood = roster.resting_mood(unit)
 		frame.add_child(face)
 	var haul: Array = unit.get("haul", [])
 	DeepUi.title(_head, str(unit.get("name", "A delver")), 30, tone.lightened(0.3))
 	var tags := _tag_row(_head)
 	if not character_key.is_empty():
-		DeepUi.pill(tags, "person", DeepContent.character_title(character_key), DeepUi.INFO, 13)
+		## Named with the Birthstone they wear when it is not their first ("Ardor · Rampart").
+		DeepUi.pill(tags, "person", load("res://view/home/roster.gd").unit_named(unit), DeepUi.INFO, 13)
 	DeepUi.pill(tags, "heart", "%s / %s" % [DeepUi.number(int(unit.get("hp", 0))), DeepUi.number(int(unit.get("max_hp", 0)))], DeepUi.HP, 13, "Health")
 	DeepUi.pill(tags, "ore", str(int(unit.get("ore", DeepRules.pyrite(unit)))), DeepUi.ORE, 13, "Pyrite")
 	if bool(unit.get("downed", false)):
@@ -553,7 +556,8 @@ func _fill_member(unit: Dictionary, tone: Color) -> void:
 		DeepUi.pill(tags, "hourglass", "Away", DeepUi.DIM, 13)
 	## The rail, each stone as it fires, and their Birthstone after it, as the dock shows yours.
 	var rail_stones: Array = DeepStone.rail_stones(unit)
-	var birth: Dictionary = DeepStone.birthstone(character_key)
+	## The one they wear this run: a variant of their own, or one the day lent them.
+	var birth: Dictionary = DeepStone.birthstone_for(unit)
 	_page("Rail", "gem")
 	var rail_box := _section("gem", "Their rail, in the order it fires")
 	if rail_stones.is_empty():
@@ -562,11 +566,19 @@ func _fill_member(unit: Dictionary, tone: Color) -> void:
 	if not birth.is_empty():
 		var card := VBoxContainer.new()
 		card.add_theme_constant_override("separation", 2)
-		card.tooltip_text = "%s, their Birthstone
-%s
-Right-click for details" % [str(birth.get("name", "")), str(birth.get("text", ""))]
+		var said: Array = ["%s, their Birthstone" % str(birth.get("name", "")), str(birth.get("text", ""))]
+		## What it has come to this run (a Renown's Trophies) is said with it, and on its sheet.
+		var count: String = Plates.birth_count(unit)
+		if not count.is_empty():
+			said.append(count)
+		card.tooltip_text = "\n".join(said + ["Right-click for details"])
 		flow.add_child(card)
-		StoneCard.marked_picture(card, birth, 72, card.tooltip_text)
+		## The picture adds the line about the right-click itself, and opens the stone's sheet
+		## knowing who wears it.
+		var picture: Control = StoneCard.marked_picture(card, birth, 72, "\n".join(said))
+		for thumb in picture.get_children():
+			if thumb is Thumbs.GemThumb:
+				(thumb as Thumbs.GemThumb).inspect_opts = {"unit": unit}
 		var named := DeepUi.hbox(card, 3)
 		named.alignment = BoxContainer.ALIGNMENT_CENTER
 		DeepUi.icon(named, "crown", 12, tone.lightened(0.3))
@@ -1337,9 +1349,12 @@ func _count_up_float(label: Label, from: float, to: float, seconds: float, suffi
 	var t := _reveal_tween()
 	t.tween_method(apply, from, to, seconds).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 
-func _fill_birthstone(item: Dictionary) -> void:
+func _fill_birthstone(item: Dictionary, opts: Dictionary = {}) -> void:
 	## A Birthstone is fixed: no grade, no price and no four C's to weigh. What matters is
-	## what each tier asks of the hand and what it does, and whose stone it is.
+	## what each tier asks of the hand and what it does, and whose stone it is. `opts.unit` is
+	## the delver wearing it down the mine: a stone lent for the day says so, and one that
+	## grows all run (a Renown) says what it has come to, as a growth gem's sheet does.
+	var bearer: Dictionary = opts.get("unit", {})
 	var view := GemView.new()
 	view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 40)
 	view.set_slot(220.0)
@@ -1355,6 +1370,10 @@ func _fill_birthstone(item: Dictionary) -> void:
 	DeepUi.title(head, str(item.get("name", "")), 28, tint.lightened(0.35))
 	var tags := _tag_row(head)
 	DeepUi.pill(tags, "crown", "%s's Birthstone" % str(character.get("name", character_key)), tint.lightened(0.3), 13)
+	## Another delver's stone on this one: the day lent it (a Borrowed Birthstone).
+	var wearer_key: String = str(bearer.get("character", character_key))
+	if wearer_key != character_key:
+		DeepUi.pill(tags, "calendar", "Lent to %s for the day" % str(DeepContent.character(wearer_key).get("name", wearer_key)), DeepUi.INFO, 13)
 	DeepUi.pill(tags, "lock", "Always set, last in the rail", DeepUi.MUTED, 13)
 	DeepUi.wrap(head, str(item.get("text", "")), 14, DeepUi.MUTED)
 	var tiers: Array = item.get("tiers", [])
@@ -1364,6 +1383,10 @@ func _fill_birthstone(item: Dictionary) -> void:
 	if tiers.any(func(t: Dictionary) -> bool: return bool(t.get("exclusive", false))):
 		rule += " An exclusive tier that fires takes the others' place."
 	DeepUi.effect_text(how, rule, 13, DeepUi.PAPER)
+	## What it has come to this run, and what a deep start opened it with: here and on its tip
+	## rather than on the dock, like a growth gem's count (the owner, November 12).
+	if not bearer.is_empty():
+		Plates.birth_notes(how, bearer, 13)
 	## Every tier: the hand it asks for, drawn and said, and what it does.
 	var box := _section("cut", "Its tiers" if tiers.size() > 1 else "Its tier")
 	var die: String = DiceIcons.ladder_die(tiers)
@@ -1390,10 +1413,11 @@ func _fill_birthstone(item: Dictionary) -> void:
 			DeepUi.chip(name_row, "Exclusive", DeepUi.ACCENT, 11)
 		## Every tier's text opens with the hand it needs, so the sentence is not said twice.
 		DeepUi.effect_text(words, str(tier.get("text", "")), 13, DeepUi.PAPER)
-	## The rest of what the lapidary brings down with it.
-	var passive: Dictionary = character.get("passive", {})
+	## The rest of what the lapidary brings down with it: the wearer's own, under a lent stone.
+	var wearer: Dictionary = DeepContent.character(wearer_key)
+	var passive: Dictionary = wearer.get("passive", {})
 	if not passive.is_empty():
-		var own := _section("person", "%s's passive" % str(character.get("name", character_key)))
+		var own := _section("person", "%s's passive" % str(wearer.get("name", wearer_key)))
 		DeepUi.title(own, str(passive.get("name", "")), 17, DeepUi.ACCENT_HI)
 		DeepUi.effect_text(own, str(passive.get("text", "")), 13, DeepUi.PAPER)
 

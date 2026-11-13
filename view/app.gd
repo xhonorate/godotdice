@@ -230,6 +230,7 @@ func member() -> Dictionary:
 	var history: Array = profile.get("history", [])
 	var last: Dictionary = history[history.size() - 1] if not history.is_empty() else {}
 	return {"name": str(profile.get("name", DeepProfile.DEFAULT_NAME)), "character": character_key, "rail": loadout.rail, "dice": loadout.dice, "id": str(profile.get("id", "")),
+		"birthstone": DeepProfile.worn_birthstone(profile, character_key),
 		"last_depth": int(last.get("depth", 0)), "last_outcome": str(last.get("outcome", "")), "last_warden_unbeaten": DeepBoons.warden_unbeaten(profile, last),
 		"gold": int(profile.get("gold", 0)), "insured": bool(profile.get("outfit", {}).get("insure", false)), "sockets": DeepProfile.open_sockets(profile, character_key),
 		"daily_state": DeepEconomy.daily_state(profile), "showcase": DeepProfile.showcase(profile),
@@ -241,7 +242,7 @@ func _kit(loadout: Dictionary) -> Dictionary:
 	## last run ended: without it the Grubstake's mercy went by the run before the game was
 	## started, never the fall just come home from.
 	var fields: Dictionary = {}
-	for key in ["character", "rail", "dice", "gold", "insured", "sockets", "daily_state", "showcase", "hazard_top", "hazard_open",
+	for key in ["character", "birthstone", "rail", "dice", "gold", "insured", "sockets", "daily_state", "showcase", "hazard_top", "hazard_open",
 			"last_depth", "last_outcome", "last_warden_unbeaten"]:
 		fields[key] = loadout[key]
 	return fields

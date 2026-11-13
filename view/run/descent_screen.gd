@@ -3534,7 +3534,7 @@ func _show_whom(partners: Array, stone_id: String) -> void:
 		var seat: Color = _seat_color(str(id))
 		var column := DeepUi.vbox(row, 6)
 		column.alignment = BoxContainer.ALIGNMENT_CENTER
-		var face := Roster.Portrait.new(str(partner.get("character", "")), Vector2(56, 56))
+		var face := Roster.Portrait.new(str(partner.get("character", "")), Vector2(56, 56), false, false, false, DeepStone.birthstone_for(partner))
 		face.ring = seat
 		face.mood = Roster.resting_mood(partner)
 		face.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -3545,7 +3545,7 @@ func _show_whom(partners: Array, stone_id: String) -> void:
 		go.name = "Partner_%s" % str(id)
 		go.custom_minimum_size = Vector2(150, 40)
 		go.tooltip_text = "Trade a stone with %s." % str(partner.get("name", ""))
-		DeepUi.label(column, DeepContent.character_title(str(partner.get("character", ""))), 11, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+		DeepUi.label(column, Roster.unit_named(partner), 11, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 	_place_over_dock(plate)
 	if not _headless:
 		DeepAudio.play("ui_tap", {"volume": 0.6})
@@ -3587,7 +3587,7 @@ func _trade_page() -> void:
 	middle.custom_minimum_size.x = 190
 	var scales := DeepUi.icon(middle, "scales", 40, tone)
 	scales.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	var face := Roster.Portrait.new(str(partner.get("character", "")), Vector2(28, 28))
+	var face := Roster.Portrait.new(str(partner.get("character", "")), Vector2(28, 28), false, false, false, DeepStone.birthstone_for(partner))
 	face.ring = _seat_color(partner_id)
 	face.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	face.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
@@ -4835,7 +4835,7 @@ func _vote_tag(group: Dictionary) -> Control:
 	var row := DeepUi.hbox(tag, 7)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	for unit in group.units:
-		var face := Roster.Portrait.new(str(unit.get("character", "")), Vector2(26, 26))
+		var face := Roster.Portrait.new(str(unit.get("character", "")), Vector2(26, 26), false, false, false, DeepStone.birthstone_for(unit))
 		face.ring = _seat_color(str(unit.get("id", "")))
 		face.mood = Roster.resting_mood(unit)
 		face.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -5054,7 +5054,7 @@ func _sync_party_asks() -> void:
 				line.mouse_filter = Control.MOUSE_FILTER_IGNORE
 				for id in ask.riders:
 					var rider: Dictionary = DeepDescent.player(run, str(id))
-					var face := Roster.Portrait.new(str(rider.get("character", "")), Vector2(26, 26))
+					var face := Roster.Portrait.new(str(rider.get("character", "")), Vector2(26, 26), false, false, false, DeepStone.birthstone_for(rider))
 					face.ring = _seat_color(str(id))
 					face.mouse_filter = Control.MOUSE_FILTER_IGNORE
 					face.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -5238,7 +5238,7 @@ func _toss_beat(toss: Dictionary) -> void:
 		card.custom_minimum_size.x = 210
 		row.add_child(card)
 		var line := DeepUi.hbox(card, 10)
-		var face := Roster.Portrait.new(str(unit.get("character", "")), Vector2(40, 40))
+		var face := Roster.Portrait.new(str(unit.get("character", "")), Vector2(40, 40), false, false, false, DeepStone.birthstone_for(unit))
 		face.ring = _seat_color(str(id))
 		face.mood = Roster.resting_mood(unit)
 		face.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -5447,7 +5447,7 @@ func _sync_strip() -> void:
 			if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 				_look_at_member(member_id))
 		## Their face, in the mood their health puts them in; ringed in their seat's color in a party.
-		var face := Roster.Portrait.new(str(other.get("character", "")), Vector2(26, 26))
+		var face := Roster.Portrait.new(str(other.get("character", "")), Vector2(26, 26), false, false, false, DeepStone.birthstone_for(other))
 		face.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		face.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		face.mood = Roster.resting_mood({"hp": hp.x, "max_hp": hp.y, "downed": bool(other.get("downed", false))})
@@ -5941,6 +5941,20 @@ func _page_grubstake(content: VBoxContainer) -> void:
 		var deep_line := DeepUi.stat(head, "descend", "Starting deep, you skip %s: the workshop's cards are better for it." % names_of(skipped), DEEP_TONE, 14)
 		deep_line.alignment = BoxContainer.ALIGNMENT_CENTER
 		deep_line.name = "DeepStart"
+		## Six mines' names on one line ran past the phone's screen: there it wraps under its mark.
+		var deep_said: Label = deep_line.get_node("Value")
+		var deep_room: float = DeepUi.pt(640)
+		if DeepUi.phone and DeepUi.text_face(DeepUi.readable(14)).get_string_size(deep_said.text, HORIZONTAL_ALIGNMENT_LEFT, -1, DeepUi.readable(14)).x > deep_room:
+			deep_said.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			deep_said.custom_minimum_size.x = deep_room
+	## A Birthstone that grows all run opens a deep start with a head start (a Renown its
+	## Trophies, a Bloodroot its max health): said here, where the run begins.
+	var head_start: Variant = unit.get("head_start", {})
+	var opens: String = Plates.birth_opens(str(DeepStone.birthstone_for(unit).get("name", "")), head_start) if head_start is Dictionary else ""
+	if not opens.is_empty():
+		var opens_line := DeepUi.stat(head, "crown", opens, Roster.stone_tone(DeepStone.birthstone_for(unit)), 11 if DeepUi.phone else 14)
+		opens_line.alignment = BoxContainer.ALIGNMENT_CENTER
+		opens_line.name = "HeadStart"
 	_enter(head)
 	if not run.get("daily", {}).is_empty():
 		_enter(_daily_banner(content), 0.05)
@@ -7236,20 +7250,11 @@ func _page_oddity(content: VBoxContainer, headed: bool = true) -> void:
 	if not step.is_empty():
 		_page_oddity_work(content, step, unit, tone, key)
 		return
-	## Some work is not done in one go. The Idol keeps count of what it has cost so far and
-	## says what the next pull will cost, because a price that ramps has to be readable.
-	var pulled: Dictionary = run.chamber.get("tries", {}).get(local_id, {})
-	if not pulled.is_empty():
-		var grip: Dictionary = {}
-		for choice in work:
-			if str(choice.get("action", {}).get("kind", "")) == "idol":
-				grip = choice.action
-		if not grip.is_empty():
-			var done: int = int(pulled.get("done", 0))
-			var next_cost: int = maxi(0, int(grip.get("hp", 3)) + int(grip.get("hp_step", 2)) * done)
-			## A capsule as wide as what it says, centred over the cards, not a bar across the room.
-			var price := DeepUi.pill(content, "eye", "%d %s so far. The next one costs %d health." % [done, "pull" if done == 1 else "pulls", next_cost], DeepUi.BAD, 13)
-			price.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	## Some work is not done in one go. The Idol keeps count of its pulls, and its card is
+	## reworded for each ("Pull harder") with what the next one costs, because a price that
+	## ramps has to be readable (and on a phone there is no pointing at the card to see it on
+	## the ring).
+	var pulled: int = int(run.chamber.get("tries", {}).get(local_id, {}).get("done", 0))
 	var row := DeepUi.hbox(content, 18)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.name = "BenchRow"
@@ -7288,16 +7293,16 @@ func _page_oddity(content: VBoxContainer, headed: bool = true) -> void:
 		## A card that costs health (a pry, an idol's pull) shows its price on the ring while pointed at.
 		var hp_action: Dictionary = choice.get("action", {})
 		if str(hp_action.get("kind", "")) in ["pry", "idol"]:
-			var hp_price: int = int(hp_action.get("hp", 0)) + (int(hp_action.get("hp_step", 2)) * int(pulled.get("done", 0)) if str(hp_action.get("kind", "")) == "idol" else 0)
+			var hp_price: int = DeepOddities.idol_price(hp_action, pulled) if str(hp_action.get("kind", "")) == "idol" else int(hp_action.get("hp", 0))
 			card.mouse_entered.connect(func() -> void: _aim_hp(hp_price))
 			card.mouse_exited.connect(func() -> void: _aim_hp(0))
 			card.tree_exiting.connect(func() -> void: _aim_hp(0))
 		var box := DeepUi.vbox(card, 10)
 		var title_row := DeepUi.hbox(box, 8)
 		DeepUi.icon(title_row, choice_glyph(choice, key), 20, DEEP_TONE if improved else tone)
-		_marked_title(title_row, str(choice.get("label", choice.id)), 19, DeepUi.PAPER)
+		_marked_title(title_row, str(DeepOddities.at_pull(choice, pulled).get("label", choice.id)), 19, DeepUi.PAPER)
 		if choice.has("text"):
-			_marked_text(box, DeepOddities.choice_text(choice, int(run.get("depth", 0))), 12 if DeepUi.phone else 13, DeepUi.MUTED, DeepUi.pt(276) if wide_geode else (DeepUi.pt(150) if DeepUi.phone else 260.0))
+			_marked_text(box, DeepOddities.choice_text(choice, int(run.get("depth", 0)), pulled), 12 if DeepUi.phone else 13, DeepUi.MUTED, DeepUi.pt(276) if wide_geode else (DeepUi.pt(150) if DeepUi.phone else 260.0))
 		## What the room is set up for tonight, read before the card is picked rather than after.
 		_tonight_chip(box, choice.get("action", {}))
 		if improved:
@@ -8876,7 +8881,9 @@ func _daily_cards() -> Array:
 		if str(key) == "DROUGHT" and daily.has("drought"):
 			name = "%s: no %s" % [name, str(DeepContent.color(str(daily.drought)).get("name", daily.drought))]
 		if str(key) == "BORROWED_BIRTHSTONE" and daily.has("birthstone"):
-			name = "%s: %s's" % [name, DeepContent.character_title(str(daily.birthstone)).get_slice(",", 0)]
+			## Whose stone, and which of their three: "Borrowed Birthstone: Florin's Blackjack".
+			name = "%s: %s's %s" % [name, DeepContent.character_title(str(daily.birthstone)).get_slice(",", 0),
+				str(DeepStone.birthstone(str(daily.birthstone), str(daily.get("birthstone_key", ""))).get("name", "Birthstone"))]
 		out.append({"key": str(key), "name": name, "text": str(mod.get("text", "")), "glyph": str(mod.get("glyph", "spark")), "kind": kind,
 			"tone": _daily_tone(kind), "kind_word": str(DAILY_KIND_WORDS.get(kind, ""))})
 	return out
@@ -9186,13 +9193,14 @@ func _who_chip(parent: Node, unit: Dictionary) -> PanelContainer:
 	var chip := DeepUi.card(parent, DeepUi.LINE, 6, Color(0.05, 0.06, 0.085, 0.8))
 	chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var row := DeepUi.hbox(chip, 10)
-	var face := Roster.Portrait.new(str(unit.get("character", "")), Vector2(44, 44))
+	var face := Roster.Portrait.new(str(unit.get("character", "")), Vector2(44, 44), false, false, false, DeepStone.birthstone_for(unit))
 	face.mood = Roster.resting_mood(unit)
 	row.add_child(face)
 	var words := DeepUi.vbox(row, 0)
 	words.alignment = BoxContainer.ALIGNMENT_CENTER
 	DeepUi.label(words, str(unit.get("name", "")), 15, DeepUi.PAPER)
-	DeepUi.label(words, DeepContent.character_title(str(unit.get("character", ""))), 12, DeepUi.MUTED)
+	## With the Birthstone they wore when it was not their first: "Ardor · Rampart".
+	DeepUi.label(words, Roster.unit_named(unit), 12, DeepUi.MUTED).name = "DugAs"
 	DeepUi.gap(row, 4)
 	return chip
 
@@ -9631,12 +9639,12 @@ func _party_column(parent: Node, unit: Dictionary, tone: Color, leads: Dictionar
 	holder.custom_minimum_size = Vector2(72, 72)
 	holder.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	inner.add_child(holder)
-	var face := Roster.Portrait.new(str(unit.get("character", "")), Vector2(72, 72))
+	var face := Roster.Portrait.new(str(unit.get("character", "")), Vector2(72, 72), false, false, false, DeepStone.birthstone_for(unit))
 	face.mood = Roster.resting_mood(unit)
 	face.ring = tone
 	holder.add_child(face)
 	DeepUi.title(inner, str(unit.get("name", "")), 19, DeepUi.ACCENT_HI if is_mvp else DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
-	DeepUi.label(inner, DeepContent.character_title(str(unit.get("character", ""))), 11, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	DeepUi.label(inner, Roster.unit_named(unit), 11, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 	if not bool(unit.get("connected", true)):
 		var gone := DeepUi.pill(inner, "hourglass", "left at depth %d" % int(unit.get("left_depth", run.get("depth", 0))), DeepUi.BAD, 11)
 		gone.size_flags_horizontal = Control.SIZE_SHRINK_CENTER

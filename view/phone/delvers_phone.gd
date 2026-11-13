@@ -16,6 +16,14 @@ const GemMesh = preload("res://view/gems/gem_mesh.gd")
 const BattleScreen = preload("res://view/battle/battle_screen.gd")
 const Tips = preload("res://view/ui/tips.gd")
 
+## The dossier's outer columns, in points: who they are, and their Birthstones. What is left
+## between them is their kit's, and Florin's eight rings need 245 of it.
+const LEFT_WIDE: float = 166.0
+const RIGHT_WIDE: float = 218.0
+## The least a tile of the loadout's row stands across, in points. The tiles share the row, so
+## six sockets and a Birthstone stand wider; Florin's seven and his did not fit at 84.
+const TILE_WIDE: float = 72.0
+
 static func build(home: Control, content: VBoxContainer) -> void:
 	var current: String = str(home.profile.get("current_character", DeepContent.starter_character()))
 	if home._roster_pick.is_empty() or DeepContent.character(home._roster_pick).is_empty():
@@ -89,13 +97,11 @@ static func _strip(home: Control, content: VBoxContainer, current: String) -> vo
 static func _dossier(home: Control, content: VBoxContainer, key: String, unlocked: bool, chosen: bool) -> void:
 	var character: Dictionary = DeepContent.character(key)
 	var passive: Dictionary = character.get("passive", {})
-	var stone: Dictionary = DeepStone.birthstone(key)
-	var tint: Color = GemMesh.tint(stone) if not stone.is_empty() else DeepUi.ACCENT
 	var columns := DeepUi.hbox(content, int(DeepUi.pt(10)))
 	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	## Who they are, and what to do with them.
 	var left := DeepUi.vbox(columns, int(DeepUi.pt(5)))
-	left.custom_minimum_size.x = DeepUi.pt(178)
+	left.custom_minimum_size.x = DeepUi.pt(LEFT_WIDE)
 	var head := DeepUi.hbox(left, int(DeepUi.pt(8)))
 	var face := Roster.Portrait.new(key, Vector2(DeepUi.pt(56), DeepUi.pt(56)), not unlocked, false, chosen)
 	head.add_child(face)
@@ -124,59 +130,63 @@ static func _dossier(home: Control, content: VBoxContainer, key: String, unlocke
 	DeepUi.pill(pills, "heart", "%d health" % int(character.get("hp", 0)), DeepUi.HP, 11)
 	DeepUi.pill(pills, "gem", DeepUi.plural(character.get("sockets", []).size(), "socket"), DeepUi.INFO, 11)
 	DeepUi.section(middle, "die", "Their dice", DeepUi.ACCENT, 11)
+	## Dice that are alike stand together over one name: five "Gambler's d6" said five times
+	## ran the page off the phone's right edge.
 	var dice_row := DeepUi.hbox(middle, int(DeepUi.pt(8)))
 	dice_row.tooltip_text = home.OWN_DICE
 	var die_index: int = 0
+	var last_said: String = ""
+	var group: HBoxContainer = null
 	for die_key in character.get("dice", []):
 		var die: Dictionary = DeepForge.die_from(die_key, "roster_%s_%d" % [key, die_index])
-		var holder := DeepUi.vbox(dice_row, 0)
-		holder.alignment = BoxContainer.ALIGNMENT_CENTER
-		var thumb := Thumbs.DieThumb.new(die, DeepUi.pt(30))
-		thumb.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		holder.add_child(thumb)
-		DeepUi.label(holder, DeepDice.describe(die), 11, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		var said: String = DeepDice.describe(die)
+		if group == null or said != last_said:
+			var holder := DeepUi.vbox(dice_row, 0)
+			holder.alignment = BoxContainer.ALIGNMENT_CENTER
+			group = DeepUi.hbox(holder, int(DeepUi.pt(5)))
+			group.alignment = BoxContainer.ALIGNMENT_CENTER
+			DeepUi.label(holder, said, 11, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+			last_said = said
+		group.add_child(Thumbs.DieThumb.new(die, DeepUi.pt(30)))
 		die_index += 1
 	DeepUi.section(middle, "gem", "Their sockets", DeepUi.ACCENT, 11)
-	var socket_row := DeepUi.hbox(middle, int(DeepUi.pt(4)))
+	var socket_row := DeepUi.hbox(middle, int(DeepUi.pt(3)))
 	var open_socket: Callable = func(index: int) -> void: home.edit_loadout(key, index)
 	home.socket_strip(socket_row, key, DeepProfile.loadout(home.profile, key), DeepUi.pt(28), false, open_socket if unlocked else Callable())
 	var passive_box := _panel(middle, Color(DeepUi.ACCENT, 0.45), 6)
 	var passive_head := DeepUi.label(passive_box, str(passive.get("name", "Passive")), 12, DeepUi.ACCENT_HI)
 	passive_head.add_theme_font_override("font", DeepUi.bold_font())
 	DeepUi.wrap(passive_box, str(passive.get("text", "")), 12, DeepUi.PAPER)
-	## Their Birthstone: its name, and its tiers as one ladder, the words of every tier starting
-	## on the same line (a column for the marks as wide as the widest of them).
-	var right := _panel(columns, Color(tint, 0.7), 7)
-	right.get_parent().custom_minimum_size.x = DeepUi.pt(224)
-	var birth_head := DeepUi.hbox(right, int(DeepUi.pt(6)))
-	if not stone.is_empty():
-		StoneCard.mini(birth_head, stone, DeepUi.pt(30), str(stone.get("name", "")))
-	var birth_names := DeepUi.vbox(birth_head, -4)
-	birth_names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## Their Birthstones, drawn again on their own when another of the three is read.
+	var right := DeepUi.vbox(columns, 0)
+	right.custom_minimum_size.x = DeepUi.pt(RIGHT_WIDE)
+	home.region(right, "birthstone", func(holder: Control) -> void: _birth_panel(home, holder, key, unlocked))
+
+static func _birth_panel(home: Control, holder: Control, key: String, unlocked: bool) -> void:
+	## The delver's three Birthstones as small stones to tap, and the one of them being read:
+	## its name, then its words and its tiers as one ladder, every tier's words starting on one
+	## line (a column for the marks as wide as the widest of them). The ladder scrolls inside
+	## the column when it is longer than the room; what is done with the stone (Wear, or Unlock
+	## and its second press: HomeParts.birth_action) stays at the column's foot.
+	var read: String = home.birth_read(key)
+	var stone: Dictionary = DeepStone.birthstone(key, read)
+	var tint: Color = HomeParts.birth_tone(stone)
+	var right := _panel(holder, Color(tint, 0.7), 7)
+	right.get_parent().size_flags_vertical = Control.SIZE_EXPAND_FILL
+	HomeParts.birth_stones(home, right, key, read, unlocked)
+	var birth_names := DeepUi.hbox(right, int(DeepUi.pt(6)))
+	DeepUi.title(birth_names, str(stone.get("name", "")), 17, HomeParts.birth_name_tone(stone)).size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	DeepUi.label(birth_names, "Birthstone", 11, DeepUi.DIM)
-	DeepUi.title(birth_names, str(stone.get("name", "")), 17, tint.lightened(0.35))
-	var tiers: Array = stone.get("tiers", [])
-	var die: String = DiceIcons.ladder_die(tiers)
-	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", int(DeepUi.pt(6)))
-	grid.add_theme_constant_override("v_separation", int(DeepUi.pt(5)))
-	right.add_child(grid)
-	for tier in tiers:
-		var mark := HBoxContainer.new()
-		mark.mouse_filter = Control.MOUSE_FILTER_PASS
-		mark.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-		mark.custom_minimum_size.x = DeepUi.pt(44)
-		grid.add_child(mark)
-		if DiceIcons.ladder_rung(tier, die) > 0:
-			DiceIcons.build_ladder(mark, [tier], die, DiceIcons.ladder_rung(tier, die), DeepUi.pt(8), DeepUi.MUTED, DeepUi.DIM)
-		else:
-			DiceIcons.build(mark, DeepPatterns.describe(tier.get("trigger", {"kind": "always"}), 0), DeepUi.pt(10), DeepUi.MUTED, str(tier.get("text", "")))
-		var words := DeepUi.vbox(grid, -2)
-		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var named := DeepUi.label(words, str(tier.get("name", "")), 12, DeepUi.PAPER)
-		named.add_theme_font_override("font", DeepUi.bold_font())
-		DeepUi.wrap(words, str(tier.get("text", "")), 11, DeepUi.MUTED)
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.set_meta("may_scroll", true)
+	right.add_child(scroll)
+	var said := DeepUi.vbox(scroll, int(DeepUi.pt(5)))
+	said.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	HomeParts.stone_words(said, str(stone.get("text", "")), stone, 11, DeepUi.MUTED)
+	HomeParts.birth_ladder(said, stone)
+	HomeParts.birth_action(home, right, key, read, unlocked)
 
 # --- their sockets -----------------------------------------------------------------------------------
 
@@ -220,7 +230,7 @@ static func _sockets(home: Control, content: VBoxContainer, character_key: Strin
 		var skill: String = home.rail_skill(record, index)
 		var stone: Dictionary = DeepProfile.owned(home.profile, skill) if DeepProfile.fillable_socket(home.profile, character_key, index) and skill != "" else {}
 		_socket_tile(home, rail_row, index, str(sockets[index]), stone, character_key)
-	_birth_tile(rail_row, character_key)
+	_birth_tile(home, rail_row, character_key)
 	## The line under the sockets, and the browser's controls on the same row.
 	var bar := DeepUi.hbox(content, int(DeepUi.pt(6)))
 	var luck: float = DeepDescent.loadout_luck(filled)
@@ -306,7 +316,7 @@ static func _socket_tile(home: Control, parent: Node, index: int, socket_color: 
 	style.content_margin_top = DeepUi.pt(4)
 	style.content_margin_bottom = DeepUi.pt(4)
 	card.add_theme_stylebox_override("panel", style)
-	card.custom_minimum_size = Vector2(DeepUi.pt(84), DeepUi.pt(92))
+	card.custom_minimum_size = Vector2(DeepUi.pt(TILE_WIDE), DeepUi.pt(92))
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.mouse_filter = Control.MOUSE_FILTER_STOP
 	parent.add_child(card)
@@ -387,12 +397,13 @@ static func _socket_tile(home: Control, parent: Node, index: int, socket_color: 
 			DeepAudio.play("ui_tap")
 			home._render.call_deferred())
 
-static func _birth_tile(parent: Node, character_key: String) -> void:
-	## The Birthstone at the end of the row: always set, nothing to tap.
-	var stone: Dictionary = DeepStone.birthstone(character_key)
+static func _birth_tile(home: Control, parent: Node, character_key: String) -> void:
+	## The Birthstone at the end of the row: the one they wear. It is never taken out; a tap
+	## opens their three stones under it, to put on another they own (HomeParts.birth_swap).
+	var stone: Dictionary = DeepStone.birthstone(character_key, DeepProfile.worn_birthstone(home.profile, character_key))
 	if stone.is_empty():
 		return
-	var tint: Color = GemMesh.tint(stone)
+	var tint: Color = HomeParts.birth_tone(stone)
 	var card := PanelContainer.new()
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color("1a1420")
@@ -402,7 +413,7 @@ static func _birth_tile(parent: Node, character_key: String) -> void:
 	style.content_margin_top = DeepUi.pt(4)
 	style.content_margin_bottom = DeepUi.pt(4)
 	card.add_theme_stylebox_override("panel", style)
-	card.custom_minimum_size = Vector2(DeepUi.pt(84), DeepUi.pt(92))
+	card.custom_minimum_size = Vector2(DeepUi.pt(TILE_WIDE), DeepUi.pt(92))
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.mouse_filter = Control.MOUSE_FILTER_PASS
 	parent.add_child(card)
@@ -419,6 +430,9 @@ static func _birth_tile(parent: Node, character_key: String) -> void:
 	slot.add_child(ring)
 	var thumb := StoneCard.mini(slot, stone, DeepUi.pt(34), str(stone.get("name", "")) + "\n" + str(stone.get("text", "")))
 	thumb.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, int(DeepUi.pt(5)))
-	var said := DeepUi.label(box, str(stone.get("name", "")), 12, tint.lightened(0.35), HORIZONTAL_ALIGNMENT_CENTER)
+	thumb.mouse_filter = Control.MOUSE_FILTER_PASS
+	## A name longer than the tile (One-Armed Bandit) goes on to a second line.
+	var said := DeepUi.wrap(box, str(stone.get("name", "")), 12, HomeParts.birth_name_tone(stone), HORIZONTAL_ALIGNMENT_CENTER, DeepUi.pt(TILE_WIDE - 6.0))
 	said.add_theme_font_override("font", DeepUi.bold_font())
-	DeepUi.label(box, "always set", 11, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	DeepUi.label(box, "tap to swap", 11, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	HomeParts.swap_tile(home, card, character_key)

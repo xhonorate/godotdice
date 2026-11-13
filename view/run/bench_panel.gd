@@ -14,6 +14,7 @@ const Thumbs = preload("res://view/gems/thumbs.gd")
 const DiceIcons = preload("res://view/dice/dice_icons.gd")
 const BattleScreen = preload("res://view/battle/battle_screen.gd")
 const HomeParts = preload("res://view/home/home_parts.gd")
+const Plates = preload("res://view/ui/plates.gd")
 const Inspector = preload("res://view/inspect/inspector.gd")
 
 signal command(cmd: Dictionary)
@@ -242,7 +243,7 @@ func _gems_tab(parent: VBoxContainer, unit: Dictionary) -> void:
 	var rail_row := DeepUi.hbox(parent, 10)
 	for index in range(unit.get("rail", []).size()):
 		_socket_card(rail_row, unit, index)
-	HomeParts.BirthstoneCard.new(rail_row, str(unit.get("character", "")), DeepUi.pt(90) if DeepUi.phone else 132.0, true)
+	_birth_card(rail_row, unit)
 	var everything: Array = unit.get("haul", [])
 	var haul: Array = DeepUi.haul_of(everything, _haul_tab)
 	var haul_head := DeepUi.hbox(parent, 10)
@@ -294,6 +295,20 @@ func _gems_tab(parent: VBoxContainer, unit: Dictionary) -> void:
 			"geodes": "No Geodes. A Warden's last hoard and the odd chamber offer them; they come home sealed."}[_haul_tab], 13, DeepUi.DIM)
 	for stone in DeepUi.page_of(haul, _haul_page, HAUL_PAGE):
 		_haul_tile(flow, stone)
+
+func _birth_card(parent: Node, unit: Dictionary) -> void:
+	## The Birthstone at the end of the rail, as the workshop's card shows it, but the one this
+	## delver wears this run: a variant of their own, or one the day lent from another delver.
+	var card := HomeParts.BirthstoneCard.new(parent, str(unit.get("birthstone_of", unit.get("character", ""))), DeepUi.pt(90) if DeepUi.phone else 132.0, true, str(unit.get("birthstone_key", "")))
+	card.name = "BirthCard"
+	## What it has come to this run (a Renown's Trophies, a Bloodroot's growth) is said on its tip
+	## and on its sheet, which opens knowing who wears it.
+	var more: Array = [Plates.birth_count(unit), Plates.birth_opened(unit)].filter(func(line: String) -> bool: return not line.is_empty())
+	for thumb in card.find_children("*", "Control", true, false):
+		if thumb is Thumbs.GemThumb:
+			(thumb as Thumbs.GemThumb).inspect_opts = {"unit": unit}
+			if not more.is_empty():
+				thumb.tooltip_text = thumb.tooltip_text.replace("\nRight-click for details", "\n" + "\n".join(more) + "\nRight-click for details")
 
 func _socket_card(parent: Node, unit: Dictionary, index: int) -> void:
 	var sockets: Array = unit.get("sockets", [])

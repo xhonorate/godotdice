@@ -5139,8 +5139,7 @@
         "emblem": "formation",
         "style": "shield",
         "hue": "9a2323",
-        "text": "Almandine garnet in a shield cut. Sets of matching dice rally the Knight.",
-        "face": "Jaw set, eyes narrowed, a slow nod.",
+        "text": "Sets of matching dice rally the Knight.",
         "tiers": [
           {
             "name": "Rank",
@@ -5223,7 +5222,235 @@
             ]
           }
         ]
-      }
+      },
+      "variants": [
+        {
+          "key": "RAMPART",
+          "price": 1000,
+          "name": "Rampart",
+          "emblem": "battlement",
+          "style": "tower",
+          "hue": "7b3b40",
+          "hue2": "b5524a",
+          "text": "Even dice raise the Knight's wall, and the wall is the weapon.",
+          "tiers": [
+            {
+              "name": "Parapet",
+              "trigger": {
+                "kind": "even",
+                "amount": 2
+              },
+              "text": "Two even dice: gain Resonance block, and keep that much block into next turn.",
+              "effects": [
+                {
+                  "kind": "block",
+                  "amount": {
+                    "term": "resonance"
+                  }
+                },
+                {
+                  "kind": "retain",
+                  "amount": {
+                    "term": "resonance"
+                  },
+                  "scale": "none"
+                }
+              ]
+            },
+            {
+              "name": "Thornwork",
+              "trigger": {
+                "kind": "even",
+                "amount": 3
+              },
+              "text": "Three even dice: until your next turn, a creature that hits you takes Resonance damage.",
+              "effects": [
+                {
+                  "kind": "spikes",
+                  "target": "self",
+                  "amount": {
+                    "term": "resonance"
+                  },
+                  "until": "next_turn",
+                  "scale": "none"
+                }
+              ]
+            },
+            {
+              "name": "Ram",
+              "trigger": {
+                "kind": "even",
+                "amount": 4
+              },
+              "text": "Four even dice: deal Resonance once for every 10 block you hold.",
+              "effects": [
+                {
+                  "kind": "damage",
+                  "amount": {
+                    "term": "resonance"
+                  },
+                  "repeat": {
+                    "op": "floor_div",
+                    "args": [
+                      {
+                        "term": "block"
+                      },
+                      10
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Keep",
+              "trigger": {
+                "kind": "even",
+                "amount": 5
+              },
+              "text": "All five even: none of your block falls away this turn.",
+              "effects": [
+                {
+                  "kind": "retain",
+                  "target": "self",
+                  "amount": 0,
+                  "keep_all": true,
+                  "scale": "none"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "RENOWN",
+          "price": 2500,
+          "name": "Renown",
+          "emblem": "pennant_lance",
+          "style": "spearhead",
+          "hue": "b5482a",
+          "text": "Every die showing 6 or more is a pass with the lance, and every kill it makes is a Trophy.",
+          "keywords": {
+            "trophy": "Kept for the rest of the run. Each one adds 1 damage to every Lance."
+          },
+          "head_start": {
+            "trophies": 40
+          },
+          "tiers": [
+            {
+              "name": "Lance",
+              "trigger": {
+                "kind": "high_count",
+                "value": 6,
+                "amount": 1
+              },
+              "text": "A die showing 6 or more: deal Resonance, plus 1 for every Trophy. A kill is a Trophy.",
+              "effects": [
+                {
+                  "kind": "damage",
+                  "amount": {
+                    "op": "+",
+                    "args": [
+                      {
+                        "term": "resonance"
+                      },
+                      {
+                        "term": "trophies"
+                      }
+                    ]
+                  },
+                  "trophy": true
+                }
+              ]
+            },
+            {
+              "name": "Tourney",
+              "trigger": {
+                "kind": "high_count",
+                "value": 6,
+                "amount": 2
+              },
+              "text": "Each other die showing 6 or more: Lance lands again, on the creature with the least health.",
+              "effects": [
+                {
+                  "kind": "damage",
+                  "target": "enemy_weakest",
+                  "amount": {
+                    "op": "+",
+                    "args": [
+                      {
+                        "term": "resonance"
+                      },
+                      {
+                        "term": "trophies"
+                      }
+                    ]
+                  },
+                  "repeat": {
+                    "op": "-",
+                    "args": [
+                      {
+                        "term": "count"
+                      },
+                      1
+                    ]
+                  },
+                  "trophy": true
+                }
+              ]
+            },
+            {
+              "name": "Grand Melee",
+              "trigger": {
+                "kind": "high_count",
+                "value": 6,
+                "amount": 5
+              },
+              "text": "All five dice showing 6 or more: every Lance lands twice.",
+              "effects": [
+                {
+                  "kind": "damage",
+                  "amount": {
+                    "op": "+",
+                    "args": [
+                      {
+                        "term": "resonance"
+                      },
+                      {
+                        "term": "trophies"
+                      }
+                    ]
+                  },
+                  "trophy": true
+                },
+                {
+                  "kind": "damage",
+                  "target": "enemy_weakest",
+                  "amount": {
+                    "op": "+",
+                    "args": [
+                      {
+                        "term": "resonance"
+                      },
+                      {
+                        "term": "trophies"
+                      }
+                    ]
+                  },
+                  "repeat": {
+                    "op": "-",
+                    "args": [
+                      {
+                        "term": "count"
+                      },
+                      1
+                    ]
+                  },
+                  "trophy": true
+                }
+              ]
+            }
+          ]
+        }
+      ]
     },
     "VESPER": {
       "name": "Vesper",
@@ -5244,8 +5471,7 @@
         "emblem": "cuts",
         "style": "marquise",
         "hue": "1c1a26",
-        "text": "Black opal in a thin marquise cut, dark with tiny flecks of color.",
-        "face": "A thin smile, eyes on the target.",
+        "text": "Five different values let the Rogue cut once for every point on the highest die.",
         "tiers": [
           {
             "name": "Thousand Cuts",
@@ -5287,7 +5513,173 @@
             ]
           }
         ]
-      }
+      },
+      "variants": [
+        {
+          "key": "ILL_OMEN",
+          "price": 1000,
+          "name": "Ill Omen",
+          "emblem": "evil_eye",
+          "style": "cushion",
+          "hue": "26252c",
+          "text": "Every 1 is an omen. The more of them, the worse the room's luck.",
+          "tiers": [
+            {
+              "name": "Omen",
+              "trigger": {
+                "kind": "value",
+                "values": [1],
+                "amount": 1
+              },
+              "text": "A 1 showing: Curse the target once for each 1.",
+              "effects": [
+                {
+                  "kind": "curse",
+                  "amount": {
+                    "term": "count"
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Jinx",
+              "trigger": {
+                "kind": "value",
+                "values": [1],
+                "amount": 3
+              },
+              "eclipses": ["Omen"],
+              "text": "Three 1s: Curse every creature instead.",
+              "effects": [
+                {
+                  "kind": "curse",
+                  "target": "enemies",
+                  "amount": {
+                    "term": "count"
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Reckoning",
+              "trigger": {
+                "kind": "value",
+                "values": [1],
+                "amount": 4
+              },
+              "text": "Four 1s: deal Resonance for each Curse on the target.",
+              "effects": [
+                {
+                  "kind": "damage",
+                  "amount": {
+                    "term": "resonance"
+                  },
+                  "repeat": {
+                    "term": "target_curse"
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Snake Eyes",
+              "trigger": {
+                "kind": "value",
+                "values": [1],
+                "amount": 5
+              },
+              "eclipses": ["Reckoning"],
+              "text": "All five 1s: this turn's Curses count double, and Reckoning lands twice.",
+              "effects": [
+                {
+                  "kind": "curse",
+                  "target": "enemies",
+                  "amount": {
+                    "term": "count"
+                  }
+                },
+                {
+                  "kind": "damage",
+                  "amount": {
+                    "term": "resonance"
+                  },
+                  "repeat": {
+                    "op": "*",
+                    "args": [
+                      2,
+                      {
+                        "term": "target_curse"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "FAN_OF_KNIVES",
+          "price": 2500,
+          "name": "Fan of Knives",
+          "emblem": "knife_fan",
+          "style": "fan",
+          "hue": "2f3040",
+          "hue2": "5a6ad0",
+          "text": "Matching dice are knives, thrown one after another.",
+          "tiers": [
+            {
+              "name": "Fan",
+              "trigger": {
+                "kind": "pair",
+                "amount": 1
+              },
+              "text": "A pair or better: throw a knife for every die that matches another. Each deals Resonance to a random creature, and a knife that kills is thrown again.",
+              "effects": [
+                {
+                  "kind": "damage",
+                  "target": "enemy_random",
+                  "amount": {
+                    "term": "resonance"
+                  },
+                  "repeat": {
+                    "term": "matched"
+                  },
+                  "chain_on_kill": true
+                }
+              ]
+            },
+            {
+              "name": "Flourish",
+              "trigger": {
+                "kind": "quad",
+                "amount": 1
+              },
+              "eclipses": ["Fan"],
+              "text": "Four of a kind: first, every knife gains damage equal to your highest die and hits every creature.",
+              "effects": [
+                {
+                  "kind": "damage",
+                  "target": "enemies",
+                  "amount": {
+                    "op": "+",
+                    "args": [
+                      {
+                        "term": "resonance"
+                      },
+                      {
+                        "term": "high"
+                      }
+                    ]
+                  },
+                  "repeat": {
+                    "term": "matched"
+                  },
+                  "chain_on_kill": true
+                }
+              ]
+            }
+          ]
+        }
+      ]
     },
     "CADENCE": {
       "name": "Cadence",
@@ -5310,8 +5702,7 @@
         "style": "step",
         "hue": "7a4fc4",
         "hue2": "d9a63c",
-        "text": "Ametrine in a step cut, fading from violet to gold.",
-        "face": "Eyes closed, one hand raised like a conductor.",
+        "text": "Straights make the Wizard's gems play again.",
         "tiers": [
           {
             "name": "Motif",
@@ -5358,7 +5749,7 @@
               "kind": "straight",
               "amount": 5
             },
-            "text": "A straight of five: every gem that fired plays again, Overture included, and Resonance keeps climbing.",
+            "text": "A straight of five: every gem that fired plays again, Overture included.",
             "effects": [
               {
                 "kind": "replay_rail",
@@ -5367,7 +5758,119 @@
             ]
           }
         ]
-      }
+      },
+      "variants": [
+        {
+          "key": "NOCTURNE",
+          "price": 1000,
+          "name": "Nocturne",
+          "emblem": "crescent_note",
+          "style": "dart",
+          "hue": "5560b8",
+          "hue2": "9a9fb0",
+          "text": "A quiet hand wakes the gems that stayed dark.",
+          "tiers": [
+            {
+              "name": "Hush",
+              "trigger": {
+                "kind": "total_at_most",
+                "amount": 16
+              },
+              "text": "A total of 16 or less: the first gem that fizzled this turn fires anyway.",
+              "effects": [
+                {
+                  "kind": "replay_fizzled",
+                  "target": "self",
+                  "amount": 1,
+                  "scale": "none"
+                }
+              ]
+            },
+            {
+              "name": "Nocturne",
+              "trigger": {
+                "kind": "total_at_most",
+                "amount": 12
+              },
+              "eclipses": ["Hush"],
+              "text": "A total of 12 or less: every gem that fizzled fires.",
+              "effects": [
+                {
+                  "kind": "replay_fizzled",
+                  "target": "self",
+                  "amount": 99,
+                  "scale": "none"
+                }
+              ]
+            },
+            {
+              "name": "Small Hours",
+              "trigger": {
+                "kind": "total_at_most",
+                "amount": 9
+              },
+              "eclipses": ["Hush", "Nocturne"],
+              "text": "A total of 9 or less: and each of them fires twice.",
+              "effects": [
+                {
+                  "kind": "replay_fizzled",
+                  "target": "self",
+                  "amount": 99,
+                  "repeat": 2,
+                  "scale": "none"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "ARPEGGIO",
+          "price": 2500,
+          "name": "Arpeggio",
+          "emblem": "rising_scale",
+          "style": "octagon",
+          "hue": "6a58b0",
+          "hue2": "4fa58a",
+          "text": "Her five dice climb in size. When their numbers climb with them, the scale is played.",
+          "keywords": {
+            "scale": "The longest climb across your dice from the smallest die to the largest, each showing more than the one before it."
+          },
+          "tiers": [
+            {
+              "name": "Arpeggio",
+              "trigger": {
+                "kind": "scale",
+                "amount": 3
+              },
+              "text": "A scale of three dice or more: each die in it adds its number to your Resonance, then deals half your Resonance to every creature.",
+              "effects": [
+                {
+                  "kind": "arpeggio",
+                  "target": "self",
+                  "amount": 50,
+                  "scale": "none"
+                }
+              ]
+            },
+            {
+              "name": "Perfect Scale",
+              "trigger": {
+                "kind": "scale",
+                "amount": 5
+              },
+              "text": "All five dice in the scale: play it again. The Resonance keeps climbing.",
+              "effects": [
+                {
+                  "kind": "arpeggio",
+                  "target": "self",
+                  "amount": 50,
+                  "scale": "none"
+                }
+              ]
+            }
+          ]
+        }
+      ]
     },
     "RUE": {
       "name": "Rue",
@@ -5405,8 +5908,7 @@
         "emblem": "vial",
         "style": "briolette",
         "hue": "24402a",
-        "text": "Dark tourmaline in a teardrop briolette cut, murky green-black with a bubble inside.",
-        "face": "A wry grimace, as if tasting it.",
+        "text": "Low dice poison, and a hand of 1s makes every poison tick.",
         "tiers": [
           {
             "name": "Tincture",
@@ -5456,7 +5958,216 @@
             ]
           }
         ]
-      }
+      },
+      "variants": [
+        {
+          "key": "MITHRIDATE",
+          "price": 1000,
+          "name": "Mithridate",
+          "emblem": "coated_blade",
+          "style": "pill",
+          "hue": "2f8a5b",
+          "hue2": "14523a",
+          "text": "Runs of dice coat the Apothecary's own blades.",
+          "tiers": [
+            {
+              "name": "Coat",
+              "trigger": {
+                "kind": "straight",
+                "amount": 3
+              },
+              "text": "Three in a row: gain 1 Envenomed for the fight. Every hit of yours that gets past block applies that much poison.",
+              "effects": [
+                {
+                  "kind": "envenom",
+                  "target": "self",
+                  "amount": 1,
+                  "scale": "none"
+                }
+              ]
+            },
+            {
+              "name": "Double Dose",
+              "trigger": {
+                "kind": "straight",
+                "amount": 4
+              },
+              "text": "A straight of four: gain 1 more Envenomed for every 5 Resonance.",
+              "effects": [
+                {
+                  "kind": "envenom",
+                  "target": "self",
+                  "amount": {
+                    "op": "floor_div",
+                    "args": [
+                      {
+                        "term": "resonance"
+                      },
+                      5
+                    ]
+                  },
+                  "scale": "none"
+                }
+              ]
+            },
+            {
+              "name": "Mithridate",
+              "trigger": {
+                "kind": "straight",
+                "amount": 5
+              },
+              "text": "A straight of five: stab the target once for each Envenomed you carry. Each stab deals Resonance.",
+              "effects": [
+                {
+                  "kind": "damage",
+                  "amount": {
+                    "term": "resonance"
+                  },
+                  "repeat": {
+                    "term": "envenom"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "BLOODROOT",
+          "price": 2500,
+          "name": "Bloodroot",
+          "emblem": "bloodroot",
+          "style": "drop",
+          "hue": "2f4f3d",
+          "hue2": "b3261e",
+          "text": "Every 1 is the price and the growth. Sets spend what the 1s bought.",
+          "head_start": {
+            "max_hp": 350
+          },
+          "tiers": [
+            {
+              "name": "Tap",
+              "trigger": {
+                "kind": "value",
+                "values": [1],
+                "amount": 1
+              },
+              "text": "Every 1 showing: lose 1 health and gain 1 poison for every 1 you have rolled this fight. Gain 1 max health for the rest of the run for each 1.",
+              "effects": [
+                {
+                  "kind": "fight_count",
+                  "target": "self",
+                  "amount": {
+                    "term": "count"
+                  },
+                  "scale": "none"
+                },
+                {
+                  "kind": "lose_hp",
+                  "target": "self",
+                  "amount": {
+                    "term": "fight_ones"
+                  },
+                  "scale": "none"
+                },
+                {
+                  "kind": "poison",
+                  "target": "self",
+                  "amount": {
+                    "term": "fight_ones"
+                  },
+                  "scale": "none"
+                },
+                {
+                  "kind": "max_hp",
+                  "target": "self",
+                  "amount": {
+                    "term": "count"
+                  },
+                  "empty": true,
+                  "scale": "none"
+                }
+              ]
+            },
+            {
+              "name": "Take Root",
+              "trigger": {
+                "kind": "triple",
+                "amount": 1
+              },
+              "text": "Three of a kind: gain Resonance max health for this fight, then deal damage equal to the health you are missing.",
+              "effects": [
+                {
+                  "kind": "max_hp",
+                  "target": "self",
+                  "amount": {
+                    "term": "resonance"
+                  },
+                  "for_fight": true,
+                  "empty": true,
+                  "scale": "none"
+                },
+                {
+                  "kind": "damage",
+                  "amount": {
+                    "term": "hp_missing"
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Transfusion",
+              "trigger": {
+                "kind": "quad",
+                "amount": 1
+              },
+              "text": "Four of a kind: heal Resonance, and deal the health restored to every creature.",
+              "effects": [
+                {
+                  "kind": "heal",
+                  "amount": {
+                    "term": "resonance"
+                  }
+                },
+                {
+                  "kind": "damage",
+                  "target": "enemies",
+                  "amount": 100,
+                  "from_result": "healed",
+                  "scale": "none"
+                }
+              ]
+            },
+            {
+              "name": "Heartsblood",
+              "trigger": {
+                "kind": "quint",
+                "amount": 1
+              },
+              "text": "Five of a kind: deal damage equal to your max health to a random creature, once for every point in the set.",
+              "effects": [
+                {
+                  "kind": "damage",
+                  "target": "enemy_random",
+                  "amount": {
+                    "term": "max_hp"
+                  },
+                  "repeat": {
+                    "op": "*",
+                    "args": [
+                      {
+                        "term": "value"
+                      },
+                      {
+                        "term": "count"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
     },
     "PUCK": {
       "name": "Puck",
@@ -5487,8 +6198,7 @@
         "hue": "d4557a",
         "hue2": "4e9c5a",
         "changing_face": true,
-        "text": "Watermelon tourmaline, pink one half and green the other, in a checkerboard cut. The Changing Face: a face different from last turn's pays double, and every turn the faces keep changing pays one more.",
-        "face": "One eye winking, mouth half grin, half frown.",
+        "text": "The Changing Face: a face different from last turn's pays double, and every turn the faces keep changing pays one more.",
         "tiers": [
           {
             "name": "The Cruel Face",
@@ -5574,7 +6284,149 @@
             ]
           }
         ]
-      }
+      },
+      "variants": [
+        {
+          "key": "HIGHS_AND_LOWS",
+          "price": 1000,
+          "name": "Highs and Lows",
+          "emblem": "two_masks",
+          "style": "cameo",
+          "hue": "c9607c",
+          "hue2": "1e1a22",
+          "text": "A die on its crown is a Happy Face and a die on a 1 a Sad Face, and a bigger die pulls a bigger one.",
+          "keywords": {
+            "face": "A Happy Face is a die showing its crown. A Sad Face is a die showing 1. Sleight turns one into the other."
+          },
+          "tiers": [
+            {
+              "name": "Comedy",
+              "trigger": {
+                "kind": "crowns",
+                "amount": 1
+              },
+              "text": "A Happy Face: each one strikes for Resonance, once for every size its die is over a d4.",
+              "effects": [
+                {
+                  "kind": "damage",
+                  "amount": {
+                    "term": "resonance"
+                  },
+                  "repeat": {
+                    "term": "crown_steps"
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Tragedy",
+              "trigger": {
+                "kind": "value",
+                "values": [1],
+                "amount": 1
+              },
+              "text": "A Sad Face: each one gives Resonance block, counted the same way.",
+              "effects": [
+                {
+                  "kind": "block",
+                  "amount": {
+                    "op": "*",
+                    "args": [
+                      {
+                        "term": "resonance"
+                      },
+                      {
+                        "term": "one_steps"
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Standing Ovation",
+              "trigger": {
+                "kind": "all_faces",
+                "amount": 2
+              },
+              "text": "Every die a Face: your dice grow a size for the rest of the fight.",
+              "effects": [
+                {
+                  "kind": "grow_dice",
+                  "target": "self",
+                  "amount": 1,
+                  "scale": "none"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "PATCHWORK",
+          "price": 2500,
+          "name": "Patchwork",
+          "emblem": "patches",
+          "style": "lozenge",
+          "hue": "c85a9a",
+          "hue2": "4aa0c0",
+          "text": "The dice go to the gems. The Birthstone counts the colors they fire.",
+          "tiers": [
+            {
+              "name": "Scraps",
+              "trigger": {
+                "kind": "colors",
+                "amount": 3
+              },
+              "text": "Three colors fired: deal Resonance for every color that fired.",
+              "effects": [
+                {
+                  "kind": "damage",
+                  "amount": {
+                    "term": "resonance"
+                  },
+                  "repeat": {
+                    "term": "count"
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Quilt",
+              "trigger": {
+                "kind": "colors",
+                "amount": 4
+              },
+              "text": "Four colors: each color that fired also gives its gift, worth Resonance. Red damage, Blue block, Green healing, Violet poison, Gold pyrite. White gives 1 Charged for each color.",
+              "effects": [
+                {
+                  "kind": "quilt",
+                  "target": "self",
+                  "amount": {
+                    "term": "resonance"
+                  },
+                  "scale": "none"
+                }
+              ]
+            },
+            {
+              "name": "Whole Cloth",
+              "trigger": {
+                "kind": "colors",
+                "amount": 6
+              },
+              "text": "All six: throw all your dice again. Every gem reads the new hand and may fire once more.",
+              "effects": [
+                {
+                  "kind": "second_act",
+                  "target": "self",
+                  "amount": 1,
+                  "scale": "none"
+                }
+              ]
+            }
+          ]
+        }
+      ]
     },
     "FLORIN": {
       "name": "Florin",
@@ -5616,8 +6468,7 @@
         "emblem": "dice_pair",
         "style": "heptagon",
         "hue": "c9a13a",
-        "text": "Pyrite in a lopsided seven-sided cut, flecked with fool's gold.",
-        "face": "Wide eyes, a whoop.",
+        "text": "Crowns pay the Gambler, and a hand with none goes bust.",
         "tiers": [
           {
             "name": "Lucky",
@@ -5753,7 +6604,216 @@
             ]
           }
         ]
-      }
+      },
+      "variants": [
+        {
+          "key": "ONE_ARMED_BANDIT",
+          "price": 1000,
+          "name": "One-Armed Bandit",
+          "emblem": "reels",
+          "style": "lucky_star",
+          "hue": "d09a2a",
+          "hue2": "c41e3a",
+          "text": "Matching dice pay, and the number they match on names the prize.",
+          "keywords": {
+            "prize": "By the number matched. 1s heal Resonance. 2s give Resonance block. 3s poison for Resonance. 4s pay Resonance pyrite. 5s deal 2× Resonance. 7s deal 4× Resonance."
+          },
+          "prizes": {
+            "1": {
+              "kind": "heal",
+              "target": "self",
+              "mult": 1
+            },
+            "2": {
+              "kind": "block",
+              "target": "self",
+              "mult": 1
+            },
+            "3": {
+              "kind": "poison",
+              "target": "enemy",
+              "mult": 1
+            },
+            "4": {
+              "kind": "gold",
+              "target": "self",
+              "mult": 1
+            },
+            "5": {
+              "kind": "damage",
+              "target": "enemy",
+              "mult": 2
+            },
+            "7": {
+              "kind": "damage",
+              "target": "enemy",
+              "mult": 4
+            },
+            "other": {
+              "kind": "damage",
+              "target": "enemy",
+              "value_less": 3
+            }
+          },
+          "tiers": [
+            {
+              "name": "Two of a kind",
+              "trigger": {
+                "kind": "set",
+                "amount": 2,
+                "max": 2
+              },
+              "text": "A pair: its Prize.",
+              "effects": [
+                {
+                  "kind": "prize",
+                  "target": "self",
+                  "amount": 1,
+                  "scale": "none"
+                }
+              ]
+            },
+            {
+              "name": "Three of a kind",
+              "trigger": {
+                "kind": "set",
+                "amount": 3,
+                "max": 4
+              },
+              "text": "Three or four of a kind: its Prize, three times.",
+              "effects": [
+                {
+                  "kind": "prize",
+                  "target": "self",
+                  "amount": 3,
+                  "scale": "none"
+                }
+              ]
+            },
+            {
+              "name": "Jackpot",
+              "trigger": {
+                "kind": "set",
+                "amount": 5
+              },
+              "text": "Five of a kind: its Prize seven times, and 7× Resonance pyrite.",
+              "effects": [
+                {
+                  "kind": "prize",
+                  "target": "self",
+                  "amount": 7,
+                  "scale": "none"
+                },
+                {
+                  "kind": "gold",
+                  "target": "self",
+                  "amount": {
+                    "op": "*",
+                    "args": [
+                      7,
+                      {
+                        "term": "resonance"
+                      }
+                    ]
+                  },
+                  "scale": "none"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "BLACKJACK",
+          "price": 2500,
+          "name": "Blackjack",
+          "emblem": "ace_card",
+          "style": "card",
+          "hue": "4a3418",
+          "hue2": "e0a030",
+          "text": "Bring the hand's total to 21 without going over.",
+          "tiers": [
+            {
+              "name": "Stand",
+              "trigger": {
+                "kind": "total_window",
+                "amount": 17,
+                "max": 20
+              },
+              "text": "A total of 17 to 20: deal Resonance for every point over 16.",
+              "effects": [
+                {
+                  "kind": "damage",
+                  "amount": {
+                    "op": "*",
+                    "args": [
+                      {
+                        "term": "resonance"
+                      },
+                      {
+                        "op": "-",
+                        "args": [
+                          {
+                            "term": "total"
+                          },
+                          16
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Twenty-One",
+              "trigger": {
+                "kind": "total_window",
+                "amount": 21,
+                "max": 21
+              },
+              "text": "Exactly 21: deal 7× Resonance three times, and gain 21 pyrite.",
+              "effects": [
+                {
+                  "kind": "damage",
+                  "amount": {
+                    "op": "*",
+                    "args": [
+                      7,
+                      {
+                        "term": "resonance"
+                      }
+                    ]
+                  },
+                  "repeat": 3
+                },
+                {
+                  "kind": "gold",
+                  "target": "self",
+                  "amount": 21,
+                  "scale": "none"
+                }
+              ]
+            },
+            {
+              "name": "Bust",
+              "trigger": {
+                "kind": "total_window",
+                "amount": 22
+              },
+              "penalty": true,
+              "text": "22 or more: take Resonance damage.",
+              "effects": [
+                {
+                  "kind": "damage",
+                  "target": "self",
+                  "amount": {
+                    "term": "resonance"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
     }
   },
   "boons": {
@@ -10548,7 +11608,7 @@
       "hp": 36,
       "block": 0,
       "threat": 4,
-      "text": "An eye in an opening iris of dark petals. Unmake destroys one of your dice for the rest of the fight.",
+      "text": "An eye in an opening iris of dark petals. Unmake breaks one of your dice for the rest of the fight.",
       "tip": "Unmake takes a die for the whole fight.",
       "dice": [
         {
@@ -10589,7 +11649,7 @@
           "kind": "meddle",
           "mark": "snare_d",
           "anim": "cast",
-          "text": "Destroys one of your dice for the rest of the fight",
+          "text": "Breaks one of your dice for the rest of the fight",
           "trigger": { "kind": "face" },
           "effects": [
             {
@@ -12029,8 +13089,26 @@
       "choices": [
         {
           "id": "take",
-          "label": "Work the eye loose",
-          "text": "Each pull costs more HP than the last.",
+          "label": "Try to pull it",
+          "text": "Costs {hp} HP.",
+          "again": [
+            {
+              "label": "Pull harder",
+              "text": "It's still stuck. Costs {hp} HP."
+            },
+            {
+              "label": "Brace and pull",
+              "text": "It shifts, but holds. Costs {hp} HP."
+            },
+            {
+              "label": "Heave",
+              "text": "The rock around it cracks. Costs {hp} HP."
+            },
+            {
+              "label": "One last pull",
+              "text": "It's nearly loose. Costs {hp} HP."
+            }
+          ],
           "action": {
             "kind": "idol",
             "hp": 3,

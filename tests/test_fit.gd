@@ -46,10 +46,12 @@ func _init() -> void:
 	await _workshop(app)
 	await _menu(app)
 	await _inspector()
+	await _worn_home(app)
 	await _enemy_panels()
 	await _appraisals(app)
 	await _run(app)
 	await _void_views(app)
+	await _worn_run(app)
 	await _die_plates()
 	print("Fit: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
@@ -115,6 +117,7 @@ func _workshop(app: Control) -> void:
 				home._bench_socket = picked
 				home.open("delvers", true)
 				await _fits(screen, "the Delvers tab on %s's %s%s" % [str(key), view, " with one picked" if picked >= 0 else ""])
+	await _birthstones(app)
 	## Every page of the sockets' stone picker, as tiles and as a list.
 	for layout in ["grid", "list"]:
 		load("res://view/home/stone_browser.gd").settings(home, "sockets").layout = layout
@@ -474,6 +477,196 @@ func _look(kind: String, item: Dictionary, what: String) -> void:
 			sheet.call("show_page", page)
 			await _fits(sheet, "%s%s, page '%s'" % [what, " (won)" if not fanfare.is_empty() else "", str(page)])
 		sheet.free()
+
+# --- the worn Birthstone (November 12, 2026) -----------------------------------------------------
+
+func _worn_day(borrowed: bool) -> String:
+	## The next day whose seam lends its delver a variant of their own, or borrows another's.
+	var stamp: int = int(Time.get_unix_time_from_datetime_string("2026-11-12"))
+	for i in range(800):
+		var date: String = Time.get_date_string_from_unix_time(stamp + i * 86400)
+		var plan: Dictionary = DeepEconomy.daily_plan(date)
+		var lent: bool = plan.get("mods", []).has("BORROWED_BIRTHSTONE")
+		if borrowed and lent and not str(plan.get("birthstone_key", "")).is_empty():
+			return date
+		if not borrowed and not lent and not str(plan.get("worn", "")).is_empty():
+			return date
+	return DeepEconomy.today()
+
+func _wordiest_variant(character: String) -> String:
+	## The delver's variant with the longest name.
+	var keys: Array = DeepContent.birthstone_keys(character).filter(func(k: Variant) -> bool: return not str(k).is_empty())
+	keys.sort_custom(func(a: Variant, b: Variant) -> bool:
+		return str(DeepContent.birthstone_def(character, str(a)).get("name", "")).length() > str(DeepContent.birthstone_def(character, str(b)).get("name", "")).length())
+	return str(keys[0]) if not keys.is_empty() else ""
+
+func _head_starters() -> Array:
+	## Every Birthstone a deep start gives a head start, as [delver, key].
+	return DeepContent.all_birthstones().filter(func(pair: Array) -> bool: return DeepContent.birthstone_def(str(pair[0]), str(pair[1])).get("head_start", null) is Dictionary)
+
+func _worn_home(app: Control) -> void:
+	## The workshop with every delver in the variant with the longest name: the party's lines,
+	## the way down to the deepest mine with a head start said, the day's seam lending a variant
+	## and borrowing a stone, and a ledger that names the stone on every run and keeps every
+	## delver's conquests by stone.
+	var home: Control = app.home
+	var kept: Dictionary = {"characters": app.profile.characters.duplicate(true), "history": app.profile.history.duplicate(true), "mines": app.profile.mines.duplicate(true),
+		"current": str(app.profile.current_character), "conquests": app.profile.get("stone_conquests", {}).duplicate(true)}
+	var delvers: Array = DeepContent.characters_in_unlock_order()
+	for key in delvers:
+		var record: Dictionary = app.profile.characters[str(key)]
+		record.birthstones = DeepContent.birthstone_keys(str(key)).filter(func(k: Variant) -> bool: return not str(k).is_empty())
+		record.birthstone = _wordiest_variant(str(key))
+	var lobby: Dictionary = app.session.lobby.duplicate(true)
+	for i in range(1, 4):
+		var id: String = "p%d" % i
+		var who: String = str(delvers[(delvers.size() - i) % delvers.size()])
+		lobby.order.append(id)
+		lobby.members[id] = {"name": "Guest With A Long Name %d" % i, "character": who, "birthstone": _wordiest_variant(who), "ready": i % 2 == 0, "connected": true, "showcase": []}
+	for host in [true, false]:
+		home.refresh(app.profile, lobby, "hosting" if host else "joined", host, app.session.local_id if host else "p1", false, app.settings, "109775241234567890")
+		home.open("descend")
+		home._party_open = true
+		home._render()
+		await _fits(screen, "the party with the wordiest Birthstones worn%s" % ("" if host else ", as a guest"))
+		check(home.find_children("GoingAs", "Label", true, false).size() == lobby.order.size(), "every member's line says who they go down as")
+	home._party_open = false
+	## Every mine below the first, in each stone a deep start gives a head start, going down alone.
+	var solo: Dictionary = app.session.lobby.duplicate(true)
+	solo.daily = ""
+	for key in DeepContent.mines_in_order():
+		app.profile.mines[str(key)].merge({"unlocked": true, "boss": not DeepContent.is_endless(str(key)), "deepest": DeepContent.mine_bottom(str(key)), "runs": 99}, true)
+	var deep_starts: Array = []
+	for mine_key in DeepContent.mines_in_order().slice(1):
+		for starter in _head_starters():
+			deep_starts.append([str(mine_key), starter])
+	for deep_start in deep_starts:
+		var deepest: String = str(deep_start[0])
+		var pair: Array = deep_start[1]
+		app.profile.current_character = str(pair[0])
+		app.profile.characters[str(pair[0])].birthstone = str(pair[1])
+		solo.mine = deepest
+		home.refresh(app.profile, solo, "hosting", true, app.session.local_id, true, app.settings, "")
+		home.open("descend")
+		await _fits(screen, "the way down to %s in %s" % [deepest, str(pair[1])])
+		var start: Node = home.find_child("StartWith", true, false)
+		var start_said: Node = start.find_child("Value", true, false) if start != null else null
+		check(start_said is Label and (start_said as Label).text.contains(" and "), "the way down to %s says what %s opens with" % [deepest, str(pair[1])])
+	app.profile.current_character = str(kept.current)
+	## The day's seam lending a variant, and borrowing another delver's stone.
+	for borrowed in [false, true]:
+		lobby.daily = _worn_day(borrowed)
+		home.refresh(app.profile, lobby, "hosting", true, app.session.local_id, false, app.settings, "109775241234567890")
+		home.open("descend")
+		await _fits(screen, "the daily dig %s" % ("borrowing a Birthstone" if borrowed else "lending a variant"))
+		check(home.find_child("LentStone", true, false) != null, "the daily dig says the stone it %s" % ("borrows" if borrowed else "lends"))
+	lobby.daily = ""
+	home.refresh(app.profile, lobby, "hosting", true, app.session.local_id, false, app.settings, "109775241234567890")
+	## The ledger: every run in a variant, and conquests kept for every delver's every stone.
+	for i in range(app.profile.history.size()):
+		var who: String = str(delvers[i % delvers.size()])
+		app.profile.history[i].character = who
+		if not bool(app.profile.history[i].get("daily", false)):
+			app.profile.history[i].birthstone = _wordiest_variant(who)
+	var noted: int = 0
+	for pair in DeepContent.all_birthstones():
+		for key in DeepContent.mines_in_order():
+			noted += 1
+			if noted % 3 != 0:
+				DeepProfile.note_stone_conquest(app.profile, str(pair[0]), str(pair[1]), str(key))
+	for page in range(3):
+		home._pages["ledger"] = page
+		home.open("profile", true)
+		await _fits(screen, "page %d of the profile's runs, every one in a variant" % page)
+	home._pages["ledger"] = 0
+	home.open("profile", true)
+	await process_frame
+	await process_frame
+	var named: Array = home.find_children("DugAs", "Label", true, false)
+	check(not named.is_empty(), "every run on the ledger's page names its delver and their stone")
+	var marks: Control = home.find_child("StoneMarks", true, false)
+	var heads: Control = home.find_child("StoneHeads", true, false)
+	check(marks != null and heads != null and absf(marks.get_global_rect().position.x - heads.get_global_rect().position.x) <= 1.0 and absf(marks.get_global_rect().end.x - heads.get_global_rect().end.x) <= 1.0,
+		"the ledger's conquest marks stand under their delvers' faces")
+	app.profile.characters = kept.characters
+	app.profile.history = kept.history
+	app.profile.mines = kept.mines
+	app.profile.stone_conquests = kept.conquests
+	app.profile.current_character = str(kept.current)
+	app._profile_changed()
+	home.refresh(app.profile, app.session.lobby, "hosting", true, app.session.local_id, false, app.settings, "")
+	home.open("descend")
+	await process_frame
+
+func _worn_run(app: Control) -> void:
+	## Down the mine in a variant: the shaft head of the deepest start in each stone with a head
+	## start, the bench's rail ending in it, its tip, and the close look at every one of the
+	## eighteen as its wearer opens it (a count kept, a head start said), worn by its own delver
+	## and lent to another, with a party member's sheet beside it.
+	var descent: Control = app.descent
+	var me_id: String = app.session.local_id
+	var inspector: Script = load("res://view/inspect/inspector.gd")
+	var plates: Script = load("res://view/ui/plates.gd")
+	var deepest: String = str(DeepContent.mines_in_order().back())
+	descent._end_shown = false
+	descent._pages = {}
+	descent._over_tab = "run"
+	descent._over_seen = {}
+	descent._hold = {}
+	descent._stake_choosing = ""
+	for pair in _head_starters():
+		var who: String = str(pair[0])
+		var dice: Array = []
+		var keys: Array = DeepContent.character(who).dice
+		for index in range(keys.size()):
+			dice.append(DeepForge.die_from(keys[index], "fit_worn_d%d" % index))
+		var rail: Array = []
+		for skill in ["STRIKE", "GUARD", "MEND"]:
+			var stone: Dictionary = DeepStone.make(str(skill), 4, 2, 3, [], {}, "fit_worn_%s" % str(skill).to_lower())
+			stone.appraised = true
+			rail.append(stone)
+		var state: Dictionary = DeepDescent.new_run({"seed": 4242, "mine": deepest, "boons": true, "players": [{"id": me_id, "name": "W".repeat(DeepProfile.NAME_LIMIT), "character": who, "rail": rail, "dice": dice, "birthstone": str(pair[1])}]})
+		var unit: Dictionary = DeepDescent.player(state, me_id)
+		check(not unit.get("head_start", {}).is_empty(), "%s opens the deepest start with a head start" % str(pair[1]))
+		descent.show_state(state)
+		await _fits(screen, "the shaft head of a %s start in %s" % [deepest, str(pair[1])])
+		await _above_dock(descent, "the shaft head of a %s start in %s" % [deepest, str(pair[1])])
+		check(descent._page_holder.find_child("HeadStart", true, false) != null, "the shaft head says what %s opens with" % str(pair[1]))
+		descent.open_bench("gems")
+		await _fits(screen, "the bench's rail ending in %s" % str(pair[1]))
+		descent._bench.close()
+		var tip: Control = descent._run_dock._birth_plate(unit, DeepStone.birthstone_for(unit))
+		screen.add_child(tip)
+		await _fits(tip, "the tip of %s on the run dock" % str(pair[1]))
+		check(tip.get_combined_minimum_size().x <= plates.WIDTH + 1.0, "%s's tip stays a plate wide (%d)" % [str(pair[1]), int(tip.get_combined_minimum_size().x)])
+		tip.free()
+	## Every Birthstone's sheet as its wearer opens it down the mine, with the most it can say.
+	for pair in DeepContent.all_birthstones():
+		for lent in [false, true]:
+			var wearer: String = str(pair[0]) if not lent else ("ARDOR" if str(pair[0]) != "ARDOR" else "CADENCE")
+			var unit: Dictionary = DeepBattle.make_player("fit_worn", "W".repeat(DeepProfile.NAME_LIMIT), wearer, [], [], -1, [], "")
+			DeepBattle.wear(unit, str(pair[0]), str(pair[1]))
+			unit.run_counts = {DeepBattle.TROPHIES: 999999, DeepBattle.GROWN: 99999}
+			unit.head_start = {"trophies": 9999, "max_hp": 9999}
+			var named: String = str(pair[1]) if not str(pair[1]).is_empty() else str(pair[0]) + "'s first stone"
+			var sheet: CanvasLayer = inspector.new()
+			screen.add_child(sheet)
+			sheet.call("_frame", DeepUi.ACCENT, {})
+			sheet.call("_fill_birthstone", DeepStone.birthstone_for(unit), {"unit": unit})
+			for page in sheet.call("page_names"):
+				sheet.call("show_page", page)
+				await _fits(sheet, "the close look at %s as %s wears it down the mine, page '%s'" % [named, wearer, str(page)])
+			sheet.free()
+			if lent:
+				continue
+			var member: CanvasLayer = inspector.new()
+			screen.add_child(member)
+			member.call("_frame", DeepUi.ACCENT, {})
+			member.call("_fill_member", unit, DeepUi.ACCENT)
+			for page in member.call("page_names"):
+				member.call("show_page", page)
+				await _fits(member, "a party member in %s, page '%s'" % [named, str(page)])
+			member.free()
 
 # --- the appraisal -----------------------------------------------------------------------------
 
@@ -1216,6 +1409,77 @@ func _rect(rect: Rect2) -> String:
 	return "(%d,%d %dx%d)" % [int(rect.position.x), int(rect.position.y), int(rect.size.x), int(rect.size.y)]
 
 # --- a full workshop ---------------------------------------------------------------------------
+
+func _birthstones(app: Control) -> void:
+	## A delver's three Birthstones (November 12, 2026). The dossier with each of the three
+	## read, for every delver: locked, with its Unlock and then the question the first press
+	## puts in its place; and owned, with Wear, a crown's count on every stone and a variant
+	## worn. Then the swap hung under the rail's Birthstone tile.
+	var home: Control = app.home
+	var purse: int = int(app.profile.gold)
+	for bought in [false, true]:
+		for key in DeepContent.characters_in_unlock_order():
+			var who: String = str(key)
+			var stones: Array = DeepContent.birthstone_keys(who)
+			check(stones.size() == 3, "%s has three Birthstones (%d)" % [who, stones.size()])
+			if bought:
+				for stone in stones:
+					DeepEconomy.unlock_birthstone(app.profile, who, str(stone))
+					for mine in DeepContent.mines_in_order():
+						DeepProfile.note_stone_conquest(app.profile, who, str(stone), str(mine))
+				DeepProfile.wear_birthstone(app.profile, who, str(stones.back()))
+			home._roster_pick = who
+			home._roster_view = "dossier"
+			home.open("delvers", true)
+			for stone in stones:
+				var said: String = str(DeepContent.birthstone_def(who, str(stone)).get("name", stone))
+				home.read_birthstone(who, str(stone))
+				await _fits(screen, "%s's dossier reading %s%s" % [who, said, ", owned" if bought else ""])
+				var row: Node = home.find_child("BirthStones", true, false)
+				check(row != null and row.get_child_count() == 3, "%s's dossier shows three stones while reading %s" % [who, said])
+				var read: Node = home.find_child("Stone_" + (str(stone) if not str(stone).is_empty() else "FIRST"), true, false)
+				check(read != null and bool(read.get_meta("read", false)), "%s is the stone ringed while it is read" % said)
+				var unlock: Node = home.find_child("Unlock", true, false)
+				var wear: Node = home.find_child("Wear", true, false)
+				if bought:
+					var worn: bool = str(stone) == str(stones.back())
+					check(unlock == null and (wear != null) != worn and (home.find_child("Worn", true, false) != null) == worn, "%s, owned, offers Wear unless it is the one worn" % said)
+					check(read != null and read.find_child("Conquests", true, false) != null, "%s wears its crown count" % said)
+				elif str(stone).is_empty():
+					check(unlock == null and wear == null and home.find_child("Worn", true, false) != null, "%s, their first, is worn and has no button" % said)
+				else:
+					check(unlock is Button and not (unlock as Button).disabled and wear == null, "%s, not bought, offers Unlock" % said)
+					if unlock is Button:
+						(unlock as Button).pressed.emit()
+						await _fits(screen, "%s's dossier asking whether to unlock %s" % [who, said])
+						check(home.find_child("UnlockYes", true, false) is Button and home.find_child("UnlockNo", true, false) is Button and home.find_child("Unlock", true, false) == null,
+							"%s's Unlock gives way to the question and its two answers" % said)
+						check(int(app.profile.gold) == purse and not DeepProfile.owns_birthstone(app.profile, who, str(stone)), "asking about %s buys nothing" % said)
+						home.ask_birthstone("")
+			## The swap under the rail's tile: three stones, inside the screen wherever the tile stands.
+			home._roster_view = "sockets"
+			home.open("delvers", true)
+			home._birth_swap = true
+			home._render()
+			await _fits(screen, "%s's sockets with the Birthstone swap open%s" % [who, ", all owned" if bought else ""])
+			var card: Node = home._overlay.find_child("SwapCard", true, false)
+			var tile: Node = home.find_child("BirthstoneTile", true, false)
+			check(card is Control and tile is Control, "%s's Birthstone swap is drawn" % who)
+			if card is Control and tile is Control:
+				var hung: Rect2 = (card as Control).get_global_rect()
+				var under: Rect2 = (tile as Control).get_global_rect()
+				check(hung.position.y >= under.end.y and absf(hung.end.x - under.end.x) <= 1.5 and hung.size.y > 60.0, "the swap hangs under %s's tile, their right edges in line (%s under %s)" % [who, _rect(hung), _rect(under)])
+				check(card.find_children("Swap_*", "PanelContainer", true, false).size() == 3, "the swap lists %s's three stones" % who)
+			home._birth_swap = false
+	## As it was, for everything after.
+	for key in DeepContent.characters_in_unlock_order():
+		app.profile.characters[str(key)].erase("birthstones")
+		app.profile.characters[str(key)].erase("birthstone")
+	app.profile.erase("stone_conquests")
+	app.profile.gold = purse
+	home._roster_pick = ""
+	home._roster_view = "dossier"
+	home._birth_of = ""
 
 func _bestiary(app: Control) -> void:
 	## Every creature picked on its mine's page, on every page of its sheet, and one not met.

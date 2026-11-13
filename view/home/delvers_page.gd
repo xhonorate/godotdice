@@ -15,6 +15,9 @@ const BattleScreen = preload("res://view/battle/battle_screen.gd")
 
 ## How many vault stones the socket picker shows a page: three rows.
 const PICK_PAGE: int = 42
+## How wide the dossier's Birthstone card stands: wide enough that the longest tier's words
+## (Bloodroot's) fit under its three stones at the largest text, with the page's height.
+const BIRTH_WIDE: float = 560.0
 ## When a click set a stone in the picked socket: the grid is drawn again at once, so the
 ## second press of a double-click lands on whatever tile now stands under the pointer, and
 ## must not set that one as well.
@@ -115,11 +118,16 @@ static func _dossier(home: Control, content: VBoxContainer, key: String, unlocke
 	## Everything about one delver: portrait, health, dice, sockets, passive, Birthstone.
 	var character: Dictionary = DeepContent.character(key)
 	var passive: Dictionary = character.get("passive", {})
-	var stone: Dictionary = DeepStone.birthstone(key)
-	var tint: Color = GemMesh.tint(stone) if not stone.is_empty() else DeepUi.ACCENT
+	## The stone they wear: the page is tinted by it, and it stands at the end of their sockets.
+	var stone: Dictionary = DeepStone.birthstone(key, DeepProfile.worn_birthstone(home.profile, key))
+	var tint: Color = HomeParts.birth_tone(stone)
 	var card := DeepUi.card(content, Color(tint if unlocked else DeepUi.LINE, 0.5), 18)
 	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	var box := DeepUi.vbox(card, 14)
+	## Who they are and their kit over the page's buttons, and beside all of it, the height of
+	## the page, their Birthstones: three stones and a ladder of up to six tiers want the room.
+	var sides := DeepUi.hbox(card, 24)
+	var box := DeepUi.vbox(sides, 14)
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var columns := DeepUi.hbox(box, 24)
 	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	var left := DeepUi.vbox(columns, 8)
@@ -158,36 +166,12 @@ static func _dossier(home: Control, content: VBoxContainer, key: String, unlocke
 	var passive_box := DeepUi.vbox(passive_card, 3)
 	DeepUi.title(passive_box, str(passive.get("name", "Passive")), 16, DeepUi.ACCENT_HI)
 	DeepUi.wrap(passive_box, str(passive.get("text", "")), 13, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_LEFT, 380)
-	var right := DeepUi.vbox(columns, 10)
-	right.custom_minimum_size.x = 420
-	var birth_card := DeepUi.card(right, Color(tint, 0.6), 14, Color(0.07, 0.06, 0.09, 0.92))
-	var birth_box := DeepUi.vbox(birth_card, 3)
-	var birth_head := DeepUi.hbox(birth_box, 12)
-	if not stone.is_empty():
-		var picture := StoneCard.mini(birth_head, stone, 84, str(stone.get("name", "")) + "\n" + str(stone.get("text", "")))
-		picture.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	var birth_names := DeepUi.vbox(birth_head, 2)
-	birth_names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	DeepUi.label(birth_names, "Birthstone", 11, DeepUi.DIM)
-	DeepUi.title(birth_names, str(stone.get("name", "")), 22, tint.lightened(0.35))
-	DeepUi.wrap(birth_names, str(stone.get("text", "")), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 290)
-	var die: String = DiceIcons.ladder_die(stone.get("tiers", []))
-	for tier in stone.get("tiers", []):
-		var tier_row := DeepUi.hbox(birth_box, 10)
-		tier_row.mouse_filter = Control.MOUSE_FILTER_PASS
-		var mark := DeepUi.center(tier_row)
-		## Marks at 20 with their words at the text floor ("d4/d12 ×5" was 9 px at 14).
-		mark.custom_minimum_size.x = 92 if die.is_empty() else 100
-		if DiceIcons.ladder_rung(tier, die) > 0:
-			DiceIcons.build_ladder(mark, [tier], die, DiceIcons.ladder_rung(tier, die), 20, DeepUi.MUTED, DeepUi.DIM)
-		else:
-			DiceIcons.build(mark, DeepPatterns.describe(tier.get("trigger", {"kind": "always"}), 0), 20, DeepUi.MUTED, str(tier.get("text", "")))
-		var words := DeepUi.vbox(tier_row, 1)
-		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		DeepUi.label(words, str(tier.get("name", "")), 13, DeepUi.PAPER)
-		DeepUi.wrap(words, str(tier.get("text", "")), 11, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 300)
+	## Their Birthstones, drawn again on their own when another of the three is read.
+	var right := DeepUi.vbox(sides, 10)
+	right.custom_minimum_size.x = BIRTH_WIDE
+	home.region(right, "birthstone", func(holder: Control) -> void: _birth_card(home, holder, key, unlocked))
 	var actions := DeepUi.hbox(box, 12)
-	## The face they pull when the Birthstone fires sits at the foot of the card, beside the
+	## The face they pull when the Birthstone fires sits at the foot of the page, beside the
 	## buttons: the Birthstone's column is the tallest on the page and has no line to spare.
 	## The face itself, not words for it (a line of stage directions read as a stray note).
 	## A locked delver's would give their face away, so only an unlocked one shows it.
@@ -210,6 +194,29 @@ static func _dossier(home: Control, content: VBoxContainer, key: String, unlocke
 		var picked_key: String = key
 		DeepUi.primary(actions, "descend", "Go down as %s" % str(character.get("name", key)), func() -> void: home.choose_character(picked_key), 16)
 	home.enter(card, 0.1)
+
+static func _birth_card(home: Control, holder: Control, key: String, unlocked: bool) -> void:
+	## The delver's three Birthstones as small stones, and the one of them being read: its
+	## name, its words and its tiers, so a stone not bought yet is read before it is paid for.
+	## At the card's foot, what is done with it: Wear, or Unlock and its second press
+	## (HomeParts.birth_action). The card stands the height of the page whatever the ladder's
+	## length, so that button never moves from stone to stone.
+	var read: String = home.birth_read(key)
+	var stone: Dictionary = DeepStone.birthstone(key, read)
+	var tint: Color = HomeParts.birth_tone(stone)
+	var birth_card := DeepUi.card(holder, Color(tint, 0.6), 14, Color(0.07, 0.06, 0.09, 0.92))
+	birth_card.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var birth_box := DeepUi.vbox(birth_card, 6)
+	var birth_head := DeepUi.hbox(birth_box, 14)
+	HomeParts.birth_stones(home, birth_head, key, read, unlocked)
+	var birth_names := DeepUi.vbox(birth_head, 0)
+	birth_names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	DeepUi.label(birth_names, "Birthstone", 11, DeepUi.DIM)
+	DeepUi.title(birth_names, str(stone.get("name", "")), 22, HomeParts.birth_name_tone(stone))
+	HomeParts.stone_words(birth_box, str(stone.get("text", "")), stone, 12, DeepUi.MUTED)
+	HomeParts.birth_ladder(birth_box, stone)
+	DeepUi.spacer(birth_box, false)
+	HomeParts.birth_action(home, birth_box, key, read, unlocked)
 
 # --- sockets --------------------------------------------------------------------------------------
 
@@ -250,7 +257,10 @@ static func _sockets_view(home: Control, content: VBoxContainer, character_key: 
 		var skill: String = home.rail_skill(record, index)
 		var stone: Dictionary = DeepProfile.owned(home.profile, skill) if DeepProfile.fillable_socket(home.profile, character_key, index) and skill != "" else {}
 		home.enter(_socket_slot(home, rail_row, index, str(sockets[index]), stone, character_key), 0.05 + 0.04 * index)
-	home.enter(HomeParts.BirthstoneCard.new(rail_row, character_key), 0.05 + 0.04 * sockets.size())
+	## The Birthstone they wear, at the end of the rail: a click swaps it for another they own.
+	var birth_tile := HomeParts.BirthstoneCard.new(rail_row, character_key, 150.0, false, DeepProfile.worn_birthstone(home.profile, character_key), true)
+	home.enter(birth_tile, 0.05 + 0.04 * sockets.size())
+	HomeParts.swap_tile(home, birth_tile, character_key)
 	## The vault to set from, through the stone browser.
 	var tray_card := DeepUi.card(content, DeepUi.LINE, 14)
 	tray_card.size_flags_vertical = Control.SIZE_EXPAND_FILL

@@ -427,23 +427,28 @@ static func place_of(unit: Dictionary, index: int) -> Dictionary:
 # --- the Birthstone -------------------------------------------------------------------------
 
 static func birthstone_for(unit: Dictionary) -> Dictionary:
-	## The Birthstone a unit carries: its own lapidary's, or the one a daily dig lends it.
-	return birthstone(str(unit.get("birthstone_of", unit.get("character", ""))))
+	## The Birthstone a unit carries: the one of its own lapidary's it wears (`birthstone_key`),
+	## or the one a daily dig lends it (`birthstone_of`).
+	return birthstone(str(unit.get("birthstone_of", unit.get("character", ""))), str(unit.get("birthstone_key", "")))
 
-static func birthstone(character_key: String) -> Dictionary:
+static func birthstone(character_key: String, key: String = "") -> Dictionary:
 	## A character's Birthstone as a stone the views can draw and name: fixed ranks, its own
 	## cut, tint and emblem, no skill and no inclusions. Never socketed, never in a vault.
+	## `key` names one of the delver's variants; "" (or a key that is not theirs) is their first.
 	## It is always the heaviest a stone can be, because it is the one stone nobody found:
 	## its weight buys it nothing in a fight (a tier resolves at magnitude 1.0) and is there
 	## so it sits in the rail at the size the character's own stone ought to be.
-	var character: Dictionary = DeepContent.character(character_key)
-	var def: Dictionary = character.get("birthstone", {})
+	var worn: String = DeepContent.birthstone_key(character_key, key)
+	var def: Dictionary = DeepContent.birthstone_def(character_key, worn)
 	if def.is_empty():
 		return {}
-	return {"id": "birthstone_" + character_key, "birthstone": true, "character": character_key, "skill": "",
+	## Each stone has an id of its own: the picture cache keys on it, and two of a delver's
+	## stones differ in more than it reads (their second hue, their emblem).
+	return {"id": "birthstone_" + character_key + ("_" + worn if not worn.is_empty() else ""), "birthstone": true, "character": character_key, "variant": worn, "skill": "",
 		"name": str(def.get("name", "Birthstone")), "style": str(def.get("style", "shield")), "hue": str(def.get("hue", "ffffff")), "hue2": str(def.get("hue2", "")),
 		"emblem": str(def.get("emblem", "gem")), "carat": carat_max(), "cut": 4, "clarity": 4, "inclusions": [], "appraised": true,
-		"text": str(def.get("text", "")), "tiers": def.get("tiers", []).duplicate(true)}
+		"text": str(def.get("text", "")), "tiers": def.get("tiers", []).duplicate(true), "price": DeepContent.birthstone_price(character_key, worn),
+		"keywords": def.get("keywords", {}).duplicate(true)}
 
 static func wearing(stone: Dictionary, other: Dictionary) -> Dictionary:
 	## This stone with another's skill on it: what a Doublet is. The four C's, the

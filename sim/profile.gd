@@ -642,6 +642,66 @@ static func loadout(profile: Dictionary, character_key: String) -> Dictionary:
 		dice.append(die.duplicate(true))
 	return {"rail": rail, "dice": dice}
 
+# --- Birthstones ------------------------------------------------------------------------------
+##
+## A delver's first Birthstone is theirs from the day they join. The variants are bought with
+## gold (`DeepEconomy.unlock_birthstone`) and kept in `characters.<key>.birthstones`; the one
+## they go down in is `characters.<key>.birthstone` ("" for the first). A profile from before
+## the variants has neither field, and reads as owning none and wearing the first.
+
+static func owned_birthstones(profile: Dictionary, character_key: String) -> Array:
+	## The variants bought for this delver, in the pack's order.
+	var record: Dictionary = profile.get("characters", {}).get(character_key, {})
+	var bought: Variant = record.get("birthstones", [])
+	var out: Array = []
+	for key in DeepContent.birthstone_keys(character_key):
+		if not str(key).is_empty() and bought is Array and bought.has(str(key)):
+			out.append(str(key))
+	return out
+
+static func owns_birthstone(profile: Dictionary, character_key: String, key: String) -> bool:
+	return key.is_empty() or owned_birthstones(profile, character_key).has(key)
+
+static func worn_birthstone(profile: Dictionary, character_key: String) -> String:
+	## The key of the stone this delver goes down in: "" for their first, or a variant they own.
+	var worn: String = str(profile.get("characters", {}).get(character_key, {}).get("birthstone", ""))
+	return worn if not worn.is_empty() and owns_birthstone(profile, character_key, worn) else ""
+
+static func wear_birthstone(profile: Dictionary, character_key: String, key: String) -> String:
+	## Puts a stone the delver owns on them for the runs to come. Returns why not, or "".
+	var record: Dictionary = profile.get("characters", {}).get(character_key, {})
+	if record.is_empty() or not bool(record.get("unlocked", false)):
+		return "that delver has not joined the workshop"
+	if not key.is_empty() and DeepContent.birthstone_key(character_key, key).is_empty():
+		return "that is not one of their Birthstones"
+	if not owns_birthstone(profile, character_key, key):
+		return "that Birthstone is not unlocked yet"
+	record.birthstone = key
+	return ""
+
+static func stone_mark(character_key: String, key: String) -> String:
+	## How the records name a Birthstone: its delver and its key ("ARDOR:" is Rally).
+	return "%s:%s" % [character_key, key]
+
+static func stone_conquests(profile: Dictionary, character_key: String, key: String) -> Array:
+	## The mines whose final boss has fallen to this delver wearing this stone.
+	var kept: Variant = profile.get("stone_conquests", {}).get(stone_mark(character_key, key), [])
+	return kept.duplicate() if kept is Array else []
+
+static func note_stone_conquest(profile: Dictionary, character_key: String, key: String, mine_key: String) -> bool:
+	## True when this is the first time this stone has beaten this mine.
+	if character_key.is_empty() or DeepContent.character(character_key).is_empty() or DeepContent.mine(mine_key).is_empty():
+		return false
+	if not profile.get("stone_conquests", null) is Dictionary:
+		profile.stone_conquests = {}
+	var mark: String = stone_mark(character_key, DeepContent.birthstone_key(character_key, key))
+	if not profile.stone_conquests.get(mark, null) is Array:
+		profile.stone_conquests[mark] = []
+	if profile.stone_conquests[mark].has(mine_key):
+		return false
+	profile.stone_conquests[mark].append(mine_key)
+	return true
+
 static func bowl_die(profile: Dictionary, die_id: String) -> Dictionary:
 	for die in profile.bowl:
 		if str(die.id) == die_id:
@@ -804,6 +864,12 @@ static func apply_result(profile: Dictionary, result: Dictionary, player_id: Str
 	## Every creature the party met goes in the bestiary, the day's seam's as much as any.
 	var first_met: Array = DeepBestiary.merge(profile, result.get("bestiary", {}))
 	var mine_result: Dictionary = result.get("players", {}).get(player_id, {})
+	## Every mine whose boss fell goes on the record of the Birthstone this player wore (a stone
+	## the day lent from another delver keeps no record).
+	if str(mine_result.get("birthstone_of", "")).is_empty():
+		for entry in visited:
+			if bool(entry.get("boss", false)):
+				note_stone_conquest(profile, str(mine_result.get("character", "")), str(mine_result.get("birthstone", "")), str(entry.get("mine", "")))
 	var scored: Dictionary = {}
 	if not daily.is_empty():
 		## The day's seam: what came up is scored, and then the run is remembered and nothing
@@ -859,6 +925,9 @@ static func apply_result(profile: Dictionary, result: Dictionary, player_id: Str
 		"depth": int(result.get("depth", 0)), "stones": brought.size(), "date": Time.get_date_string_from_system(), "gold": int(dug.get("paid", 0))}
 	if tier > 0:
 		entry.hazard = tier
+	## The variant Birthstone worn, where one was: the ledger names it beside the delver.
+	if not str(mine_result.get("birthstone", "")).is_empty() and daily.is_empty():
+		entry.birthstone = str(mine_result.birthstone)
 	if not daily.is_empty():
 		entry.daily = true
 		entry.score = int(dug.get("score", 0))

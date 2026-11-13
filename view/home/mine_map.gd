@@ -92,7 +92,9 @@ func show_mines(keys: Array, profile_mines: Dictionary, chosen_key: String, host
 		var lapidary: String = _lets_out(str(key))
 		if lapidary.is_empty() or _faces.has(lapidary):
 			continue
-		var stone: Dictionary = DeepStone.birthstone(lapidary)
+		## The Birthstone they go down in, where the profile says which: a variant put on a
+		## delver is their mark on the map too.
+		var stone: Dictionary = DeepStone.birthstone(lapidary, DeepProfile.worn_birthstone(profile, lapidary) if not profile.is_empty() else "")
 		if stone.is_empty():
 			continue
 		_faces[lapidary] = Thumbs.request(Thumbs.gem_key(stone), "gem", {"stone": stone}, _face_arrived.bind(lapidary))
@@ -169,10 +171,10 @@ func _get_tooltip(at_position: Vector2) -> String:
 	return "%s\n%s" % [str(mine.get("name", over)), str(mine.get("text", ""))]
 
 static func sealed_hint(key: String, tier: int = 0) -> String:
-	## What breaks a sealed mine open: the final boss of the mine above it, on this tier.
+	## What opens a sealed mine: the final boss of the mine above it, on this tier.
 	for other in DeepContent.mines_in_order():
 		if str(DeepContent.mine(str(other)).get("next", "")) == key:
-			return "Beat the bottom of %s%s to break it open." % [DeepContent.mine_name(str(other)), " on Hazard %d" % tier if tier > 0 else ""]
+			return "Beat the bottom of %s%s to open it." % [DeepContent.mine_name(str(other)), " on Hazard %d" % tier if tier > 0 else ""]
 	return "It has not been found."
 
 static func numeral(key: String) -> String:

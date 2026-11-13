@@ -317,3 +317,190 @@ one tier in the content and trivial to remove. Harrow's bowl is moot until he is
   Puck is taken.
 - **Profile.** `current_setting` becomes `current_character`; per-character rail and bowl as today.
 - **Docs.** Rewrite §5 of `REIMAGINING.md` and the Heroes row of the decisions table; fold this in.
+
+## 7. Variant Birthstones (November 12-13, 2026)
+
+Every delver has three Birthstones: their first, which is theirs from the day they join, and two
+**variants** bought with gold, one for 1,000 and one for 2,500 (the price is fixed to the stone).
+The owner reviewed all twelve over three rounds on
+https://claude.ai/artifact/Y3ccLie7MYd4Peo4zxTWJ1 (marks in its db collections `birthvar1` to
+`birthvar3`). Their emblems were drawn without the three-option review CLAUDE.md asks for: the
+owner closed the review and asked for the build, so each has one drawing that is open to redraws.
+The owner's first look (November 13) re-cut two stones from three options each (Renown's oval
+became a lance head, the One-Armed Bandit's trefoil a lucky star), turned Mithridate's blade
+with its slanted capsule and Renown's lance with its lance head (`GemMesh.EMBLEM_TURN`), and
+moved Bloodroot's root to the middle of its drop.
+
+**Rules.**
+
+- A stone is chosen at home and worn for the whole run. The delver's dice, sockets and passive never
+  change with it.
+- Each variant is its own mineral, cut, emblem and color. The worn stone shows wherever the
+  Birthstone does: the rail, the dossier, portraits and seat tabs, the lobby line ("Ardor · Rampart"),
+  the inspector, the run strip and the bench. Two Ardors in a party read as two different delvers.
+- Buying takes a second press, in place, with no popup. Wearing a stone already owned takes one.
+- A daily dig lends one of the day's delver's three stones, owned or not. A Borrowed Birthstone day
+  lends one of another delver's three.
+- Conquests are kept per stone (`profile.stone_conquests["CHAR:KEY"]`). Each stone on the dossier
+  wears a crown and count for the mines it has beaten. A lent stone keeps no record.
+- Birthright and Prelude fire whichever stone is worn.
+- A stone that grows over a run starts a deep start with what the skipped mines would have grown:
+  Renown's Trophies, Bloodroot's max health. The shaft head and the Descend page say so.
+- Renown's Trophy count shows only on the stone's sheet and its tip, the way Hone's count does. It
+  is never on the dock.
+
+**Where it lives.**
+
+- **Content:** `characters.<KEY>.variants` in `content/deep_cut.json`. Each variant has `key`,
+  `price`, `name`, `emblem`, `style`, `hue`, `hue2`, `text`, `tiers`, and optionally `keywords`,
+  `head_start` or `prizes`. It is written by `build/birthvar/gen_content.py`; edit that file and
+  rerun it.
+- **Reading the pack:** `DeepContent.birthstone_keys/_key/_def/_price/_owner/all_birthstones`.
+- **The stone to draw:** `DeepStone.birthstone(character, key)` gives a stone whose id is
+  `birthstone_<CHAR>_<KEY>`. `DeepStone.birthstone_for(unit)` gives the stone a fighter wears, a
+  lent one included.
+- **Profile:** `characters.<key>.birthstones` lists the stones owned and `characters.<key>.birthstone`
+  is the one worn (`DeepProfile.owned/owns/worn/wear_birthstone`). Buying is
+  `DeepEconomy.unlock_birthstone`.
+- **Lobby:** a member's `birthstone` (`net/session.gd`).
+- **Run:** `make_player(..., worn)` and `DeepBattle.wear`. The head start is
+  `DeepDescent.birthstone_head_start`. Trophies are `run_counts["birthstone:trophies"]` and grown max
+  health is `run_counts["birthstone:grown"]`.
+- **Rules language:** these additions serve the variants.
+  - Trigger kinds: `high_count`, `total_at_most`, `total_window`, `scale`, `all_faces`, `colors`, `set`.
+  - Terms: `matched`, `trophies`, `envenom`, `crown_steps`, `one_steps`, `fight_ones`,
+    `target_curse`, `colors`.
+  - Effect kinds: `arpeggio`, `prize`, `quilt`, `second_act`, `grow_dice`, `fight_count`.
+  - Targets: `enemy_weakest`, `enemy_random`.
+  - Effect options: `trophy`, `empty`, `until: "next_turn"`.
+  - A tier's `eclipses` names the tiers it takes the place of.
+  - All of it is mirrored in `tools/data-browser/js/sim/`. `parity.mjs` aims fixtures at every variant.
+- **Fight screen:** a stone may have pieces of its own over the dock, one script per stone in
+  `view/battle/birth/` on the base class `view/battle/birth_act.gd`: the Bandit's reels and pay
+  table, Blackjack's count, Arpeggio's staff, the eyes on Ill Omen's 1s. The first six stones got
+  modest ones too: Rally, Thousand Cuts, Encore and Bitter Draught mark the dice they count and play
+  each rung its own way. Motley and High Roller keep the effects they had (`motley_fx.gd`,
+  `streak_fx.gd`). The ladder under a stone draws the new kinds: `DiceIcons.ladder_die` and
+  `build_numbers`.
+- **Home:** the dossier's Birthstone card shows three stones with Wear, or Unlock and its confirm.
+  The rail's Birthstone tile opens a swap card.
+- **Tests:** `tests/test_birthstones.gd` covers the rules, `tests/test_birth_acts.gd` every stone's
+  pieces on both layouts, the workshop sections of `tests/test_fit.gd`, `test_fit_phone.gd` and
+  `test_screens.gd` the home UI, and `tests/test_view.gd` the cuts and emblems.
+
+**Balance (placeholders, from `node tools/data-browser/birthstones.mjs`, November 12, 2026).**
+
+| Stone | Against the delver's first stone |
+|---|---|
+| Bloodroot | 3.5-4.7× on a boss |
+| Renown | 1.26× with no Trophies, 2.6× at 10, 4.5× at 25, no ceiling |
+| Patchwork | about 2× on a rail of six colors that fire; never fires on a plain rail (fewer than three colors) |
+| Rampart | 0.85× |
+| Mithridate | 0.23× on ordinary creatures, 1.5× on a boss |
+| Others | about 1-2× |
+
+Quilt's White gift was Charged worth Resonance and fed itself turn after turn (29× Motley). It is now
+1 Charged for each color. The head-start rates (Renown 40%, Bloodroot 350%) are placeholders. The
+balance gate (`balance.mjs check`) was already over its limit before this work, and it wears first
+stones only.
+
+### The twelve stones
+
+#### Ardor · Rampart (1,000 gold)
+
+*Tower cut, emblem `battlement`, hue 7b3b40 / b5524a.* Even dice raise the Knight's wall, and the wall is the weapon.
+
+- **Parapet**: Two even dice: gain Resonance block, and keep that much block into next turn.
+- **Thornwork**: Three even dice: until your next turn, a creature that hits you takes Resonance damage.
+- **Ram**: Four even dice: deal Resonance once for every 10 block you hold.
+- **Keep**: All five even: none of your block falls away this turn.
+
+#### Ardor · Renown (2,500 gold)
+
+*Spearhead cut, emblem `pennant_lance`, hue b5482a.* Every die showing 6 or more is a pass with the lance, and every kill it makes is a Trophy.
+
+- **Lance**: A die showing 6 or more: deal Resonance, plus 1 for every Trophy. A kill is a Trophy.
+- **Tourney**: Each other die showing 6 or more: Lance lands again, on the creature with the least health.
+- **Grand Melee**: All five dice showing 6 or more: every Lance lands twice.
+- Deep start: opens with 40% of the skipped mines' floors as Trophies (`head_start`).
+
+#### Vesper · Ill Omen (1,000 gold)
+
+*Cushion cut, emblem `evil_eye`, hue 26252c.* Every 1 is an omen. The more of them, the worse the room's luck.
+
+- **Omen**: A 1 showing: Curse the target once for each 1.
+- **Jinx** (takes the place of Omen): Three 1s: Curse every creature instead.
+- **Reckoning**: Four 1s: deal Resonance for each Curse on the target.
+- **Snake Eyes** (takes the place of Reckoning): All five 1s: this turn's Curses count double, and Reckoning lands twice.
+
+#### Vesper · Fan of Knives (2,500 gold)
+
+*Fan cut, emblem `knife_fan`, hue 2f3040 / 5a6ad0.* Matching dice are knives, thrown one after another.
+
+- **Fan**: A pair or better: throw a knife for every die that matches another. Each deals Resonance to a random creature, and a knife that kills is thrown again.
+- **Flourish** (takes the place of Fan): Four of a kind: first, every knife gains damage equal to your highest die and hits every creature.
+
+#### Cadence · Nocturne (1,000 gold)
+
+*Dart cut, emblem `crescent_note`, hue 5560b8 / 9a9fb0.* A quiet hand wakes the gems that stayed dark.
+
+- **Hush**: A total of 16 or less: the first gem that fizzled this turn fires anyway.
+- **Nocturne** (takes the place of Hush): A total of 12 or less: every gem that fizzled fires.
+- **Small Hours** (takes the place of Hush and Nocturne): A total of 9 or less: and each of them fires twice.
+
+#### Cadence · Arpeggio (2,500 gold)
+
+*Octagon cut, emblem `rising_scale`, hue 6a58b0 / 4fa58a.* Her five dice climb in size. When their numbers climb with them, the scale is played.
+
+- **Arpeggio**: A scale of three dice or more: each die in it adds its number to your Resonance, then deals half your Resonance to every creature.
+- **Perfect Scale**: All five dice in the scale: play it again. The Resonance keeps climbing.
+
+#### Rue · Mithridate (1,000 gold)
+
+*Pill cut, emblem `coated_blade`, hue 2f8a5b / 14523a.* Runs of dice coat the Apothecary's own blades.
+
+- **Coat**: Three in a row: gain 1 Envenomed for the fight. Every hit of yours that gets past block applies that much poison.
+- **Double Dose**: A straight of four: gain 1 more Envenomed for every 5 Resonance.
+- **Mithridate**: A straight of five: stab the target once for each Envenomed you carry. Each stab deals Resonance.
+
+#### Rue · Bloodroot (2,500 gold)
+
+*Drop cut, emblem `bloodroot`, hue 2f4f3d / b3261e.* Every 1 is the price and the growth. Sets spend what the 1s bought.
+
+- **Tap**: Every 1 showing: lose 1 health and gain 1 poison for every 1 you have rolled this fight. Gain 1 max health for the rest of the run for each 1.
+- **Take Root**: Three of a kind: gain Resonance max health for this fight, then deal damage equal to the health you are missing.
+- **Transfusion**: Four of a kind: heal Resonance, and deal the health restored to every creature.
+- **Heartsblood**: Five of a kind: deal damage equal to your max health to a random creature, once for every point in the set.
+- Deep start: opens with 350% of the skipped mines' floors as max health (`head_start`).
+
+#### Puck · Highs and Lows (1,000 gold)
+
+*Cameo cut, emblem `two_masks`, hue c9607c / 1e1a22.* A die on its crown is a Happy Face and a die on a 1 a Sad Face, and a bigger die pulls a bigger one.
+
+- **Comedy**: A Happy Face: each one strikes for Resonance, once for every size its die is over a d4.
+- **Tragedy**: A Sad Face: each one gives Resonance block, counted the same way.
+- **Standing Ovation**: Every die a Face: your dice grow a size for the rest of the fight.
+
+#### Puck · Patchwork (2,500 gold)
+
+*Lozenge cut, emblem `patches`, hue c85a9a / 4aa0c0.* The dice go to the gems. The Birthstone counts the colors they fire.
+
+- **Scraps**: Three colors fired: deal Resonance for every color that fired.
+- **Quilt**: Four colors: each color that fired also gives its gift, worth Resonance. Red damage, Blue block, Green healing, Violet poison, Gold pyrite. White gives 1 Charged for each color.
+- **Whole Cloth**: All six: throw all your dice again. Every gem reads the new hand and may fire once more.
+
+#### Florin · One-Armed Bandit (1,000 gold)
+
+*Lucky star cut, emblem `reels`, hue d09a2a / c41e3a.* Matching dice pay, and the number they match on names the prize.
+
+- **Two of a kind**: A pair: its Prize.
+- **Three of a kind**: Three or four of a kind: its Prize, three times.
+- **Jackpot**: Five of a kind: its Prize seven times, and 7× Resonance pyrite.
+
+#### Florin · Blackjack (2,500 gold)
+
+*Card cut, emblem `ace_card`, hue 4a3418 / e0a030.* Bring the hand's total to 21 without going over.
+
+- **Stand**: A total of 17 to 20: deal Resonance for every point over 16.
+- **Twenty-One**: Exactly 21: deal 7× Resonance three times, and gain 21 pyrite.
+- **Bust** (a penalty): 22 or more: take Resonance damage.

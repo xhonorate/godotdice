@@ -25,7 +25,8 @@ const OPAL: String = "OPAL"
 ## The colors a skill may wear. Sockets and mine leanings still speak only of the six.
 const SKILL_COLORS: Array = ["RED", "BLUE", "GREEN", "VIOLET", "GOLD", "WHITE", "OPAL"]
 ## The cuts a Birthstone may wear. Each is drawn as its own solid, outside the six colors.
-const BIRTHSTONE_STYLES: Array = ["shield", "marquise", "step", "briolette", "checkerboard", "heptagon"]
+const BIRTHSTONE_STYLES: Array = ["shield", "marquise", "step", "briolette", "checkerboard", "heptagon",
+	"tower", "spearhead", "cushion", "fan", "dart", "octagon", "pill", "drop", "cameo", "lozenge", "lucky_star", "card"]
 const INCLUSION_CLASSES: Array = ["PINPOINT", "LENS", "FEATHER", "FRACTURE", "STAR"]
 const RARITIES: Array = ["COMMON", "UNCOMMON", "RARE", "LEGENDARY", "MYTHIC", "TRANSCENDENT"]
 ## The rarity above Mythic. Nothing rolls one: a Transcendent is only ever made, at an altar,
@@ -93,6 +94,59 @@ static func pattern(key: String) -> Dictionary: return entry("patterns", key.to_
 static func etching(key: String) -> Dictionary: return entry("etchings", key.to_upper())
 static func material(key: String) -> Dictionary: return entry("materials", key.to_upper())
 static func character(key: String) -> Dictionary: return entry("characters", key)
+
+# --- Birthstones ------------------------------------------------------------------------------
+##
+## Every delver has a first Birthstone (`birthstone`) and may have others bought with gold
+## (`variants`, each with a `key` and a `price`). A stone is named by its delver and its key;
+## the first one's key is "". One is worn for a whole run and nothing else about the delver
+## changes with it (docs/CHARACTERS.md).
+
+static func birthstone_variants(character_key: String) -> Array:
+	var listed: Variant = character(character_key).get("variants", [])
+	return listed if listed is Array else []
+
+static func birthstone_keys(character_key: String) -> Array:
+	## Every Birthstone this delver can wear, the first ("") first, then the variants in order.
+	var keys: Array = [""]
+	for variant in birthstone_variants(character_key):
+		if variant is Dictionary and not str(variant.get("key", "")).is_empty():
+			keys.append(str(variant.key))
+	return keys
+
+static func birthstone_key(character_key: String, key: String) -> String:
+	## The key as this delver knows it: "" for the first stone and for one that is not theirs.
+	return key if not key.is_empty() and birthstone_keys(character_key).has(key) else ""
+
+static func birthstone_def(character_key: String, key: String = "") -> Dictionary:
+	## The Birthstone itself: the delver's first, or the variant of theirs with this key.
+	if not key.is_empty():
+		for variant in birthstone_variants(character_key):
+			if variant is Dictionary and str(variant.get("key", "")) == key:
+				return variant
+	var first: Variant = character(character_key).get("birthstone", {})
+	return first if first is Dictionary else {}
+
+static func birthstone_price(character_key: String, key: String) -> int:
+	## What a variant costs in gold; the first stone costs nothing.
+	return int(birthstone_def(character_key, key).get("price", 0)) if not birthstone_key(character_key, key).is_empty() else 0
+
+static func birthstone_owner(key: String) -> String:
+	## Whose variant this is, or "".
+	if key.is_empty():
+		return ""
+	for character_key in section("characters"):
+		if birthstone_keys(str(character_key)).has(key):
+			return str(character_key)
+	return ""
+
+static func all_birthstones() -> Array:
+	## Every Birthstone in the pack as [delver, key], in unlock order, each delver's first stone first.
+	var out: Array = []
+	for character_key in characters_in_unlock_order():
+		for key in birthstone_keys(str(character_key)):
+			out.append([str(character_key), str(key)])
+	return out
 static func creature(key: String) -> Dictionary: return entry("creatures", key)
 static func mine(key: String) -> Dictionary: return entry("mines", key)
 static func oddity(key: String) -> Dictionary: return entry("oddities", key)
@@ -490,6 +544,24 @@ static func _validate_character(def: Variant, p: Dictionary) -> Array:
 	if not passive is Dictionary or not str(passive.get("kind", "none")) in PASSIVE_KINDS:
 		errors.append("unknown passive")
 	errors.append_array(validate_birthstone(def.get("birthstone", null)).map(func(e: String) -> String: return "birthstone: " + e))
+	## The Birthstones bought with gold: each a Birthstone with a key of its own and a price.
+	var variants: Variant = def.get("variants", [])
+	if not variants is Array:
+		errors.append("variants must be a list")
+	else:
+		var seen: Array = []
+		for index in range(variants.size()):
+			var variant: Variant = variants[index]
+			var where: String = "variant %d: " % (index + 1)
+			errors.append_array(validate_birthstone(variant).map(func(e: String) -> String: return where + e))
+			if not variant is Dictionary:
+				continue
+			var key: String = str(variant.get("key", ""))
+			if key.is_empty() or key != key.to_upper() or seen.has(key):
+				errors.append(where + "needs a key of its own, in capitals")
+			seen.append(key)
+			if int(variant.get("price", 0)) <= 0:
+				errors.append(where + "needs a price in gold")
 	return errors
 
 static func validate_birthstone(def: Variant) -> Array:
@@ -517,6 +589,10 @@ static func validate_birthstone(def: Variant) -> Array:
 			continue
 		if str(tier.get("name", "")).is_empty():
 			errors.append(where + ": needs a name")
+		## A tier may take the place of others (`eclipses`), each named as the stone names it.
+		for other in tier.get("eclipses", []):
+			if not tiers.any(func(t: Variant) -> bool: return t is Dictionary and str(t.get("name", "")) == str(other)):
+				errors.append(where + ": eclipses a tier this stone does not have: " + str(other))
 		errors.append_array(DeepPatterns.validate(tier.get("trigger", null)).map(func(e: String) -> String: return where + ": " + e))
 		var effects: Variant = tier.get("effects", null)
 		if not effects is Array or effects.is_empty():

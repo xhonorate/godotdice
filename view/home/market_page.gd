@@ -468,8 +468,8 @@ static func _bench(home: Control, parent: VBoxContainer) -> void:
 	DeepUi.section(box, "hammer", "The bench · once a day each")
 	## Three tiles in a row under the case: a short line each, the whole of it on hover.
 	var row := DeepUi.hbox(box, 10)
-	var services: Array = [["wheel", "cut", "The Wheel", "New Cut · 1 in 25 break", "Recut a vault stone's Cut. It always changes, up or down, and 1 in 25 stones break on the wheel."],
-		["oven", "flame", "The Oven", "New Clarity · 1 in 25 break", "Refire a vault stone's Clarity. It, and what is frozen inside, always changes, and 1 in 25 stones break in the oven."],
+	var services: Array = [["wheel", "cut", "The Wheel", "New Cut · 1 in 25 shatter", "Recut a vault stone's Cut. It always changes, up or down, and 1 in 25 stones shatter on the wheel."],
+		["oven", "flame", "The Oven", "New Clarity · 1 in 25 shatter", "Refire a vault stone's Clarity. It, and what is frozen inside, always changes, and 1 in 25 stones shatter in the oven."],
 		["contract", "contract", "Trade-up contract", "Five stones in, one finer out", "Five stones of one grade go in; one of the next grade comes out."]]
 	for entry in services:
 		var view: String = str(entry[0])
@@ -730,7 +730,7 @@ static func _rework_page(home: Control, content: VBoxContainer, kind: String) ->
 		var share: float = float(DeepContent.constant("rework_price_mult", 0.5))
 		for line in [["cut" if wheel else "flame", "Its Cut always moves, up or down. Nothing else changes." if wheel else "Its Clarity always moves, and what is frozen inside is drawn again.", DeepUi.PAPER],
 				["coin", "Costs %s the stone's worth, %d gold at the least." % ["half" if is_equal_approx(share, 0.5) else "%d%% of" % roundi(share * 100.0), int(DeepContent.constant("rework_gold_min", 25))], DeepUi.ACCENT],
-				["split_shield", "1 in %d stones break %s." % [roundi(100.0 / maxf(0.01, DeepEconomy.rework_break_pct())), "on the wheel" if wheel else "in the oven"], DeepUi.BAD],
+				["split_shield", "1 in %d stones shatter %s." % [roundi(100.0 / maxf(0.01, DeepEconomy.rework_break_pct())), "on the wheel" if wheel else "in the oven"], DeepUi.BAD],
 				["calendar", "Once a day.", DeepUi.MUTED]]:
 			_wrap_stat(DeepUi.stat(terms, str(line[0]), str(line[1]), line[2], 12 if DeepUi.phone else 13), DeepUi.pt(250))
 		DeepUi.spacer(side_box, false)
@@ -755,12 +755,12 @@ static func _rework_page(home: Control, content: VBoxContainer, kind: String) ->
 	var parts: Array = []
 	for entry in DeepEconomy.rework_odds(stone, kind):
 		if str(entry[0]) == "break":
-			parts.append({"label": "Breaks", "share": float(entry[1]), "color": DeepUi.BAD})
+			parts.append({"label": "Shatters", "share": float(entry[1]), "color": DeepUi.BAD})
 		else:
 			var rung: int = int(entry[0])
 			parts.append({"label": str(names[rung].get("name", "")), "share": float(entry[1]), "color": _cut_tone(rung) if wheel else _clarity_tone(rung)})
 	side_box.add_child(HomeParts.OddsBar.new(parts))
-	var risk := DeepUi.stat(side_box, "split_shield", "1 in 25 stones break %s." % ("on the wheel" if wheel else "in the oven"), DeepUi.BAD, 13)
+	var risk := DeepUi.stat(side_box, "split_shield", "1 in 25 stones shatter %s." % ("on the wheel" if wheel else "in the oven"), DeepUi.BAD, 13)
 	risk.alignment = BoxContainer.ALIGNMENT_CENTER
 	var refusal: String = DeepEconomy.rework_refusal(home.profile, home._rework_pick, kind)
 	var price: int = DeepEconomy.rework_price(stone)

@@ -27,6 +27,13 @@ A run is a deep start when its mine is not the starter mine and it is not a dail
 - **No temporary stones and no dice swaps.** `unit.temps` is `[]` and `unit.dice_offers` is
   absent, so `temporary_left` and `dice_offers_left` are 0 and those pages never show.
 - A Draft daily still has its temporary stones.
+- **A Birthstone that grows over a run starts with a head start** (November 13, 2026;
+  docs/CHARACTERS.md §7). Renown opens with Trophies and Bloodroot with max health, a share of
+  the floors the skipped mines hold (the stone's `head_start`, in percent).
+  - `DeepDescent.birthstone_head_start(unit, mine_key)` works it out. `new_run` applies it and
+    keeps what it gave in `unit.head_start` (`{"trophies": n}` or `{"max_hp": n}`).
+  - The Descend page's stratum card and the shaft head say it ("Renown opens with 24
+    Trophies"), through `Plates.birth_opens`.
 - A run saved mid-shaft-head before round 4 still answers its old `temps` and `dice_offers`.
 
 ## 2. The shaft head: `state.grubstake.offers[unit_id]`

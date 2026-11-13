@@ -102,6 +102,17 @@ var _roster_view: String = "dossier"
 var _bench_socket: int = -1
 ## A stone the Vault's "Socket it" sent to the sockets: first in the picker, marked.
 var _socket_ready: String = ""
+## Delvers: which of a delver's three Birthstones the dossier is reading, and whose they are
+## (`birth_read`); the one whose unlock waits on its second press; and whether the swap at the
+## rail's Birthstone tile is open.
+var _birth_pick: String = ""
+var _birth_of: String = ""
+var _birth_sure: String = ""
+var _birth_swap: bool = false
+## When the unlock's question was put, and how long after it a press on its answer is taken
+## for the tail of the press that asked (milliseconds).
+var _birth_asked_msec: int = -100000
+const BIRTH_ASK_WAIT: int = 350
 ## Vault: the stone under the lamp and whether the collection or the tray is shown.
 var _vault_pick: String = ""
 var _vault_view: String = "collection"
@@ -376,6 +387,8 @@ func _notification(what: int) -> void:
 			_hover = {}
 			_regions = {}
 			_targets = []
+			_birth_sure = ""
+			_birth_swap = false
 			let_go_kept()
 			DeepUi.clear(_body)
 			DeepUi.clear(_overlay)
@@ -529,6 +542,9 @@ func open(tab_name: String, keep_view: bool = false, draw: bool = true) -> void:
 	tab = tab_name
 	_party_open = false
 	_showcase_of = ""
+	## An unlock half asked and the rail's swap do not outlast the page they were on.
+	_birth_sure = ""
+	_birth_swap = false
 	if draw:
 		_render()
 
@@ -538,6 +554,7 @@ func _reset_views(tab_name: String) -> void:
 			_roster_view = "dossier"
 			_roster_pick = ""
 			_bench_socket = -1
+			_birth_of = ""
 		"vault":
 			_vault_view = "collection"
 		"market":
@@ -744,6 +761,12 @@ func _step_back() -> bool:
 		_market_view = "main"
 		_render()
 		return true
+	## The rail's Birthstone swap, or an unlock waiting on its second press, is put away first.
+	if tab == "delvers" and (_birth_swap or not _birth_sure.is_empty()):
+		_birth_swap = false
+		_birth_sure = ""
+		_render()
+		return true
 	if tab == "delvers" and _roster_view != "dossier":
 		_roster_view = "dossier"
 		_bench_socket = -1
@@ -831,6 +854,7 @@ func step_character(direction: int) -> void:
 	if owned.size() < 2:
 		return
 	var next: String = str(owned[posmod(owned.find(current) + direction, owned.size())])
+	_birth_swap = false
 	if tab == "delvers":
 		_roster_pick = next
 		if _roster_view == "sockets":
@@ -848,6 +872,8 @@ func edit_loadout(character_key: String, socket: int = -1, ready_skill: String =
 	_roster_view = "sockets"
 	_bench_socket = socket
 	_socket_ready = ready_skill
+	_birth_sure = ""
+	_birth_swap = false
 	if not ready_skill.is_empty():
 		_pages.erase("sockets_page")
 	if str(profile.get("current_character", "")) != character_key and DeepProfile.unlocked_characters(profile).has(character_key):
@@ -1013,6 +1039,65 @@ func buy_socket(character_key: String) -> void:
 	DeepAudio.play("unlock", {"volume": 0.8})
 	profile_changed.emit()
 
+func birth_read(character_key: String) -> String:
+	## The key of the Birthstone the dossier is reading for this delver ("" is their first): the
+	## one last pressed, or the one they wear. Another delver starts at the one they wear, and
+	## an unlock half asked of the last is dropped.
+	if _birth_of != character_key or not DeepContent.birthstone_keys(character_key).has(_birth_pick):
+		_birth_of = character_key
+		_birth_pick = DeepProfile.worn_birthstone(profile, character_key)
+		_birth_sure = ""
+	return _birth_pick
+
+func read_birthstone(character_key: String, key: String) -> void:
+	## Another of the delver's stones is read on the dossier. Nothing is bought or worn by it,
+	## and an unlock waiting on its second press is called off.
+	_birth_of = character_key
+	_birth_pick = DeepContent.birthstone_key(character_key, key)
+	_birth_sure = ""
+	_draw_birthstone()
+
+func ask_birthstone(key: String) -> void:
+	## The first press on a locked stone's Unlock (the question takes the button's place), or,
+	## with "", Not yet.
+	_birth_sure = key
+	_birth_asked_msec = Time.get_ticks_msec()
+	_draw_birthstone()
+
+func _draw_birthstone() -> void:
+	## Only the dossier's Birthstone card changes with the stone being read.
+	if not redraw(["birthstone"]):
+		_render()
+
+func buy_birthstone(character_key: String, key: String) -> void:
+	## Buys one of a delver's variant Birthstones, for good. It is theirs to wear from then on;
+	## buying it does not put it on. The question is drawn where the first press landed, so
+	## the second press of a double-click (a double-tap) lands on its answer: that one is not
+	## the second press the unlock waits for.
+	if Time.get_ticks_msec() - _birth_asked_msec < BIRTH_ASK_WAIT:
+		return
+	_birth_sure = ""
+	var bought: Dictionary = DeepEconomy.unlock_birthstone(profile, character_key, key)
+	if not bool(bought.get("ok", false)):
+		_draw_birthstone()
+		return
+	## The purse counts the price out on its own; the stone coming free is the sound.
+	DeepAudio.play("unlock", {"volume": 0.8})
+	changed(["birthstone"])
+
+func wear_birthstone(character_key: String, key: String) -> void:
+	## Puts on a Birthstone the delver owns, for every run from now: saved, and the party told.
+	_birth_swap = false
+	if DeepProfile.worn_birthstone(profile, character_key) == key or not DeepProfile.wear_birthstone(profile, character_key, key).is_empty():
+		_render()
+		return
+	## The stone just put on is the one the dossier reads.
+	_birth_of = character_key
+	_birth_pick = key
+	_birth_sure = ""
+	DeepAudio.play("dice_lock", {"volume": 0.7})
+	profile_changed.emit()
+
 func socket_strip(parent: Node, character_key: String, loadout: Dictionary, edge: float, labelled: bool = false, on_click: Callable = Callable()) -> void:
 	## A delver's sockets at a glance: the stones their loadout sets, a lock on each socket
 	## not yet bought, and the Birthstone at the end. With `on_click`, each socket is a button
@@ -1039,7 +1124,7 @@ func socket_strip(parent: Node, character_key: String, loadout: Dictionary, edge
 					on_click.call(at))
 		if labelled:
 			DeepUi.label(holder, "Locked" if locked else DeepContent.socket_name(socket_color), 11, DeepUi.DIM if locked else DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
-	var birthstone: Dictionary = DeepStone.birthstone(character_key)
+	var birthstone: Dictionary = DeepStone.birthstone(character_key, DeepProfile.worn_birthstone(profile, character_key))
 	if birthstone.is_empty():
 		return
 	var birth_holder: Control = parent
@@ -1048,7 +1133,7 @@ func socket_strip(parent: Node, character_key: String, loadout: Dictionary, edge
 		(birth_holder as VBoxContainer).alignment = BoxContainer.ALIGNMENT_CENTER
 	kit_socket(birth_holder, "BIRTHSTONE", birthstone, edge)
 	if labelled:
-		DeepUi.label(birth_holder, "Birthstone", 11, GemMesh.tint(birthstone).lightened(0.3), HORIZONTAL_ALIGNMENT_CENTER)
+		DeepUi.label(birth_holder, "Birthstone", 11, HomeParts.birth_name_tone(birthstone), HORIZONTAL_ALIGNMENT_CENTER)
 
 func kit_socket(parent: Node, socket_color: String, stone: Dictionary, edge: float = 40.0, locked: bool = false) -> Control:
 	## One socket of the loadout at a glance: its ring, and the stone in it if there is one,
@@ -1060,7 +1145,7 @@ func kit_socket(parent: Node, socket_color: String, stone: Dictionary, edge: flo
 	parent.add_child(slot)
 	var ring := BattleScreen.SocketRing.new(socket_color, stone.is_empty())
 	if socket_color == "BIRTHSTONE":
-		ring.birth_tint = GemMesh.tint(stone)
+		ring.birth_tint = HomeParts.birth_tone(stone)
 	elif not stone.is_empty():
 		ring.shown = 1
 	ring.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)

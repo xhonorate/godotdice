@@ -229,6 +229,13 @@ static func outcome(entry: Dictionary) -> Array:
 			for hit in effect.get("hits", []):
 				sums["damage"] = int(sums.get("damage", 0)) + int(hit.get("raw", hit.get("amount", 0)))
 			continue
+		if kind in ["arpeggio", "prize", "quilt"]:
+			## A Birthstone's notes, prizes and gifts, each by what it was.
+			for hit in effect.get("hits", []):
+				var what: String = str(hit.get("kind", ""))
+				if what in ["damage", "block", "heal", "poison", "gold"]:
+					sums[what] = int(sums.get(what, 0)) + (int(hit.get("raw", hit.get("amount", 0))) if what == "damage" else int(hit.get("amount", 0)))
+			continue
 		if kind in ["damage", "block", "heal", "poison", "gold", "amplify", "reroll", "phantom", "stun"]:
 			sums[kind] = int(sums.get(kind, 0)) + amount
 	var out: Array = []
@@ -347,6 +354,92 @@ static func _this_hand(box: Control, hand: Array, dice: Array, entry: Dictionary
 		## worth their words. The hand not meeting the trigger is not.
 		var why: String = str(entry.get("reason", ""))
 		DeepUi.wrap(words, "Fizzles" if why.is_empty() or asks.has(why) else "Fizzles: " + why, 12, DeepUi.MUTED)
+
+# --- a Birthstone that grows all run -----------------------------------------------------------
+##
+## A Renown keeps Trophies for the run and a Bloodroot's Tap grows its wearer's max health for
+## it; either (a stone with a head start) opens a deep start with what the mines it skipped
+## would have grown. All of it is said on the stone's sheet and on its tip and nowhere else, as
+## a growth gem's count is: no counter on the dock (the owner, November 12). `unit` is the
+## delver down the mine, wearing the stone.
+
+static func trophy_blow(unit: Dictionary) -> String:
+	## The tier a Trophy sharpens ("Lance"), or "" when the unit's Birthstone takes none.
+	for tier in unit.get("birthstone", {}).get("tiers", []):
+		for effect in tier.get("effects", []):
+			if effect is Dictionary and bool(effect.get("trophy", false)):
+				return str(tier.get("name", ""))
+	return ""
+
+static func growth_tier(unit: Dictionary) -> String:
+	## The tier that grows its wearer's max health for the rest of the run (a Bloodroot's
+	## "Tap"), or "" when the unit's Birthstone has none. Health lent for one fight is not growth.
+	for tier in unit.get("birthstone", {}).get("tiers", []):
+		for effect in tier.get("effects", []):
+			if effect is Dictionary and str(effect.get("kind", "")) == "max_hp" and not bool(effect.get("for_fight", false)):
+				return str(tier.get("name", ""))
+	return ""
+
+static func birth_tally(unit: Dictionary) -> int:
+	## The number the stone keeps for the run: a Renown's Trophies, the max health a Bloodroot
+	## has grown (`DeepBattle.GROWN`). 0 for a stone that keeps none.
+	if not trophy_blow(unit).is_empty():
+		return DeepBattle.trophies(unit)
+	if not growth_tier(unit).is_empty():
+		return int(unit.get("run_counts", {}).get(DeepBattle.GROWN, 0))
+	return 0
+
+static func birth_count(unit: Dictionary) -> String:
+	## What the stone has come to this run: "Trophies 14 · Lance deals Resonance + 14", or
+	## "Grown +9 max health this run". "" for a stone that keeps no count.
+	var kept: int = birth_tally(unit)
+	var blow: String = trophy_blow(unit)
+	if not blow.is_empty():
+		if kept <= 0:
+			return "No Trophies yet · a kill with %s takes one" % blow
+		return "Trophies %s · %s deals Resonance + %s" % [DeepUi.number(kept), blow, DeepUi.number(kept)]
+	var grows: String = growth_tier(unit)
+	if not grows.is_empty():
+		if kept <= 0:
+			return "No max health grown yet · %s grows it" % grows
+		return "Grown +%s max health this run" % DeepUi.number(kept)
+	return ""
+
+static func head_start_words(given: Dictionary) -> String:
+	## What a head start gave (`DeepDescent.birthstone_head_start`): "12 Trophies", "+105 max health".
+	var parts: Array = []
+	if int(given.get("trophies", 0)) > 0:
+		parts.append(DeepUi.plural(int(given.trophies), "Trophy", "Trophies"))
+	if int(given.get("max_hp", 0)) > 0:
+		parts.append("+%d max health" % int(given.max_hp))
+	return " and ".join(parts)
+
+static func birth_opens(stone_name: String, given: Dictionary) -> String:
+	## Said before a deep start sets out and at its shaft head: "Renown opens with 12 Trophies."
+	var words: String = head_start_words(given)
+	return "" if words.is_empty() else "%s opens with %s." % [stone_name, words]
+
+static func birth_opened(unit: Dictionary) -> String:
+	## Said on the stone's sheet and tip for the rest of that run: "Opened with 12 Trophies from
+	## the mines above". "" when the run started at the top, or the stone has no head start.
+	var given: Variant = unit.get("head_start", {})
+	var words: String = head_start_words(given) if given is Dictionary else ""
+	return "" if words.is_empty() else "Opened with %s from the mines above" % words
+
+static func birth_notes(box: Control, unit: Dictionary, size: int = 12) -> void:
+	## Both lines on a tip or a sheet, under the stone's own words: the count lit, the head
+	## start quiet. Nothing for a stone that keeps no count and opened with nothing.
+	var count: String = birth_count(unit)
+	if not count.is_empty():
+		var row := DeepUi.stat(box, "crown" if not trophy_blow(unit).is_empty() else "heart", count, DeepUi.GOOD if birth_tally(unit) > 0 else DeepUi.MUTED, size)
+		row.name = "BirthCount"
+		## Wrapped under its mark on a narrow plate rather than widening it.
+		var said: Label = row.get_node("Value")
+		said.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		said.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var opened: String = birth_opened(unit)
+	if not opened.is_empty():
+		DeepUi.wrap(box, opened, maxi(11, size - 1), DeepUi.DIM).name = "BirthOpened"
 
 # --- dice --------------------------------------------------------------------------------------
 

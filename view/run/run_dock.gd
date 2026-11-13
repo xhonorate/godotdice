@@ -310,7 +310,10 @@ func _sync_tabs() -> void:
 		present[id] = true
 		var seat: Color = ShaftMap.SEATS[int(unit.get("seat", index)) % ShaftMap.SEATS.size()]
 		tab.click_hint = "Click to trade a stone with them. Right-click to look at their rail and bag." if _trades_with(id) else ""
-		tab.update(unit, DeepContent.character_title(str(unit.get("character", ""))), seat, mine, seat_status(unit), 0, EffectChips.for_run(unit), true)
+		## Named with the Birthstone they wear when it is not their first, and lit by it: two of
+		## one delver in a party are two tabs that read apart.
+		tab.update(unit, Roster.unit_named(unit), seat, mine, seat_status(unit), 0, EffectChips.for_run(unit), true)
+		tab.portrait.wear_unit(unit)
 		tab.portrait.mood = Roster.resting_mood(unit)
 		if mine:
 			_tab_bar.move_child(tab, 0)
@@ -635,6 +638,9 @@ func show_run(state: Dictionary) -> void:
 		ids.append("|")
 		for item in unit.get(group, []):
 			ids.append(DeepUi.stone_marks(item))
+	## The Birthstone worn and what it has come to this run (a Renown's Trophies, a Bloodroot's
+	## growth), which its tip says.
+	ids.append("|%s:%d" % [str(DeepStone.birthstone_for(unit).get("id", "")), Plates.birth_tally(unit)])
 	## The bag's sort, filters and page are in the key too, as is the column's height: a window
 	## made taller holds more tiles a page.
 	var key: String = "%s#%s|%s|%s|%s#%s#%s#%d#%d#%d#%s#%s#%d#%d#%d" % [",".join(ids), str(show_appraised), str(show_raw), str(show_geodes), str(StoneBrowser.settings(self, "bag")), str(editable()), str(_open), int(unit.get("hp", 0)), int(unit.get("max_hp", 0)), int(unit.get("ore", 0)),
@@ -670,6 +676,8 @@ func _build_dock(unit: Dictionary) -> void:
 	columns.alignment = BoxContainer.ALIGNMENT_CENTER
 	## Far left: your face, as the fight's dock has it.
 	var ring := VitalsRing.new(BattleScreen.VITALS_EDGE, str(unit.get("character", "")))
+	## Lit by the Birthstone worn this run (a variant, or one the day lent).
+	ring.portrait.wear_unit(unit)
 	ring.portrait.mood = Roster.resting_mood(unit)
 	ring.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var hp: int = int(unit.get("hp", 0))
@@ -679,7 +687,7 @@ func _build_dock(unit: Dictionary) -> void:
 	_ring = ring
 	_ring_hp = Vector2i(hp, most)
 	_show_hp_cost()
-	Tips.attach(ring, func() -> Control: return Plates.words(str(unit.get("name", "")), "Health %s of %s. The ring fills as you heal and empties as you are hurt; block, in a fight, is an arc outside it." % [DeepUi.number(hp), DeepUi.number(most)], DeepContent.character_title(str(unit.get("character", ""))), DeepUi.HP))
+	Tips.attach(ring, func() -> Control: return Plates.words(str(unit.get("name", "")), "Health %s of %s. The ring fills as you heal and empties as you are hurt; block, in a fight, is an arc outside it." % [DeepUi.number(hp), DeepUi.number(most)], Roster.unit_named(unit), DeepUi.HP))
 	## Your rail.
 	var left := DeepUi.vbox(columns, 2)
 	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -722,7 +730,7 @@ func _build_dock(unit: Dictionary) -> void:
 		## Its tiers under it, as the fight's dock lays them, none lit.
 		BattleScreen.lay_tiers(BattleScreen.trigger_row(card), unit.get("birthstone", {}).get("tiers", []), [], false)
 		Tips.attach(card, func() -> Control: return _birth_plate(unit, birth), {"tone": GemMesh.tint(birth)})
-		_inspectable(card, func() -> void: Inspector.stone(birth))
+		_inspectable(card, func() -> void: Inspector.stone(birth, {"unit": unit}))
 	var divider := DeepUi.rule(columns, DeepUi.LEDGER_LINE)
 	divider.custom_minimum_size = Vector2(3, 0)
 	## Your five dice.
@@ -759,6 +767,8 @@ func _birth_plate(unit: Dictionary, birth: Dictionary) -> Control:
 		said.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		DeepUi.label(said, str(tier.get("name", "")), 12, tone)
 		DeepUi.effect_text(said, str(tier.get("text", "")), 11, DeepUi.PAPER)
+	## What a stone that grows all run has come to (a Renown's Trophies), as a growth gem's tip says it.
+	Plates.birth_notes(box, unit)
 	Plates.footer(box)
 	return box
 

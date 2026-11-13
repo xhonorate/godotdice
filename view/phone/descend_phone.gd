@@ -113,7 +113,7 @@ static func _mine_row(home: Control, parent: VBoxContainer, key: String, records
 	named.add_theme_font_override("font", DeepUi.bold_font())
 	var under: String
 	if not open:
-		under = "Sealed · " + MineMap.sealed_hint(key, tier).trim_prefix("Beat the bottom of ").trim_suffix(" to break it open.").replace(" on Hazard", " · Hazard")
+		under = "Sealed · " + MineMap.sealed_hint(key, tier).trim_prefix("Beat the bottom of ").trim_suffix(" to open it.").replace(" on Hazard", " · Hazard")
 		under = "Sealed · beat " + under.trim_prefix("Sealed · ") if under.begins_with("Sealed · The") or under.begins_with("Sealed · the") else under
 	elif DeepContent.is_endless(key):
 		under = "Endless · deepest %d" % int(record.get("deepest", 0))
@@ -333,8 +333,11 @@ static func _stratum(home: Control, parent: VBoxContainer, tier: int) -> void:
 	if not band.is_empty():
 		DeepUi.pill(facts, "gem", "up to %d ct" % int(band.cap), DeepUi.PAPER, 11)
 	if key != DeepContent.starter_mine():
-		DeepUi.pill(facts, "ore", "%d pyrite" % int(mine.get("start_pyrite", 0)), DeepUi.ORE, 11,
-			"Starting here costs a fare of %d gold, paid by each delver at the shaft head." % DeepEconomy.fare(key))
+		## With the head start a Birthstone that grows all run opens a start here with (a Renown's
+		## Trophies, a Bloodroot's max health), in the same capsule.
+		var opens: Dictionary = DescendPage.head_start(home, key)
+		DeepUi.pill(facts, "ore", "%d pyrite%s" % [int(mine.get("start_pyrite", 0)), str(opens.get("and", ""))], DeepUi.ORE, 11,
+			("Starting here costs a fare of %d gold, paid by each delver at the shaft head." % DeepEconomy.fare(key)) + str(opens.get("tip", ""))).name = "StartWith"
 	home.enter(box.get_parent())
 
 class _Track extends Control:
@@ -415,8 +418,10 @@ static func _going_down(home: Control, parent: VBoxContainer) -> void:
 	var faces := DeepUi.hbox(box, int(DeepUi.pt(5)))
 	for key in DeepContent.characters_in_unlock_order():
 		var unlocked: bool = bool(home.profile.get("characters", {}).get(str(key), {}).get("unlocked", false))
-		var portrait := Roster.Portrait.new(str(key), Vector2(DeepUi.pt(34), DeepUi.pt(34)), not unlocked, str(key) == current, false)
-		portrait.tooltip_text = DeepContent.character_title(str(key)) if unlocked else "Locked. " + Roster.unlock_hint(str(key)) + "."
+		## Each plate is lit by the Birthstone that delver goes down in.
+		var wears: Dictionary = Roster.worn_stone(home.profile, str(key)) if unlocked else {}
+		var portrait := Roster.Portrait.new(str(key), Vector2(DeepUi.pt(34), DeepUi.pt(34)), not unlocked, str(key) == current, false, wears)
+		portrait.tooltip_text = Roster.named(str(key), wears) if unlocked else "Locked. " + Roster.unlock_hint(str(key)) + "."
 		faces.add_child(portrait)
 		if unlocked:
 			portrait.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -434,8 +439,15 @@ static func _going_down(home: Control, parent: VBoxContainer) -> void:
 		if bool(home.profile.get("characters", {}).get(str(key), {}).get("fresh", false)):
 			HomeParts.pin(portrait, 0, home.PIP_NEW, true)
 	var named := DeepUi.hbox(box, int(DeepUi.pt(5)))
-	var title := DeepUi.label(named, DeepContent.character_title(current), 14, DeepUi.PAPER)
+	## Named with the Birthstone they go down in when it is not their first ("Ardor · Rampart"):
+	## the row has no room for the desk's capsule, and the stone itself ends the rail below.
+	var birth: Dictionary = Roster.worn_stone(home.profile, current)
+	var title := DeepUi.label(named, Roster.named(current, birth), 14, DeepUi.PAPER)
 	title.add_theme_font_override("font", DeepUi.bold_font())
+	title.name = "GoingAs"
+	if not Roster.is_first(current, birth):
+		title.mouse_filter = Control.MOUSE_FILTER_PASS
+		title.tooltip_text = "%s, wearing %s\n%s" % [DeepContent.character_title(current), str(birth.get("name", "")), str(birth.get("text", ""))]
 	DeepUi.pill(named, "heart", "%d" % int(character.get("hp", 0)), DeepUi.HP, 11)
 	DeepUi.pill(named, "spark", str(character.get("passive", {}).get("name", "Passive")), DeepUi.ACCENT, 11, str(character.get("passive", {}).get("text", "")))
 	var rail := DeepUi.hbox(box, int(DeepUi.pt(3)))
@@ -497,6 +509,8 @@ static func _daily_rules(home: Control, parent: VBoxContainer) -> void:
 		var name: String = str(mod.get("name", key))
 		if str(key) == "DROUGHT" and plan.has("drought"):
 			name = "%s: no %s" % [name, str(DeepContent.color(str(plan.drought)).get("name", plan.drought))]
+		if str(key) == "BORROWED_BIRTHSTONE" and plan.has("birthstone"):
+			name = DescendPage.borrowed_words(name, plan)
 		var title_line := DeepUi.hbox(words, int(DeepUi.pt(4)))
 		var named := DeepUi.label(title_line, name, 12, hue.lightened(0.1))
 		named.add_theme_font_override("font", DeepUi.bold_font())
@@ -514,20 +528,24 @@ static func _daily_side(home: Control, parent: VBoxContainer) -> void:
 	var box := _card(parent, DeepUi.LINE)
 	DeepUi.section(box, "person", "Lent for the day", DeepUi.ACCENT, 11)
 	var row := DeepUi.hbox(box, int(DeepUi.pt(8)))
-	row.add_child(Roster.Portrait.new(character, Vector2(DeepUi.pt(48), DeepUi.pt(48))))
+	## The Birthstone the day lends with them: one of their three, or a borrowed one.
+	var day_stone: Dictionary = Roster.daily_stone(plan)
+	row.add_child(Roster.Portrait.new(character, Vector2(DeepUi.pt(48), DeepUi.pt(48)), false, false, false, day_stone))
 	var facts := DeepUi.vbox(row, 0)
 	facts.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var title := DeepUi.label(facts, DeepContent.character_title(character), 14, DeepUi.PAPER)
+	var title := DeepUi.label(facts, DescendPage.lent_words(plan), 14, DeepUi.PAPER)
 	title.add_theme_font_override("font", DeepUi.bold_font())
+	title.name = "LentAs"
 	DeepUi.wrap(facts, "The whole party goes down as this delver, with the stones and dice the day lends. Nothing of yours goes down.", 11, DeepUi.MUTED)
+	if not DescendPage.lent_note(plan).is_empty():
+		DeepUi.wrap(facts, DescendPage.lent_note(plan), 11, Roster.stone_tone(day_stone)).name = "LentStone"
 	var rail := DeepUi.hbox(box, int(DeepUi.pt(3)))
 	var stones: Array = DeepEconomy.daily_rail(plan, character, seat)
 	var sockets: Array = DeepContent.character(character).get("sockets", [])
 	for index in range(sockets.size()):
 		var stone: Variant = stones[index] if index < stones.size() else null
 		home.kit_socket(rail, str(sockets[index]), stone if stone is Dictionary else {}, DeepUi.pt(26))
-	var carried: String = str(plan.get("birthstone", character)) if plan.get("mods", []).has("BORROWED_BIRTHSTONE") else character
-	home.kit_socket(rail, "BIRTHSTONE", DeepStone.birthstone(carried), DeepUi.pt(26))
+	home.kit_socket(rail, "BIRTHSTONE", day_stone, DeepUi.pt(26))
 	var pays := _card(parent, DeepUi.LINE)
 	var standing := DeepUi.hbox(pays, int(DeepUi.pt(6)))
 	var tier: int = int(home.lobby.get("hazard", 0))

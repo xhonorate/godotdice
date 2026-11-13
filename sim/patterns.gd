@@ -29,6 +29,15 @@ extends RefCounted
 ##   skip_straight       the rung many different values all of one parity, like 2-4-6-8-10
 ##   distinct_dominant   the rung many different values and the top die outrolling the rest combined
 ##   kills               at least the rung many creatures have died this turn (the fight says how many)
+##   high_count          at least the rung many dice showing `value` or more (Renown reads sixes and up)
+##   total_at_most       the total is the rung or less, as a number and not a share (a wild reads as 1)
+##   total_window        the total is the rung or more and no more than `max`; with no `max`, the rung or more
+##   scale               a climb at least the rung long across the dice from the smallest die to the
+##                       largest, each showing more than the one before it (see DeepHand)
+##   all_faces           every die on its own top face or on a 1 (Highs and Lows), two dice at the least
+##   colors              at least the rung many of the six colors have fired on this rail this turn
+##                       (the fight says how many)
+##   set                 a set at least the rung big and no bigger than `max`: every such set is read
 ##
 ## Creature-only kinds, read from the fight rather than the dice (the context a creature's
 ## action passes in), each firing at most once an action:
@@ -49,6 +58,7 @@ extends RefCounted
 const KINDS: Array = ["all_odd", "all_even", "always", "pair", "two_pair", "triple", "full_house", "quad", "quint", "straight",
 	"odd", "even", "distinct", "value", "at_most", "at_least", "total_pct_at_least", "total_pct_at_most",
 	"high_pct_at_least", "held", "rerolled", "resonance", "low_count", "crowns", "crowns_at_most", "skip_straight", "distinct_dominant", "pyrite", "fizzles", "below", "kills",
+	"high_count", "total_at_most", "total_window", "scale", "all_faces", "colors", "set",
 	"each_turn", "every_nth_turn", "emerge", "on_death", "hp_below", "action_begin", "countdown",
 	## A creature's action dice: a move fires when its own face lands (`face`), or when the
 	## faces it names have landed together in one action (`match`). See creatures.gd.
@@ -318,6 +328,64 @@ static func evaluate(trigger: Dictionary, cut_step: int, a: Dictionary, context:
 				result.dice = dice
 				result.count = int(a.distinct)
 				result.value = int(a.high)
+		"high_count":
+			var floor_value: int = int(trigger.get("value", 6))
+			var dice: Array = DeepHand.matching(a, func(v: int) -> bool: return v >= floor_value)
+			if dice.size() >= maxi(1, need):
+				result.active = true
+				result.dice = dice
+				result.count = dice.size()
+				result.value = floor_value
+		"total_at_most":
+			var quiet: int = int(a.get("total", 0)) - int(a.get("wild_total", 0)) + a.get("wilds", []).size()
+			if int(a.get("dice_count", 0)) > 0 and quiet <= need:
+				result.active = true
+				result.dice = _all_dice(a)
+				result.value = quiet
+				result.count = result.dice.size()
+		"total_window":
+			var most: int = int(trigger.get("max", -1))
+			if int(a.get("dice_count", 0)) > 0 and int(a.get("total", 0)) >= need and (most < 0 or int(a.get("total", 0)) <= most):
+				result.active = true
+				result.dice = _all_dice(a)
+				result.value = int(a.get("total", 0))
+				result.count = result.dice.size()
+		"scale":
+			var climb: Dictionary = a.get("scale", {})
+			if int(climb.get("length", 0)) >= maxi(1, need):
+				result.active = true
+				result.dice = climb.get("dice", []).duplicate()
+				result.count = int(climb.get("length", 0))
+				result.value = int(climb.get("total", 0))
+		"all_faces":
+			var faced: Array = a.get("crown_ids", []).duplicate()
+			for id in a.get("one_ids", []):
+				if not faced.has(id):
+					faced.append(id)
+			if int(a.get("dice_count", 0)) >= maxi(2, need) and faced.size() >= int(a.get("dice_count", 0)):
+				result.active = true
+				result.dice = faced
+				result.count = faced.size()
+				result.value = faced.size()
+		"colors":
+			result.active = int(context.get("colors", 0)) >= maxi(1, need)
+			result.count = int(context.get("colors", 0))
+			result.value = int(context.get("colors", 0))
+		"set":
+			var biggest: int = int(trigger.get("max", 0))
+			var found: Array = []
+			for group in a.get("groups", []):
+				if int(group.count) >= maxi(2, need) and (biggest <= 0 or int(group.count) <= biggest):
+					found.append({"value": int(group.value), "count": int(group.count), "dice": group.dice.duplicate()})
+			if not found.is_empty():
+				result.active = true
+				result.sets = found
+				var dice: Array = []
+				for group in found:
+					dice.append_array(group.dice)
+				result.dice = dice
+				result.value = int(found[0].value)
+				result.count = int(found[0].count)
 	if not result.active:
 		result.reason = words(trigger, cut_step)
 	return result
@@ -446,6 +514,18 @@ static func describe(trigger: Dictionary, cut_step: int) -> Dictionary:
 			label = "≤%d" % need
 		"at_least":
 			label = "≥%d" % need
+		"high_count":
+			label = "%d+ ×%d" % [int(trigger.get("value", 6)), maxi(1, need)]
+		"total_at_most":
+			label = "≤%d" % need
+		"total_window":
+			var most: int = int(trigger.get("max", -1))
+			label = "≥%d" % need if most < 0 else ("=%d" % need if most == need else "%d-%d" % [need, most])
+		"scale", "colors":
+			label = "×%d" % maxi(1, need)
+		"set":
+			var biggest: int = int(trigger.get("max", 0))
+			label = "×%d" % maxi(2, need) if biggest == maxi(2, need) else ("×%d+" % maxi(2, need) if biggest <= 0 else "×%d-%d" % [maxi(2, need), biggest])
 		"total_pct_at_least":
 			label = "≥%d%%" % need
 		"total_pct_at_most":
@@ -503,6 +583,23 @@ static func words(trigger: Dictionary, cut_step: int) -> String:
 		"crowns_at_most": return "No crowns: no die on its top face." if need == 0 else "No more than %d %s." % [need, "crown" if need == 1 else "crowns"]
 		"skip_straight": return "%d different values, all odd or all even, like 2-4-6-8-10." % need
 		"distinct_dominant": return "%d different values, the highest die outrolling the other %d combined." % [need, need - 1]
+		"high_count":
+			return "At least %s showing %d or more." % [_dice(maxi(1, need)), int(trigger.get("value", 6))]
+		"total_at_most": return "Your total is %d or less." % need
+		"total_window":
+			var most: int = int(trigger.get("max", -1))
+			if most < 0:
+				return "Your total is %d or more." % need
+			return "Your total is exactly %d." % need if most == need else "Your total is from %d to %d." % [need, most]
+		"scale": return "A scale of %d: dice that climb from your smallest die to your largest, each showing more than the last." % maxi(1, need)
+		"all_faces": return "Every die on its own top face or on a 1."
+		"colors": return "At least %d different colors have fired this turn." % maxi(1, need)
+		"set":
+			var biggest: int = int(trigger.get("max", 0))
+			var least: int = maxi(2, need)
+			if biggest == least:
+				return "A set of exactly %d matching dice." % least
+			return "A set of %d or more matching dice." % least if biggest <= 0 else "A set of %d to %d matching dice." % [least, biggest]
 		"each_turn": return "Every action, once, before its dice."
 		"every_nth_turn": return "Every %s action, once, before its dice." % _ordinal(need)
 		"countdown": return "When its countdown from %d reaches 0, once, before its dice." % need

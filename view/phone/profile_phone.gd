@@ -13,6 +13,8 @@ const Tips = preload("res://view/ui/tips.gd")
 const Plates = preload("res://view/ui/plates.gd")
 
 const TABS: Array = [["showcase", "star", "Showcase"], ["mines", "map", "Mines"], ["runs", "hourglass", "Recent runs"]]
+## A conquest mark's edge, in points.
+const MARK: float = 7.0
 
 static func build(home: Control, content: VBoxContainer) -> void:
 	var records: Dictionary = home.profile.get("records", {})
@@ -132,6 +134,12 @@ static func _mines(home: Control, body: VBoxContainer) -> void:
 	var card := DeepUi.card(body, DeepUi.LINE, int(DeepUi.pt(8)))
 	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	var box := DeepUi.vbox(card, int(DeepUi.pt(4)))
+	## Conquests are kept by Birthstone (ProfilePage.StoneMarks): a column a delver, three marks
+	## a mine, their faces over the columns. A hold on a column names its stones.
+	var met: Array = DeepProfile.unlocked_characters(home.profile)
+	var heads := DeepUi.hbox(box, int(DeepUi.pt(8)))
+	DeepUi.label(heads, "Final bosses beaten, by Birthstone", 11, DeepUi.DIM).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ProfilePage.stone_heads(heads, met, DeepUi.pt(14), DeepUi.pt(MARK))
 	for key in DeepContent.mines_in_order():
 		var record: Dictionary = home.profile.get("mines", {}).get(str(key), {})
 		var open: bool = bool(record.get("unlocked", false))
@@ -154,7 +162,8 @@ static func _mines(home: Control, body: VBoxContainer) -> void:
 		var crowns: int = mine.get("warden_depths", []).size() + 1
 		DeepUi.stat(row, "stairs", "%d%s" % [deepest, (" / %d" % bottom) if bottom > 0 else ""], DeepUi.INFO, 11)
 		DeepUi.stat(row, "crown", "%d / %d" % [mini(record.get("wardens", []).size(), crowns), crowns] if bottom > 0 else str(record.get("wardens", []).size()), DeepUi.ACCENT, 11)
-		DeepUi.stat(row, "pick", str(int(record.get("runs", 0))), DeepUi.MUTED, 11)
+		DeepUi.stat(row, "pick", str(int(record.get("runs", 0))), DeepUi.MUTED, 11).custom_minimum_size.x = DeepUi.pt(34)
+		ProfilePage.stone_marks(row, home.profile, met, str(key), DeepUi.pt(MARK))
 	home.enter(card, 0.05)
 
 static func _runs(home: Control, body: VBoxContainer) -> void:
@@ -191,7 +200,14 @@ static func _runs(home: Control, body: VBoxContainer) -> void:
 		where.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		var character: String = str(run.get("character", ""))
 		if not DeepContent.character(character).is_empty():
-			row.add_child(Roster.Portrait.new(character, Vector2(DeepUi.pt(18), DeepUi.pt(18))))
+			## Who dug it, and in which Birthstone when it was not their first: "Ardor · Rampart".
+			var stone: Dictionary = Roster.record_stone(run)
+			row.add_child(Roster.Portrait.new(character, Vector2(DeepUi.pt(18), DeepUi.pt(18)), false, false, false, stone))
+			var who := DeepUi.label(row, Roster.named(character, stone, false), 11, DeepUi.MUTED if Roster.is_first(character, stone) else Roster.stone_tone(stone))
+			who.name = "DugAs"
+			who.custom_minimum_size.x = DeepUi.pt(130)
+			who.clip_text = true
+			who.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		var depth := DeepUi.bar(row, DeepUi.pt(4), DeepUi.INFO, Color(DeepUi.LINE, 0.5))
 		depth.custom_minimum_size = Vector2(DeepUi.pt(60), DeepUi.pt(4))
 		depth.size_flags_vertical = Control.SIZE_SHRINK_CENTER

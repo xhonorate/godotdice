@@ -323,7 +323,7 @@ static func _wearers(home: Control, parent: Node, skill: String) -> void:
 		return
 	DeepUi.label(row, "In", 12, DeepUi.MUTED)
 	for key in wearing:
-		var face := Roster.Portrait.new(key, Vector2(24, 24))
+		var face := Roster.Portrait.new(key, Vector2(24, 24), false, false, false, Roster.worn_stone(home.profile, key))
 		face.tooltip_text = "In %s's sockets" % DeepContent.character_title(key)
 		row.add_child(face)
 	DeepUi.label(row, ", ".join(wearing.map(func(k: Variant) -> String: return str(DeepContent.character(str(k)).get("name", k)))), 12, DeepUi.MUTED)

@@ -91,10 +91,20 @@ const KEYWORD_HINTS: Dictionary = {
  "void": "Takes no socket: rides beside a socketed gem and fires right after it.",
  "changing face": "Puck's Motley: a face different from last turn's pays double, and one more for every turn running the faces keep changing (×2, ×3, ×4). The same face twice, or a turn with no face, starts over.",
  "turn over": "The die lands on the face underneath: its mirror face (a 2 on a d6 to its 5), always of the other parity, or the nearest face of the other parity it has.",
+ "break": "A broken die leaves your bowl. Next turn a plain die takes its place for good, without its material, pattern or etchings. A die broken for the fight is back as it was once the fight ends. Granite can't break.",
  "amplif": "Increases the next evaluated gem’s magnitude. Consumed even if that gem fizzles.",
  "inverted": "Turned around: damage becomes Block and Block becomes damage; healing becomes Poison and Poison becomes healing; Regeneration becomes Poison; Spikes and Marked swap; Strength and Curse swap; Retain counts as Block.",
  "permanent": "Lasts for the current run, including later fights. Does not alter your stored collection.",
- "stun": "Skips the next action per stack. Enemies break out after three consecutive missed actions and resist Stun through the following turn."
+ "stun": "Skips the next action per stack. Enemies break out after three consecutive missed actions and resist Stun through the following turn.",
+ ## The variant Birthstones' own words (November 2026).
+ "troph": "Renown takes a Trophy for every creature its Lance kills. Kept for the rest of the run; each one adds 1 damage to every Lance.",
+ "prize": "One-Armed Bandit, by the number matched: 1s heal Resonance, 2s give Resonance Block, 3s poison for Resonance, 4s pay Resonance pyrite, 5s deal 2× Resonance, 7s deal 4× Resonance. Any other number deals Resonance times its points over 3.",
+ "happy face": "A die showing its crown, its own top face. Sleight turns it into a Sad Face.",
+ "sad face": "A die showing 1. Sleight turns it into a Happy Face.",
+ "a scale": "The longest climb across your dice from the smallest die to the largest, each showing more than the one before it.",
+ "the scale": "The longest climb across your dice from the smallest die to the largest, each showing more than the one before it.",
+ "perfect scale": "All five dice in the scale: each die, from the smallest to the largest, showing more than the one before it.",
+ "envenom": "Every hit its owner lands that gets past Block also applies 1 Poison a stack. Lasts the fight."
 }
 ## The mark each chamber kind is drawn with, anywhere a chamber is shown.
 ## An oddity wears the swirl; the question mark is a dark mouth's alone.

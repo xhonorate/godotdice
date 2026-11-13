@@ -164,13 +164,24 @@ export function etch(die, index, kind) {
 	return true;
 }
 
+// Why this die cannot be made `steps` sizes bigger (smaller when negative), or '' (sim/oddities.gd
+// resize_refusal).
+export function resizeRefusal(die, steps) {
+	const at = TIERS.indexOf(String(die.shape || ''));
+	if (at < 0) return 'that die cannot change size';
+	if (at + steps >= TIERS.length) return 'that die is as big as dice come';
+	if (at + steps < 0) return 'that die is as small as dice come';
+	return '';
+}
+
 // The die, in place, `steps` sizes bigger or smaller (sim/oddities.gd resize): it keeps its id,
 // its material and its own faces as a multiset. Filed down it loses its highest faces (a d4 of
 // 1/1/3/3 files to a d3 of 1/1/3); hammered up it gains the new size's top faces, cut to its
 // pattern where the pattern fits the new size. The pattern's name stays while the size takes it.
 export function resize(die, steps) {
+	const refusal = resizeRefusal(die, steps);
+	if (refusal) return refusal;
 	const at = TIERS.indexOf(die.shape);
-	if (at < 0 || at + steps < 0 || at + steps >= TIERS.length) return 'that die cannot change size that far';
 	const key = TIERS[at + steps];
 	const pattern = patternAllows(die.pattern || '', key) ? die.pattern || '' : '';
 	const own = String(die.name || '');

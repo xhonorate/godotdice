@@ -1,5 +1,6 @@
 // Lapidaries: each character's setting, bowl, passive and Birthstone, with the odds of every
-// Birthstone tier against that character's own dice.
+// Birthstone tier against that character's own dice, and under it the two variant Birthstones
+// they can buy (name, price, tiers).
 
 import * as C from '../sim/content.js';
 import * as Dice from '../sim/dice.js';
@@ -36,13 +37,26 @@ export default {
 				h('div', { class: 'col', style: { gap: '4px', alignItems: 'flex-end' } }, h('span', { class: 'tiny muted' }, `Bowl · mean ${fmt(summary.mean, 1)} · max ${summary.maxTotal}`), h('div', { class: 'row tight' }, (def.dice || []).map((k) => h('span', { title: `${C.die(k).name}: ${Dice.facesOf(C.die(k)).map((f) => f.value).join(' ')}` }, dieImage(k, 34)))))));
 			body.append(h('div', { class: 'effect' }, h('span', {}, h('span', { class: 'eff-kind' }, def.passive?.name || 'Passive'), h('span', { class: 'eff-sub' }, def.passive?.text || C.title(def.passive?.kind || 'none'))), h('span', { class: 'eff-val small muted' }, 'passive')));
 			body.append(h('div', { class: 'section-title' }, `${bs.name || 'Birthstone'} · ${C.title(bs.style || '')} cut`), h('p', { class: 'small text-2' }, bs.text || ''));
-			const tierSlot = h('div');
-			body.append(tierSlot);
-			whenReady(ctx, tierSlot, job, (r) => table({ columns: [
+			// A Birthstone's tiers: what each asks of the hand, what it does, how often this bowl answers
+			// it. A tier the fight answers and not the dice (the colors a rail fired) has no odds here.
+			const tierTable = (list, r) => table({ columns: [
 				{ key: 'name', label: 'Tier', render: (t) => h('span', {}, h('b', {}, t.name), h('span', { class: 'cell-sub' }, t.words)) },
 				{ key: 'effects', label: 'Does', render: (t) => h('span', { class: 'small text-2' }, t.effects) },
-				{ key: 'fire', label: 'Fires', align: 'right', render: (t) => h('span', { class: 'ladder-cell', style: { background: heat(Math.min(1, t.fire * 1.2)), minWidth: '52px', color: t.fire > 0.55 ? '#141414' : 'var(--text)' } }, t.fire < 0.001 && t.fire > 0 ? '<0.1%' : fmtPct(t.fire, t.fire < 0.05 ? 1 : 0)) },
-			], rows: tiers.map((t, i) => ({ key: t.name, name: t.name, words: Patterns.words(t.trigger, 0), effects: t.text || (t.effects || []).map((e) => Rules.effectWords(e)).join(' · '), fire: r.results[i].fireRate })), compact: true, rowKey: (t) => t.key }), { min: 80 });
+				{ key: 'fire', label: 'Fires', align: 'right', render: (t) => (t.unknown ? h('span', { class: 'small muted', title: 'The fight answers this, not the dice: it depends on the rail' }, 'by the rail')
+					: h('span', { class: 'ladder-cell', style: { background: heat(Math.min(1, t.fire * 1.2)), minWidth: '52px', color: t.fire > 0.55 ? '#141414' : 'var(--text)' } }, t.fire < 0.001 && t.fire > 0 ? '<0.1%' : fmtPct(t.fire, t.fire < 0.05 ? 1 : 0))) },
+			], rows: list.map((t, i) => ({ key: t.name, name: t.name, words: Patterns.words(t.trigger || { kind: 'always' }, 0), effects: t.text || (t.effects || []).map((e) => Rules.effectWords(e)).join(' · '), fire: r.results[i].fireRate, unknown: Boolean(r.results[i].unknown) })), compact: true, rowKey: (t) => t.key });
+			const tierSlot = h('div');
+			body.append(tierSlot);
+			whenReady(ctx, tierSlot, job, (r) => tierTable(tiers, r), { min: 80 });
+			// The Birthstones bought with gold: each a stone of its own, worn in place of the first.
+			for (const variant of C.birthstoneVariants(key)) {
+				const stones = variant.tiers || [];
+				body.append(h('div', { class: 'section-title' }, h('span', { class: 'cell-name' }, birthstoneImage(key, 22, String(variant.key || '')), `${variant.name || 'Birthstone'} · ${C.title(variant.style || '')} cut · ${fmt(Number(variant.price || 0), 0)} gold`)),
+					h('p', { class: 'small text-2' }, variant.text || ''));
+				const slot = h('div');
+				body.append(slot);
+				whenReady(ctx, slot, ctx.engine.run('triggerOdds', { bowl: def.dice, rerolls, samples: 6000, triggers: stones.map((t) => t.trigger || { kind: 'always' }) }), (r) => tierTable(stones, r), { min: 80 });
+			}
 			grid.append(card(null, body));
 			compareRows.push({ key, name: def.name, hp: def.hp, sockets: def.sockets, mean: summary.mean, max: summary.maxTotal, dice: def.dice, passive: def.passive?.name || '' });
 		}

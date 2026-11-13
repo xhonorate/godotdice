@@ -34,6 +34,8 @@ const MineStage = preload("res://view/run/mine_stage.gd")
 const EffectChips = preload("res://view/battle/effect_chips.gd")
 const StreakFx = preload("res://view/battle/streak_fx.gd")
 const MotleyFx = preload("res://view/battle/motley_fx.gd")
+## A Birthstone's own pieces over its player's dock, one script a stone (view/battle/birth/).
+const BirthAct = preload("res://view/battle/birth_act.gd")
 const Inspector = preload("res://view/inspect/inspector.gd")
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
 const Tally = preload("res://view/battle/tally.gd")
@@ -1040,6 +1042,8 @@ func _forget_fight() -> void:
 		page.birth_outcome = {}
 		## The last fight's "dealt" count goes with it: no turn_begin clears it before turn 1.
 		page.turn_dealt = 0
+		## And the worn stone's own pieces, which keep what a fight has grown (made again at the next sync).
+		_drop_act(page)
 	## A new fight opens on the reader's own page.
 	_shown_id = ""
 	_firing_id = ""
@@ -1209,6 +1213,16 @@ func _sync() -> void:
 	## A hand can only be taken back while planning: past that a greyed "Unlock" promised it could.
 	_lock_button.text = ("Unlock" if planning else "Locked in") if locked else "Lock in"
 	_lock_button.tooltip_text = "Locked in: no rerolls or turns left to spend." if locked and spent else "Lock in your hand  [Space]"
+	## A worn stone may name the two buttons its own way while there is something to press (a
+	## Blackjack's Hit and Stand): the keys and what they do stay the same.
+	var renamed: Dictionary = _local_page.act.button_words() if _local_page.act != null and is_instance_valid(_local_page.act) else {}
+	if planning and not locked and not downed and roller.is_empty():
+		if renamed.has("reroll"):
+			_reroll_button.text = str(renamed.reroll)
+		if renamed.has("lock"):
+			_lock_button.text = str(renamed.lock)
+		if renamed.has("reroll_icon") and GemIcons.known(str(renamed.reroll_icon)):
+			_reroll_button.icon = GemIcons.texture(str(renamed.reroll_icon), GemIcons.baked_size(30.0))
 	_flip_button.visible = str(unit.get("passive", {}).get("kind", "")) == "free_flip"
 	var shift_refusal: String = _shift_refusal()
 	_flip_button.disabled = not planning or locked or downed or flips <= 0 or selected.size() != 1 or not shift_refusal.is_empty()
@@ -1274,6 +1288,10 @@ class Page extends RefCounted:
 	var rail_shape: String = ""
 	var birthstone_card: VBoxContainer = null
 	var birthstone_key: String = ""
+	## The worn Birthstone's own pieces over this page (a BirthAct), or null when the stone has
+	## none; and the stone they were made for.
+	var act: Control = null
+	var act_key: String = ""
 	var hand_title: Label
 	var hint: Label
 	## Puck only: which face the hand wears, under the tray's title.
@@ -1376,6 +1394,7 @@ func _sync_pages(planning: bool) -> void:
 			var gone: Page = _pages[id]
 			if gone.root != null and is_instance_valid(gone.root):
 				gone.root.queue_free()
+			_drop_act(gone)
 			_pages.erase(id)
 	if not present.has(_shown_owner()):
 		_shown_id = ""
@@ -1389,16 +1408,24 @@ func _sync_page(page: Page, unit: Dictionary, planning: bool) -> void:
 	## answer away. The rail is told again the moment they settle.
 	var rolled: String = ",".join(unit.get("hand", []).map(func(r: Dictionary) -> String: return "%s:%d:%s" % [str(r.get("die_id", "")), int(r.get("value", 0)), str(r.get("rerolls", 0))]))
 	page.face.key = str(unit.get("character", ""))
+	## Their plate is lit by the stone they wear, a variant or one a daily lent them.
+	page.face.worn = DeepStone.birthstone_for(unit) if not str(unit.get("birthstone_key", "")).is_empty() or unit.has("birthstone_of") else {}
 	page.face.tooltip_text = "%s · %s" % [str(unit.get("name", "")), DeepContent.character_title(page.face.key)] if not page.mine else "You, as %s" % DeepContent.character_title(page.face.key)
+	var act: Control = _act_for(page, unit)
 	if rolled != _rolled_hand:
 		_rolled_hand = rolled
 		if not _headless and is_inside_tree() and planning:
 			## Their eyes go down to the dice for as long as they tumble.
 			_react(page.id, "rolling", DiceView.SPIN_SECONDS + 0.4)
-			_dice_settle_at = Time.get_ticks_msec() + int(DiceView.SPIN_SECONDS * 1000.0) + 60
+			if act != null:
+				act.thrown()
+			## A stone that stops its dice one by one (a Bandit's reels) keeps the hand's secret
+			## until the last of them has stopped.
+			var spin: float = DiceView.SPIN_SECONDS + (act.spin_extra() if act != null else 0.0)
+			_dice_settle_at = Time.get_ticks_msec() + int(spin * 1000.0) + 60
 			var settling_hand: String = rolled
 			var settling: Page = page
-			get_tree().create_timer(DiceView.SPIN_SECONDS + 0.09).timeout.connect(func() -> void:
+			get_tree().create_timer(spin + 0.09).timeout.connect(func() -> void:
 				if is_instance_valid(self) and not state.is_empty() and settling.rolled_hand == settling_hand:
 					settling.dice_settle_at = 0
 					_sync())
@@ -1418,10 +1445,39 @@ func _sync_page(page: Page, unit: Dictionary, planning: bool) -> void:
 	_sync_tray(unit, planning)
 	_sync_streak(page, unit)
 	_sync_face(page, unit)
+	if act != null:
+		## The worn stone's own pieces read the same forecast its card does, and nothing of it
+		## while the dice are still in the air.
+		var preview: Dictionary = page.birth_outcome if not planning and not page.birth_outcome.is_empty() else page.forecast.get("birthstone", {})
+		var landed: bool = Time.get_ticks_msec() >= page.dice_settle_at
+		act.sync(unit, tier_outcomes(unit, unit.get("birthstone", {}).get("tiers", []), preview) if landed else [], planning, landed)
 	if not page.mine:
 		_sync_mate_state(page, unit, planning)
 	_show_mood(page.id)
 	_page = was
+
+func _act_for(page: Page, unit: Dictionary) -> Control:
+	## The worn Birthstone's own pieces over a page (view/battle/birth_act.gd), made the first
+	## time the stone is seen there and again if the page comes to wear another; null for a
+	## stone with none.
+	var stone: Dictionary = DeepStone.birthstone_for(unit)
+	var key: String = str(stone.get("id", ""))
+	if page.act_key != key or (page.act != null and not is_instance_valid(page.act)):
+		_drop_act(page)
+		page.act_key = key
+		page.act = BirthAct.make(stone) if not stone.is_empty() and _hud != null else null
+		if page.act != null:
+			page.act.screen = self
+			page.act.page = page
+			page.act.stone = stone
+			_hud.add_child(page.act)
+	return page.act
+
+func _drop_act(page: Page) -> void:
+	if page.act != null and is_instance_valid(page.act):
+		page.act.queue_free()
+	page.act = null
+	page.act_key = ""
 
 func _mate_forecast(page: Page, unit: Dictionary, planning: bool, rolled: String) -> void:
 	## Another player's "this hand would", read here off the fight as it stands, the same way
@@ -1890,6 +1946,7 @@ class SeatTab extends VBoxContainer:
 		var who: String = str(unit.get("name", ""))
 		_name.text = who
 		portrait.key = str(unit.get("character", ""))
+		portrait.worn = DeepStone.birthstone_for(unit) if not str(unit.get("birthstone_key", "")).is_empty() or unit.has("birthstone_of") else {}
 		var max_hp: int = maxi(1, int(unit.get("max_hp", 1)))
 		_bar.set_values(float(unit.get("hp", 0)) / float(max_hp), "", float(unit.get("block", 0)) / float(max_hp))
 		## As the turn starts resolving, the firing order is counted out along the tabs.
@@ -2149,7 +2206,7 @@ func _late_moves(effects: Array, into: Dictionary) -> void:
 						if back is Dictionary and _is_player(str(back.get("target", ""))):
 							_vital_move(into, str(back.target), int(back.get("hp_loss", 0)), int(back.get("absorbed", 0)))
 							_late_hits.append(back)
-			"appraise", "invert_previous":
+			"appraise", "invert_previous", "arpeggio", "prize", "quilt":
 				_late_moves(effect.get("hits", []), into)
 			"tick_poison", "poison_tick":
 				_tick_moves(effect.get("ticks", []), into)
@@ -2208,7 +2265,7 @@ func _vital_moves(effects: Array, into: Dictionary) -> void:
 						for entry in hit.get("routed", []):
 							if _creature(str(entry.get("unit", ""))) != null:
 								_vital_move(into, str(entry.unit), int(entry.get("hp", 0)), 0)
-			"appraise", "invert_previous":
+			"appraise", "invert_previous", "arpeggio", "prize", "quilt":
 				_vital_moves(effect.get("hits", []), into)
 			"tick_poison":
 				for tick in effect.get("ticks", []):
@@ -2437,7 +2494,9 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 	## count that stands for the riders past the third.
 	var showing: bool = (planning or str(state.get("phase", "")) == "resolving") and Time.get_ticks_msec() >= _dice_settle_at
 	var rail: Array = unit.get("rail", [])
-	var birth_key: String = str(unit.get("character", ""))
+	## The stone at the end of the rail is the one worn: a delver's first, a variant of theirs,
+	## or one a daily lent from someone else.
+	var birth_key: String = "%s|%s|%s" % [str(unit.get("character", "")), str(unit.get("birthstone_of", "")), str(unit.get("birthstone_key", ""))]
 	var shape: String = "%d|%s" % [rail.size(), str(unit.get("places", []))]
 	var unit_id: String = str(unit.get("id", ""))
 	var on: Page = _page
@@ -3339,6 +3398,11 @@ func _birth_plate(page: Page, unit_id: String) -> Control:
 	Plates.head(box, str(stone.get("name", "Birthstone")), "your Birthstone", tint.lightened(0.3))
 	if not str(stone.get("text", "")).is_empty():
 		DeepUi.effect_text(box, str(stone.get("text", "")), 12, DeepUi.MUTED)
+	## What the stone has come to this run (a Renown's Trophies), said here and on its sheet
+	## and nowhere on the dock, as a growth gem's count is.
+	var kept: String = Plates.birth_count(unit)
+	if not kept.is_empty():
+		DeepUi.effect_text(box, kept, 12, tint.lightened(0.35))
 	var planning: bool = str(state.get("phase", "")) == "planning"
 	var preview: Dictionary = page.birth_outcome if not planning and not page.birth_outcome.is_empty() else page.forecast.get("birthstone", {})
 	var defs: Array = unit.get("birthstone", {}).get("tiers", [])
@@ -3412,11 +3476,26 @@ static func tier_outcomes(unit: Dictionary, defs: Array, preview: Dictionary) ->
 			exclusive = true
 	var a: Dictionary = DeepHand.analyze(unit.get("hand", []))
 	var resonance: int = int(preview.get("resonance", unit.get("resonance", 0)))
+	var read: Array = []
 	for index in range(listed.size(), defs.size()):
 		var trigger: Dictionary = defs[index].get("trigger", {"kind": "always"})
-		var trig: Dictionary = DeepPatterns.evaluate(trigger, 0, a, {"resonance": resonance})
-		out.append({"name": str(defs[index].get("name", "")), "active": bool(trig.get("active", false)) and not exclusive,
-			"dice": trig.get("dice", []), "reason": str(trig.get("reason", "")), "unlanded": true})
+		var trig: Dictionary = DeepPatterns.evaluate(trigger, 0, a, {"resonance": resonance, "colors": DeepBattle.colors_fired(unit)})
+		read.append({"name": str(defs[index].get("name", "")), "active": bool(trig.get("active", false)) and not exclusive,
+			"dice": trig.get("dice", []), "counted": int(trig.get("count", 0)), "reason": str(trig.get("reason", "")), "unlanded": true})
+	## A tier read off the hand gives way to one that takes its place (`eclipses`), as it would
+	## have in the rules: a Flourish left out of the forecast still stands where the Fan did.
+	var taken: Dictionary = {}
+	for index in range(defs.size()):
+		var entry: Dictionary = out[index] if index < out.size() else read[index - out.size()]
+		if bool(entry.get("active", false)):
+			for name in defs[index].get("eclipses", []):
+				taken[str(name)] = str(defs[index].get("name", ""))
+	for entry in read:
+		if bool(entry.active) and taken.has(str(entry.name)):
+			entry.active = false
+			entry.eclipsed = true
+			entry.reason = "%s takes its place." % str(taken[str(entry.name)])
+	out.append_array(read)
 	return out
 
 static func name_row(card: Control, text: String, tone: Color, width: float) -> Label:
@@ -3484,28 +3563,42 @@ static func lay_tiers(tiers_row: Node, defs: Array, previewed: Array, showing: b
 	## A Birthstone's tiers in the row under it: tiers that count more of one die are five
 	## dice, lit for every die a firing tier counted (the whole set, every crown), never fewer
 	## than that tier needs; any other tier is its own pictograph beside them.
+	##
+	## Tiers that ask for more of one number (a longer run, a lower total) are that number's
+	## mark and their numbers in a row, each lit as the hand reaches it: "3 4 5" for an Encore,
+	## "16 12 9" for a Nocturne, a Blackjack's "17 21 22+" with the Bust in red.
 	var die: String = DiceIcons.ladder_die(defs)
+	var numbers: String = DiceIcons.ladder_numbers(defs)
 	var lit: int = 0
 	var key: String = ""
+	var fires: Array = []
 	for index in range(defs.size()):
 		var active: bool = index < previewed.size() and bool(previewed[index].get("active", false)) and showing
 		key += "1" if active else "0"
-		var rung: int = DiceIcons.ladder_rung(defs[index], die)
-		if active and rung > 0:
-			lit = mini(5, maxi(lit, maxi(rung, previewed[index].get("dice", []).size())))
+		fires.append(active)
+		if active:
+			lit = maxi(lit, DiceIcons.ladder_lit(defs[index], die, previewed[index]))
 	## A Bust has no mark of its own: it is the dice that did not come, so it turns them red.
 	var bust: int = DiceIcons.ladder_penalty(defs, die)
 	var busted: bool = bust >= 0 and bust < previewed.size() and bool(previewed[bust].get("active", false)) and showing
-	key += "|%d|%s" % [lit, "bust" if busted else ""]
+	key += "|%d|%s|%s|%s" % [lit, "bust" if busted else "", die, numbers]
 	if str(tiers_row.get_meta("key", "")) == key:
 		return
 	tiers_row.set_meta("key", key)
 	var line: HBoxContainer = _trigger_line(tiers_row)
+	## Six patches are a mark wider than five dice: drawn a little smaller, they take the same room.
+	var ladder_edge: float = 14.0 * 5.0 / float(DiceIcons.ladder_span(die))
 	if not die.is_empty():
-		DiceIcons.build_ladder(line, defs, die, lit, 14, DeepUi.GOOD, DeepUi.BAD if busted else DeepUi.DIM)
+		DiceIcons.build_ladder(line, defs, die, lit, ladder_edge, DeepUi.GOOD, DeepUi.BAD if busted else DeepUi.DIM)
+	var numbered: bool = false
 	for index in range(defs.size()):
 		var tier: Dictionary = defs[index]
 		if DiceIcons.ladder_rung(tier, die) > 0 or index == bust:
+			continue
+		if not DiceIcons.ladder_number(tier, numbers).is_empty():
+			if not numbered:
+				numbered = true
+				DiceIcons.build_numbers(line, defs, numbers, fires, TRIGGER_EDGE, DeepUi.GOOD, DeepUi.DIM, DeepUi.BAD)
 			continue
 		var lit_tone: Color = DeepUi.BAD if bool(tier.get("penalty", false)) else DeepUi.GOOD
 		DiceIcons.build(line, DeepPatterns.describe(tier.get("trigger", {"kind": "always"}), 0), TRIGGER_EDGE, lit_tone if key[index] == "1" else DeepUi.DIM)
@@ -4819,7 +4912,9 @@ func _parity_rim(holder: Node, roll: Dictionary, unit: Dictionary) -> void:
 		return
 	var rim: Panel = holder.get_node_or_null("ParityRim")
 	var value: int = int(roll.get("value", 0))
-	var wanted: bool = str(unit.get("passive", {}).get("kind", "")) == "free_flip" and value > 0 and str(roll.get("kind", "plain")) != "blank"
+	## Only while she wears Motley, the stone that reads parity: her other stones mark the dice
+	## their own way (view/battle/birth/).
+	var wanted: bool = bool(unit.get("birthstone", {}).get("changing_face", false)) and value > 0 and str(roll.get("kind", "plain")) != "blank"
 	if rim == null and wanted:
 		rim = Panel.new()
 		rim.name = "ParityRim"
@@ -4840,7 +4935,8 @@ func _parity_rim(holder: Node, roll: Dictionary, unit: Dictionary) -> void:
 func _sync_face(page: Page, unit: Dictionary) -> void:
 	## Puck's tray says which face the hand wears and how far it is from a full one, and the
 	## Changing Face what the other face from last turn's would pay: ×2, ×3 as the run goes on.
-	var harlequin: bool = str(unit.get("passive", {}).get("kind", "")) == "free_flip"
+	## Motley's own: whoever wears it (a daily may lend it), and nobody who does not.
+	var harlequin: bool = bool(unit.get("birthstone", {}).get("changing_face", false))
 	var downed: bool = bool(unit.get("downed", false))
 	var pays: int = DeepBattle.next_face_pays(unit) if harlequin and not downed else 1
 	var last: String = str(unit.get("last_face", ""))
@@ -5059,6 +5155,10 @@ func perform(event: Dictionary) -> void:
 	if kind != "gem_fire":
 		_watch_infinity(event)
 	_flawless_notes(event)
+	## Every worn stone's own pieces hear the fight go by (a Patchwork sews a patch as a color fires).
+	for page in _all_pages():
+		if page.act != null and is_instance_valid(page.act):
+			page.act.event(event)
 	match kind:
 		"mortar":
 			_mortar(event)
@@ -5435,6 +5535,9 @@ func _birthstone_fire(event: Dictionary) -> void:
 		landing.append_array(entry.get("effects", []))
 	_mark_dying(landing)
 	_hold_vitals(landing, unit_id)
+	## The stone's own pieces see it light, before its tiers are called.
+	if page != null and page.act != null and is_instance_valid(page.act):
+		page.act.fired(event)
 	var at: float = DeepBattle.BIRTH_LEAD
 	var step: int = mini(_chain.fired, Tally.TOP_START)
 	for entry in lit:
@@ -5473,6 +5576,11 @@ func _birth_tier(unit_id: String, entry: Dictionary, color: Color, step: int, lo
 		var origin: Vector3 = _control_world(anchor, 1.6) if anchor != null else _origin_for(unit_id, -1)
 		if anchor != null and _is_shown(unit_id):
 			DeepUi.spring(anchor, 0.18, 6.0, 0.4)
+		## A stone with pieces of its own may play the tier its own way (a Bandit's prizes jump
+		## out of its pay table); it lands the numbers through `_animate_effects` all the same.
+		var act: Control = page.act if page != null and _is_shown(unit_id) else null
+		if act != null and is_instance_valid(act) and act.tier(entry, effects, origin, tone):
+			return
 		_animate_effects(effects, origin, tone, mine, anchor, 1.0, unit_id)
 	if span <= 0.0:
 		go.call()
@@ -6050,6 +6158,10 @@ func _count_out(event: Dictionary, shown: bool, color: Color, step: int) -> floa
 	plate.play(tally)
 	return span
 
+## Effects that carry what they landed inside them (`hits`): an Appraise's blows, an Invert's
+## answers, an Arpeggio's notes, a Bandit's prizes, a Quilt's gifts.
+const NESTED_KINDS: Array = ["appraise", "invert_previous", "arpeggio", "prize", "quilt"]
+
 func _kills(effects: Array) -> bool:
 	## Whether any blow among these finishes what it hits.
 	for effect in effects:
@@ -6059,7 +6171,7 @@ func _kills(effects: Array) -> bool:
 			for hit in [effect] + effect.get("splash", []):
 				if hit is Dictionary and bool(hit.get("killed", false)):
 					return true
-		elif str(effect.get("kind", "")) in ["appraise", "invert_previous"] and _kills(effect.get("hits", [])):
+		elif str(effect.get("kind", "")) in NESTED_KINDS and _kills(effect.get("hits", [])):
 			return true
 	return false
 
@@ -6241,7 +6353,7 @@ func _mark_dying(effects: Array) -> void:
 						if struck != null:
 							struck.set_meta("dying", true)
 							_brace_rout(hit.get("routed", []))
-			"appraise", "invert_previous":
+			"appraise", "invert_previous", "arpeggio", "prize", "quilt":
 				_mark_dying(effect.get("hits", []))
 			"tick_poison":
 				for tick in effect.get("ticks", []):
@@ -6527,6 +6639,9 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 							if still != null:
 								_fx.projectile(origin, still.centre(), color, 0.2, fat, _impact.bind(who, landing, color, mine, by), 0.6 + randf() * 0.5))
 					at += DeepBattle.BOLT_GAP * pace * float(over)
+					## A Renown's kill takes a Trophy: said over the stone as the blow lands.
+					if hit.has("trophy") and anchor != null:
+						_later_do(at + 0.2, _float_at.bind(anchor, "+1 Trophy", color.lightened(0.35), 17))
 				at += DeepBattle.HIT_BREATH * pace
 				if not effect.get("poison_spread", []).is_empty():
 					_animate_effects(effect.poison_spread, origin, DeepUi.POISON, mine, anchor, 1.0, by)
@@ -6541,6 +6656,30 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 				if mine and anchor != null:
 					_float_at(anchor, "Nothing to turn around" if bool(effect.get("nothing", false)) else "Inverted", color.lightened(0.3), 15)
 				_animate_effects(effect.get("hits", []), origin, color, mine, anchor, magnitude, by)
+			"arpeggio", "prize", "quilt":
+				## A Birthstone's notes, prizes or gifts, where the stone's own pieces have not
+				## played them (another player's stone, a stone lent): each lands like a gem's.
+				if not bool(effect.get("nothing", false)):
+					_later_do(at, _animate_effects.bind(effect.get("hits", []), origin, color, mine, anchor, magnitude, by))
+					at += DeepBattle.hits_span(effect.get("hits", []))
+			"second_act":
+				## A Whole Cloth: said over the stone; the dice thrown again and the rail lighting
+				## from its first socket are their own events.
+				if not bool(effect.get("nothing", false)):
+					DeepAudio.play("harmony", {"volume": 0.9})
+					if anchor != null:
+						_float_at(anchor, "The second act", DeepUi.ACCENT_HI, 18)
+			"grow_dice":
+				if not bool(effect.get("nothing", false)) and _page_for(by) != null and _is_shown(by):
+					_float_at(_page_for(by).tray_box, "Every die a size bigger", color.lightened(0.3), 16)
+					for id in effect.get("dice", []):
+						var grown: Control = _counted_die(str(id), by)
+						if grown != null:
+							DeepUi.pulse(grown, 1.22, 0.45)
+							DeepUi.burst(self, _center_of(grown), color, 10, 110.0, 0.5, 4.0)
+			"fight_count":
+				## A Bloodroot's count of the 1s it has been shown: what it costs follows it.
+				pass
 			"gem_rank":
 				if mine:
 					for socket in effect.get("sockets", []):
@@ -8518,8 +8657,9 @@ func _rail_spent(event: Dictionary) -> void:
 ## that an Infinite number is only big.
 const INFINITY_KINDS: Array = ["gem_fire", "birthstone", "rail_end"]
 ## Fields that only echo a creature's own health: deep in the Rift one is born at the ceiling,
-## and that is not the player's doing.
-const INFINITY_IGNORED: Array = ["hp_after", "max_hp_after", "hp", "max_hp"]
+## and that is not the player's doing. And a Retain told to keep everything (a Rampart's Keep),
+## which is written as the ceiling and is no count at all.
+const INFINITY_IGNORED: Array = ["hp_after", "max_hp_after", "hp", "max_hp", "retain_after"]
 const INFINITY_TINTS: Array = ["ff5a4e", "4f8dff", "3fbf74", "a46bff", "ffc33d", "f4f7fa"]
 ## How wide an Infinite blow's mark is drawn where it lands.
 const INFINITY_FLOAT: int = 150

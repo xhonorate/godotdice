@@ -5,6 +5,12 @@ extends RefCounted
 ## birthstone, downed, victory), drawn at 512 square under
 ## `view/home/delvers/<delver>/<mood>.png`. The plate is lit in their Birthstone's tint behind
 ## the face. A delver with no faces drawn is shown by their Birthstone instead.
+##
+## A delver has three Birthstones and goes down in one of them. The plate is lit by the one
+## worn (`Portrait.worn`), and wherever a delver is named the worn stone is named after them
+## when it is not their first (`named`): "Ardor · Rampart". Which stone that is comes from the
+## profile at home (`worn_stone`), from a party member (`member_stone`), from the day's plan
+## (`daily_stone`) and, down the mine, from the unit (`DeepStone.birthstone_for`).
 
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
 const Thumbs = preload("res://view/gems/thumbs.gd")
@@ -40,6 +46,49 @@ static func wardens_beaten(profile: Dictionary) -> int:
 		count += profile.mines[key].get("wardens", []).size()
 	return count
 
+# --- the Birthstone a delver wears ---------------------------------------------------------------
+
+static func worn_stone(profile: Dictionary, key: String) -> Dictionary:
+	## The Birthstone this workshop's delver goes down in: their first, or a variant put on them.
+	return DeepStone.birthstone(key, DeepProfile.worn_birthstone(profile, key))
+
+static func member_stone(member: Dictionary) -> Dictionary:
+	## The Birthstone a member of the party goes down in.
+	return DeepStone.birthstone(str(member.get("character", DeepContent.starter_character())), str(member.get("birthstone", "")))
+
+static func daily_stone(plan: Dictionary) -> Dictionary:
+	## The Birthstone the day lends its delver (`DeepEconomy.daily_plan`): one of their own
+	## three, or on a Borrowed Birthstone day one of another delver's.
+	if plan.get("mods", []).has("BORROWED_BIRTHSTONE") and plan.has("birthstone"):
+		return DeepStone.birthstone(str(plan.birthstone), str(plan.get("birthstone_key", "")))
+	return DeepStone.birthstone(DeepEconomy.daily_lapidary(plan), str(plan.get("worn", "")))
+
+static func record_stone(entry: Dictionary) -> Dictionary:
+	## The Birthstone a run in the ledger was dug in (`entry.birthstone`, kept when it was a variant).
+	return DeepStone.birthstone(str(entry.get("character", "")), str(entry.get("birthstone", "")))
+
+static func is_first(character_key: String, stone: Dictionary) -> bool:
+	## The delver's own first Birthstone: the one nobody needs telling they wear.
+	return stone.is_empty() or (str(stone.get("character", "")) == character_key and str(stone.get("variant", "")).is_empty())
+
+static func named(character_key: String, stone: Dictionary = {}, titled: bool = true) -> String:
+	## A delver as they are named beside the stone they wear: "Ardor, the Knight" (or "Ardor"
+	## with `titled` off) in their first Birthstone, "Ardor · Rampart" in any other, so two of
+	## one delver in a party read as two.
+	if is_first(character_key, stone):
+		return DeepContent.character_title(character_key) if titled else str(DeepContent.character(character_key).get("name", character_key))
+	return "%s · %s" % [str(DeepContent.character(character_key).get("name", character_key)), str(stone.get("name", "Birthstone"))]
+
+static func stone_tone(stone: Dictionary) -> Color:
+	## A Birthstone's color for words about it: its tint lightened, and a dark stone's (an
+	## obsidian, a bloodstone) lifted toward paper until it reads on the kit's dark plates.
+	var tone: Color = GemMesh.tint(stone).lightened(0.35) if not stone.is_empty() else DeepUi.MUTED
+	return tone if tone.get_luminance() >= 0.5 else tone.lerp(DeepUi.PAPER, 0.45)
+
+static func unit_named(unit: Dictionary, titled: bool = true) -> String:
+	## The same for a delver down the mine, whose stone may be one the day lent them.
+	return named(str(unit.get("character", "")), DeepStone.birthstone_for(unit), titled)
+
 class Portrait extends Control:
 	## A character's plate: their face in the mood given, over a glow of their Birthstone's
 	## tint. Small plates close in on the face, so it still reads at the size of a word; large
@@ -55,6 +104,14 @@ class Portrait extends Control:
 			if value == key:
 				return
 			key = value
+			_dress()
+	## The Birthstone that lights the plate (and stands in for a face not drawn) when it is not
+	## the delver's first: a variant they wear, or one a daily dig lent them. Empty for the first.
+	var worn: Dictionary = {}:
+		set(value):
+			if str(value.get("id", "")) == str(worn.get("id", "")):
+				return
+			worn = value
 			_dress()
 	var locked: bool = false
 	var selected: bool = false
@@ -83,6 +140,8 @@ class Portrait extends Control:
 	var _fading: Tween = null
 	## The Birthstone, standing in for a delver with no faces drawn.
 	var _thumb: Control = null
+	## `wear` is changing the delver and the stone at once: the plate is dressed after both.
+	var _dressing: bool = false
 	## Every face read so far, by path (null for one not drawn), so a mood swaps in at once.
 	static var _faces: Dictionary = {}
 
@@ -92,7 +151,7 @@ class Portrait extends Control:
 			_faces[path] = load(path) if ResourceLoader.exists(path) else null
 		return _faces[path]
 
-	func _init(character_key: String, edge: Vector2, is_locked: bool = false, is_selected: bool = false, is_chosen: bool = false) -> void:
+	func _init(character_key: String, edge: Vector2, is_locked: bool = false, is_selected: bool = false, is_chosen: bool = false, wearing: Dictionary = {}) -> void:
 		locked = is_locked
 		selected = is_selected
 		chosen = is_chosen
@@ -102,6 +161,8 @@ class Portrait extends Control:
 		mouse_filter = Control.MOUSE_FILTER_PASS
 		## Drawn well under the 512 it was painted at: read from its mipmaps, or it shimmers.
 		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+		## The stone first, while there is nobody on the plate to dress: the key dresses it once.
+		worn = wearing
 		key = character_key
 		if locked:
 			var lock := DeepUi.icon(self, "lock", edge.x * 0.22, DeepUi.PAPER, "Locked")
@@ -118,9 +179,28 @@ class Portrait extends Control:
 		var found: Texture2D = face(key, which)
 		return found if found != null else face(key, "idle")
 
+	func wear(character_key: String, stone: Dictionary = {}) -> void:
+		## A delver and the Birthstone they go down in, changed together: a plate that follows a
+		## player (a dock, a seat tab) is dressed once for both.
+		if character_key == key and str(stone.get("id", "")) == str(worn.get("id", "")):
+			return
+		_dressing = true
+		key = character_key
+		worn = stone
+		_dressing = false
+		_dress()
+
+	func wear_unit(unit: Dictionary) -> void:
+		## The same, for a delver down the mine: the stone the unit carries, lent ones included.
+		wear(str(unit.get("character", "")), DeepStone.birthstone_for(unit))
+
 	func _dress() -> void:
 		## A new delver on the plate: their tint, and their face or, failing one, their stone.
-		var stone: Dictionary = DeepStone.birthstone(key) if not key.is_empty() else {}
+		if _dressing:
+			return
+		var stone: Dictionary = {}
+		if not key.is_empty():
+			stone = worn if not worn.is_empty() else DeepStone.birthstone(key)
 		tint = GemMesh.tint(stone) if not stone.is_empty() else Color("e2b23a")
 		_texture = _face_for(mood)
 		_from = null
@@ -261,10 +341,11 @@ class Portrait extends Control:
 			uvs.append(source.position + (point - p) / s * source.size)
 		draw_colored_polygon(points, shade, uvs, picture)
 
-static func tile(parent: Node, key: String, selected: bool, chosen: bool, unlocked: bool, fresh: bool) -> PanelContainer:
-	## One delver in the roster strip: portrait, name, title, and their standing.
+static func tile(parent: Node, key: String, selected: bool, chosen: bool, unlocked: bool, fresh: bool, worn: Dictionary = {}) -> PanelContainer:
+	## One delver in the roster strip: portrait, name, title, and their standing. `worn` is the
+	## Birthstone they go down in (`worn_stone`), when it is not their first.
 	var character: Dictionary = DeepContent.character(key)
-	var stone: Dictionary = DeepStone.birthstone(key)
+	var stone: Dictionary = worn if not worn.is_empty() else DeepStone.birthstone(key)
 	var tint: Color = GemMesh.tint(stone) if not stone.is_empty() else DeepUi.ACCENT
 	var box := PanelContainer.new()
 	var style := DeepUi.raised(Color(0.06, 0.07, 0.1, 0.9) if unlocked else Color(0.04, 0.045, 0.06, 0.8), DeepUi.ACCENT if selected else (Color(tint, 0.35) if unlocked else DeepUi.LINE), 12, 10, 0.35)
@@ -280,7 +361,7 @@ static func tile(parent: Node, key: String, selected: bool, chosen: bool, unlock
 	var column := DeepUi.vbox(box, 5)
 	column.alignment = BoxContainer.ALIGNMENT_BEGIN
 	var frame := DeepUi.center(column)
-	frame.add_child(Portrait.new(key, Vector2(112, 128), not unlocked, selected, chosen))
+	frame.add_child(Portrait.new(key, Vector2(112, 128), not unlocked, selected, chosen, worn))
 	DeepUi.title(column, str(character.get("name", key)), 15, DeepUi.ACCENT_HI if selected else (DeepUi.PAPER if unlocked else DeepUi.DIM), HORIZONTAL_ALIGNMENT_CENTER)
 	DeepUi.label(column, str(character.get("title", "")), 11, DeepUi.MUTED if unlocked else DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 	var foot := DeepUi.hbox(column, 4)

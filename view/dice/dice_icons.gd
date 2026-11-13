@@ -274,7 +274,7 @@ static func glyph_for(described: Dictionary) -> String:
 		"odd": return "odd"
 		"even": return "even"
 		"distinct": return "distinct"
-		"value": return "face"
+		"value": return _drawn("one_die", "face") if _reads_ones(described) else "face"
 		"at_most", "below": return "low"
 		"pyrite", "fizzles": return "coin"
 		"at_least", "high_pct_at_least": return "peak"
@@ -287,7 +287,27 @@ static func glyph_for(described: Dictionary) -> String:
 		"crowns", "crowns_at_most": return "peak"
 		"skip_straight": return "even"
 		"distinct_dominant": return "distinct"
+		## What the variant Birthstones read (November 2026): dice showing 6 or more, a total
+		## under a number or inside a window, a scale, every die a Face, colors fired, a set.
+		"high_count": return _drawn("high_die", "peak")
+		"total_at_most": return "total_low"
+		"total_window": return _drawn("total_window", "sum")
+		"scale": return _drawn("scale5" if int(described.get("need", 3)) >= 5 else "scale3", "run")
+		"all_faces": return "face"
+		"colors": return _drawn("patch_solid", "gem")
+		"set":
+			var size: int = int(described.get("need", 2))
+			return "quad" if size >= 4 else ("triple" if size == 3 else "pair")
 	return "carat"
+
+static func _drawn(glyph: String, fallback: String) -> String:
+	## A mark by its name, or the nearest older one where the drawing is not there.
+	return glyph if GemIcons.known(glyph) else fallback
+
+static func _reads_ones(described: Dictionary) -> bool:
+	## Whether a described `value` trigger asks for dice showing 1 and nothing else.
+	var label: String = str(described.get("label", ""))
+	return label == "1" or label.begins_with("1 ")
 
 static func build(parent: Node, described: Dictionary, edge: float, tint: Color = NEED_TONE, tooltip: String = "") -> HBoxContainer:
 	## The mark and its label as one hoverable row.
@@ -297,9 +317,13 @@ static func build(parent: Node, described: Dictionary, edge: float, tint: Color 
 	row.mouse_filter = Control.MOUSE_FILTER_PASS
 	row.tooltip_text = tooltip if not tooltip.is_empty() else str(described.get("words", ""))
 	parent.add_child(row)
-	var glyph := GemIcons.glyph(row, glyph_for(described), edge, tint, row.tooltip_text)
+	var mark: String = glyph_for(described)
+	var glyph := GemIcons.glyph(row, mark, edge, tint, row.tooltip_text)
 	glyph.mouse_filter = Control.MOUSE_FILTER_PASS
 	var label := str(described.get("label", ""))
+	## A die drawn showing its 1 says the 1 itself: only how many is left to write.
+	if mark == "one_die":
+		label = label.trim_prefix("1").strip_edges()
 	if not label.is_empty():
 		var words := Label.new()
 		words.text = label
@@ -314,38 +338,138 @@ static func build(parent: Node, described: Dictionary, edge: float, tint: Color 
 # --- a Birthstone whose tiers count more of one die -------------------------------------
 
 ## Tier kinds that only ask for more of one kind of die, and the die each is drawn with:
-## matching dice for a set, a die on its top face for a crown.
-const LADDER_DICE := {"pair": "die", "triple": "die", "quad": "die", "quint": "die", "crowns": "crown_die"}
+## matching dice for a set, a die on its top face for a crown. `ladder_mark` reads a whole
+## trigger, since some only count when they ask for the right thing (a `value` of 1s).
+const LADDER_DICE := {"pair": "die", "triple": "die", "quad": "die", "quint": "die", "set": "die", "crowns": "crown_die",
+	"even": "even_die", "high_count": "high_die", "value": "one_die", "colors": "patch"}
+
+static func ladder_mark(trigger: Dictionary) -> String:
+	## The die a trigger counts, or "" when it counts none: matching dice, crowns, even dice
+	## (Rampart), dice showing 6 or more (Renown), dice showing 1 (Ill Omen, Bloodroot's Tap),
+	## colors that have fired (Patchwork, drawn as patches).
+	var kind: String = str(trigger.get("kind", ""))
+	var mark: String = str(LADDER_DICE.get(kind, ""))
+	if mark.is_empty() or not GemIcons.known(mark):
+		return ""
+	if kind == "value":
+		var wanted: Array = trigger.get("values", [])
+		return mark if wanted.size() == 1 and int(wanted[0]) == 1 else ""
+	return mark
 
 static func ladder_die(tiers: Array) -> String:
 	## The die a Birthstone's tiers climb with, or "" when they do not: two or more tiers
 	## must count the same die, so they read as one row of five dice instead of marks that
-	## run out of shapes. Any other tier (High Roller's Bust) keeps its own mark beside it.
-	var die: String = ""
-	var rungs: int = 0
+	## run out of shapes. Where the tiers count two kinds (Bloodroot's sets and its 1s) the kind
+	## with the most rungs is the ladder; any other tier (High Roller's Bust, Bloodroot's Tap)
+	## keeps its own mark beside it.
+	var rungs: Dictionary = {}
+	var seen: Array = []
 	for tier in tiers:
-		var mark: String = str(LADDER_DICE.get(str(tier.get("trigger", {}).get("kind", "")), ""))
+		var mark: String = ladder_mark(tier.get("trigger", {}))
 		if mark.is_empty():
 			continue
-		if not die.is_empty() and mark != die:
-			return ""
-		die = mark
-		rungs += 1
-	return die if rungs >= 2 else ""
+		if not rungs.has(mark):
+			seen.append(mark)
+		rungs[mark] = int(rungs.get(mark, 0)) + 1
+	var die: String = ""
+	for mark in seen:
+		if int(rungs[mark]) >= 2 and (die.is_empty() or int(rungs[mark]) > int(rungs[die])):
+			die = str(mark)
+	return die
+
+static func ladder_span(die: String) -> int:
+	## How many marks a ladder is drawn with: five dice, or the six colors.
+	return 6 if die == "patch" else 5
 
 static func ladder_rung(tier: Dictionary, die: String) -> int:
 	## How many of `die` this tier needs, or 0 when it is not a rung of that ladder.
 	var trigger: Dictionary = tier.get("trigger", {})
 	var kind: String = str(trigger.get("kind", ""))
-	if die.is_empty() or str(LADDER_DICE.get(kind, "")) != die:
+	if die.is_empty() or ladder_mark(trigger) != die:
 		return 0
 	if DeepPatterns.SET_SIZES.has(kind):
 		return int(DeepPatterns.SET_SIZES[kind])
-	return clampi(int(DeepPatterns.describe(trigger, 0).get("need", 0)), 1, 5)
+	if kind == "set":
+		return clampi(int(DeepPatterns.describe(trigger, 0).get("need", 2)), 2, 5)
+	return clampi(int(DeepPatterns.describe(trigger, 0).get("need", 0)), 1, ladder_span(die))
+
+static func ladder_lit(tier: Dictionary, die: String, entry: Dictionary) -> int:
+	## How many of the ladder's marks a firing tier lights: every die it counted, never fewer
+	## than it needs. A set that stops at a size (the Bandit's two of a kind) lights no more
+	## than that, however many pairs paid; colors light what the rail has fired (`counted`).
+	var rung: int = ladder_rung(tier, die)
+	if rung <= 0:
+		return 0
+	var trigger: Dictionary = tier.get("trigger", {})
+	var counted: int = entry.get("dice", []).size()
+	match str(trigger.get("kind", "")):
+		"colors":
+			counted = int(entry.get("counted", 0))
+		"set":
+			var most: int = int(trigger.get("max", 0))
+			counted = mini(counted, most) if most > 0 else counted
+	return clampi(maxi(rung, counted), rung, ladder_span(die))
+
+## Tier kinds that ask for more of one number (a longer run, a lower total), and the mark the
+## row of their numbers is led by.
+const LADDER_NUMBERS := {"straight": "straight5", "total_at_most": "total_low", "total_window": "total_window", "scale": "scale3"}
+
+static func ladder_numbers(tiers: Array) -> String:
+	## The trigger kind a Birthstone's tiers count a number with, or "" when they do not: two
+	## or more tiers asking for more of one thing read as its mark and their numbers in a row
+	## ("3 4 5", "16 12 9"), lit as the hand reaches each, instead of the same mark three times.
+	var seen: Dictionary = {}
+	for tier in tiers:
+		var kind: String = str(tier.get("trigger", {}).get("kind", ""))
+		if LADDER_NUMBERS.has(kind):
+			seen[kind] = int(seen.get(kind, 0)) + 1
+			if int(seen[kind]) >= 2:
+				return kind
+	return ""
+
+static func ladder_number(tier: Dictionary, family: String) -> String:
+	## What a tier of a numbers row is written as, or "" when it is not one of them.
+	var trigger: Dictionary = tier.get("trigger", {})
+	if family.is_empty() or str(trigger.get("kind", "")) != family:
+		return ""
+	var need: int = int(DeepPatterns.describe(trigger, 0).get("need", 0))
+	if family == "total_window" and int(trigger.get("max", -1)) < 0:
+		return "%d+" % need
+	return str(need)
+
+static func build_numbers(parent: Node, tiers: Array, family: String, lit: Array, edge: float, on: Color, off: Color, bad: Color) -> HBoxContainer:
+	## A numbers row: the family's mark, then each tier's number, lit (`lit[index]`) as the
+	## hand reaches it, a penalty's in `bad`.
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", maxi(2, int(edge * 0.28)))
+	row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.mouse_filter = Control.MOUSE_FILTER_PASS
+	parent.add_child(row)
+	var any: bool = false
+	for index in range(tiers.size()):
+		any = any or (index < lit.size() and bool(lit[index]) and not ladder_number(tiers[index], family).is_empty())
+	var mark: String = _drawn(str(LADDER_NUMBERS.get(family, "sum")), "sum")
+	GemIcons.glyph(row, mark, edge, on if any else off)
+	for index in range(tiers.size()):
+		var said: String = ladder_number(tiers[index], family)
+		if said.is_empty():
+			continue
+		var words := Label.new()
+		words.text = said
+		DeepUi.set_text_size(words, int(edge * 0.8))
+		words.add_theme_font_override("font", DeepUi.bold_font())
+		var active: bool = index < lit.size() and bool(lit[index])
+		words.add_theme_color_override("font_color", (bad if bool(tiers[index].get("penalty", false)) else on) if active else off)
+		words.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		words.mouse_filter = Control.MOUSE_FILTER_PASS
+		words.tooltip_text = "%s: %s" % [str(tiers[index].get("name", "")), str(tiers[index].get("text", ""))]
+		row.add_child(words)
+	return row
 
 static func build_ladder(parent: Node, tiers: Array, die: String, lit: int, edge: float, on: Color, off: Color, notes: Array = [], dark_tip: String = "") -> HBoxContainer:
 	## Five dice, the first `lit` of them solid: the dice the hand has that count, or the
 	## number a tier needs. Each die names, on hover, the smallest tier that reaches it.
+	## (Six patches for a ladder of colors.)
 	##
 	## `dark_tip` is what the dice that stayed dark have to say for themselves — a High
 	## Roller's Bust, which is a tier about the crowns that are missing and so belongs on the
@@ -355,7 +479,7 @@ static func build_ladder(parent: Node, tiers: Array, die: String, lit: int, edge
 	row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.mouse_filter = Control.MOUSE_FILTER_PASS
 	parent.add_child(row)
-	for count in range(1, 6):
+	for count in range(1, ladder_span(die) + 1):
 		var reached: int = -1
 		for index in range(tiers.size()):
 			var needs: int = ladder_rung(tiers[index], die)
@@ -445,6 +569,21 @@ static func strip(described: Dictionary) -> Dictionary:
 			faces.append([20, MATCH_TONE])
 			return _spec(faces, "≠", described.words)
 		"resonance": return _spec([], "resonance %d" % need, described.words)
+		"high_count":
+			var floor_value: int = int(str(described.get("label", "6")).get_slice("+", 0))
+			return _spec(_same(clampi(need, 1, 5), maxi(1, floor_value)), "≥", described.words)
+		"total_at_most": return _spec([], "Σ ≤ %d" % need, described.words)
+		"total_window":
+			var said: String = str(described.get("label", ""))
+			return _spec([], "Σ %s" % (said.replace("=", "= ").replace("≥", "≥ ") if not said.is_empty() else str(need)), described.words)
+		"scale":
+			var faces: Array = []
+			for index in range(clampi(need, 1, 5)):
+				faces.append([[2, 3, 5, 7, 9][index], RUN_TONE])
+			return _spec(faces, "▲", described.words)
+		"all_faces": return _spec([], "every die ▲ or 1", described.words)
+		"colors": return _spec([], "%d colors" % need, described.words)
+		"set": return _spec(_same(clampi(need, 2, 5), 4), "", described.words)
 	return _spec([], "EVERY HAND", described.words)
 
 static func build_strip(parent: Node, spec: Dictionary, edge: float, tooltip: String = "") -> Control:

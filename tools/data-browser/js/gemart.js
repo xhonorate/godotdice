@@ -12,7 +12,8 @@ const ASSETS = 'assets/';
 
 export const CUTS = { RED: 'trilliant', BLUE: 'princess', GREEN: 'heart', VIOLET: 'pear', GOLD: 'dutch_rose', WHITE: 'round', OPAL: 'cabochon' };
 export const SHAPE_NAMES = { trilliant: 'trilliant', princess: 'princess', heart: 'heart', pear: 'pear', dutch_rose: 'Dutch rose', round: 'round brilliant', cabochon: 'cabochon',
-	shield: 'shield', marquise: 'marquise', step: 'step', briolette: 'briolette', checkerboard: 'checkerboard', heptagon: 'heptagon' };
+	shield: 'shield', marquise: 'marquise', step: 'step', briolette: 'briolette', checkerboard: 'checkerboard', heptagon: 'heptagon',
+	tower: 'tower', spearhead: 'lance head', cushion: 'cushion', fan: 'fan', dart: 'dart', octagon: 'stepped octagon', pill: 'capsule', drop: 'falling drop', cameo: 'cameo', lozenge: 'lozenge', lucky_star: 'lucky star', card: 'card' };
 
 // Chart marks wear these: the game's hues, stepped where a near-white would vanish on the surface.
 export const MARK = { RED: '#e0473c', BLUE: '#3f7fe0', GREEN: '#34a05f', VIOLET: '#8b5fd6', GOLD: '#c9922a', WHITE: '#b8c6d9', OPAL: '#9e83dd' };
@@ -59,6 +60,76 @@ function heart() {
 	return raw.map((p) => [p[0] / peak, p[1] / peak]);
 }
 const pear = (taper) => Array.from({ length: 20 }, (_, i) => { const t = (2 * Math.PI * i) / 20; return [Math.sin(t) * Math.pow(Math.sin(t * 0.5), taper), Math.cos(t)]; });
+// The variant Birthstones' twelve cuts are built from these (view/gems/gem_mesh.gd, the same names).
+const mirrored = (half) => half.concat(half.slice().reverse().map(([x, y]) => [-x, y]));
+const tilted = (points, degrees) => { const a = (degrees * Math.PI) / 180; return points.map(([x, y]) => [x * Math.cos(a) - y * Math.sin(a), x * Math.sin(a) + y * Math.cos(a)]); };
+function pillow(steps, squareness, waist, pinch) {
+	const power = 2 / Math.max(squareness, 0.5);
+	return Array.from({ length: steps }, (_, i) => {
+		const a = -Math.PI / 2 + (2 * Math.PI * i) / steps;
+		const drawn = 1 - pinch * Math.pow(Math.cos(2 * a), 2);
+		return [Math.sign(Math.cos(a)) * Math.pow(Math.abs(Math.cos(a)), power) * waist * drawn, Math.sign(Math.sin(a)) * Math.pow(Math.abs(Math.sin(a)), power) * drawn];
+	});
+}
+function fan(spread, leaves, scallop) {
+	const half = (spread * Math.PI) / 180;
+	const lift = Math.cos(half);
+	const steps = leaves * 4;
+	const out = [];
+	for (let i = 0; i <= steps; i++) {
+		const a = half + (-half - half) * (i / steps);
+		const reach = 1 - scallop * (1 - Math.sin((Math.PI * (i % 4)) / 4));
+		out.push([Math.sin(a) * reach, Math.cos(a) * reach - lift]);
+	}
+	for (const side of [-1, 1]) out.push([side * Math.sin(half) * 0.08, Math.cos(half) * 0.08 - lift]);
+	return out;
+}
+function stadium(steps, waist) {
+	const rise = 1 - waist;
+	const out = [[waist, 0]];
+	for (let i = 0; i <= steps; i++) { const a = (Math.PI * i) / steps; out.push([Math.cos(a) * waist, rise + Math.sin(a) * waist]); }
+	out.push([-waist, 0]);
+	for (let i = 0; i <= steps; i++) { const a = Math.PI + (Math.PI * i) / steps; out.push([Math.cos(a) * waist, -rise + Math.sin(a) * waist]); }
+	return out;
+}
+function hookedDrop() {
+	const belly = [-0.13, -0.32];
+	const radius = 0.62;
+	const tip = [0.37, 0.9];
+	const out = [];
+	for (let i = 0; i < 15; i++) { const a = ((20 + (-210 - 20) * (i / 14)) * Math.PI) / 180; out.push([belly[0] + Math.cos(a) * radius, belly[1] + Math.sin(a) * radius]); }
+	const left = out[out.length - 1];
+	const right = out[0];
+	const full = [left[0] + 0.5 * 0.9, left[1] + 0.866 * 0.9];
+	const hollow = [right[0] - 0.342 * 0.6, right[1] + 0.94 * 0.6];
+	for (let i = 1; i < 7; i++) { const t = i / 6; out.push(lerp(lerp(left, full, t), lerp(full, tip, t), t)); }
+	for (let i = 1; i < 6; i++) { const t = i / 6; out.push(lerp(lerp(tip, hollow, t), lerp(hollow, right, t), t)); }
+	return out;
+}
+function scalloped(beads, waist, depth) {
+	const steps = beads * 4;
+	return Array.from({ length: steps }, (_, i) => {
+		const a = -Math.PI / 2 + (2 * Math.PI * (i - 2)) / steps;
+		const swell = Math.sin((Math.PI * (i % 4)) / 4);
+		const drawn = 1 - depth * (1 - swell);
+		return [Math.cos(a) * waist * drawn, Math.sin(a) * drawn];
+	});
+}
+function starPoints(points, outer, inner) {
+	return Array.from({ length: points * 2 }, (_, i) => {
+		const a = Math.PI / 2 + (Math.PI * i) / points;
+		const r = i % 2 === 0 ? outer : inner;
+		return [Math.cos(a) * r, Math.sin(a) * r];
+	});
+}
+function boxed(halfWidth, halfHeight, radius, steps) {
+	const out = [];
+	for (let corner = 0; corner < 4; corner++) {
+		const centre = [(halfWidth - radius) * (corner === 0 || corner === 3 ? 1 : -1), (halfHeight - radius) * (corner < 2 ? 1 : -1)];
+		for (let i = 0; i <= steps; i++) { const a = (Math.PI / 2) * (corner + i / steps); out.push([centre[0] + Math.cos(a) * radius, centre[1] + Math.sin(a) * radius]); }
+	}
+	return out;
+}
 
 export function outline(shape) {
 	switch (shape) {
@@ -74,6 +145,19 @@ export function outline(shape) {
 		case 'heptagon': return truncated(regular(7, -Math.PI * 0.5), 0.1);
 		case 'dutch_rose': return regular(6, -Math.PI * 0.5);
 		case 'cabochon': return oval(24, 0.76);
+		// The delvers' later Birthstones.
+		case 'tower': return unit(mirrored([[0.7, -0.9], [0.7, -0.68], [0.58, -0.52], [0.54, 0.26], [0.72, 0.44], [0.72, 0.9], [0.46, 0.9], [0.32, 0.64], [0.2, 0.64], [0.18, 0.9]]));
+		case 'spearhead': return unit(tilted(mirrored([[0.22, -0.92], [0.46, -0.34], [0.38, 0.3], [0.05, 1]]), 24));
+		case 'cushion': return unit(pillow(32, 5, 0.78, 0.2));
+		case 'fan': return unit(fan(58, 5, 0.075));
+		case 'dart': return unit(truncated([[0, 1], [0.72, -0.74], [0, -0.3], [-0.72, -0.74]], 0.06));
+		case 'octagon': return regular(8, Math.PI * 0.125);
+		case 'pill': return unit(tilted(stadium(7, 0.46), -28));
+		case 'drop': return unit(hookedDrop());
+		case 'cameo': return unit(scalloped(14, 0.78, 0.085));
+		case 'lozenge': return unit(mirrored([[0.1, -1], [0.62, -0.1], [0.62, 0.1], [0.1, 1]]));
+		case 'lucky_star': return truncated(starPoints(5, 1, 0.62), 0.1);
+		case 'card': return unit(tilted(boxed(0.64, 0.92, 0.1, 2), 10));
 	}
 	return regular(20, -Math.PI * 0.5);
 }
@@ -129,8 +213,15 @@ export function rawImage(colorKey, sizeClass, size = 96) {
 export function inclusionImage(key, size = 72) {
 	return picture(`inclusions/${key}.png`, () => silhouette('WHITE', size), size, `${C.inclusion(key).name || key} frozen in a white stone`, 'pic-gem');
 }
-export function birthstoneImage(characterKey, size = 120) {
-	const bs = C.character(characterKey).birthstone || {};
+// `worn` names one of the delver's variant Birthstones: nothing photographs those yet, so a
+// variant is drawn flat, in its own hue.
+export function birthstoneImage(characterKey, size = 120, worn = '') {
+	const bs = C.birthstoneDef(characterKey, worn);
+	if (C.birthstoneKey(characterKey, worn)) {
+		const wrap = h('span', { class: 'pic pic-gem is-fallback', style: { width: `${size}px`, height: `${size}px` }, title: `${bs.name || 'Birthstone'} of ${C.character(characterKey).name || characterKey}` });
+		wrap.append(silhouette('WHITE', size, { shape: bs.style || 'shield', hue: bs.hue ? `#${bs.hue}` : null }));
+		return wrap;
+	}
 	return picture(`birthstones/${characterKey}.png`, () => silhouette('WHITE', size, { shape: bs.style || 'shield', hue: bs.hue ? `#${bs.hue}` : null }), size, `${bs.name || 'Birthstone'} of ${C.character(characterKey).name || characterKey}`, 'pic-gem');
 }
 export function dieImage(key, size = 56) {

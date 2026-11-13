@@ -258,7 +258,7 @@ func _land(now: int, broke: bool) -> void:
 			DeepUi.shake(self, 8.0, 0.4)
 			DeepAudio.play("gem_shatter", {"volume": 0.9})
 			DeepAudio.play("ui_deny", {"delay": 0.25, "volume": 0.6})
-		_line.text = "It broke. %s is gone." % DeepUi.skill_name(stone)
+		_line.text = "It shattered. %s is gone." % DeepUi.skill_name(stone)
 		_line.add_theme_color_override("font_color", DeepUi.BAD)
 		finished.emit()
 		return

@@ -1087,7 +1087,7 @@ static func effect_words(effect: Dictionary) -> String:
 				return "Every face your dice show loses 1%s · all players" % (", for good" if bool(effect.get("permanent", false)) else " for the fight")
 			return "Your %s loses 1 from its top face%s · all players" % ["highest die" if str(effect.get("pick", "random")) == "high" else "die", " for good" if bool(effect.get("permanent", false)) else " for the fight"]
 		"break_gem": return "Melts one of your gems%s · all players" % (" for the rest of the fight" if bool(effect.get("permanent", false)) else " until next turn")
-		"break_die": return "Destroys one of your dice%s · all players" % (" for the rest of the fight" if bool(effect.get("permanent", false)) else " until next turn")
+		"break_die": return "Breaks one of your dice%s · all players" % (" for the rest of the fight" if bool(effect.get("permanent", false)) else " until next turn")
 		"lock_die": return "Locks one of your dice this turn · all players"
 		"block": return "Gain %s block" % n
 		"heal": return "Heal %s" % n

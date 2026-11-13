@@ -57,7 +57,8 @@ func _run(f: Dictionary) -> Dictionary:
 			## What a Black Opal has taken in this run.
 			if spec.has("absorbed"):
 				rail[-1].absorbed = spec.absorbed
-	var unit: Dictionary = DeepBattle.make_player("p0", "P0", character, rail, dice)
+	## `worn` names the Birthstone the player wears: one of their variants, or "" for their first.
+	var unit: Dictionary = DeepBattle.make_player("p0", "P0", character, rail, dice, -1, [], str(f.get("worn", "")))
 	unit.ore = int(f.pyrite)
 	var streams: Dictionary = DeepRng.streams(int(f.seed), ["dice", "creatures"])
 	var keys: Array = []
@@ -71,6 +72,10 @@ func _run(f: Dictionary) -> Dictionary:
 		## As many dice as a Rail Rat has moves, so the JavaScript's dummy (a die a move) clouds alike.
 		if str(f.mode) == "full":
 			foe.dice = [{"shape": "D4"}, {"shape": "D4"}, {"shape": "D4"}]
+		else:
+			## The JavaScript's dummy throws two d4s on these rails: a Flawless Bind counts the
+			## phantoms it is owed off the dice its creature has.
+			foe.dice = [{"shape": "D4"}, {"shape": "D4"}]
 		foe.block = int(f.enemies[index].block)
 		foe.statuses = _ints(f.enemies[index].statuses)
 		foe.dread_turns = int(f.enemies[index].get("dread_turns", 0))
@@ -121,13 +126,12 @@ func _run(f: Dictionary) -> Dictionary:
 	return {"id": f.id, "snaps": snaps}
 
 func _run_full(f: Dictionary, state: Dictionary, a: Dictionary, rng: RandomNumberGenerator) -> Array:
-	## Real turns: only the first hand is fixed, the rest come out of the turn's own throw.
+	## Real turns: a turn that names a hand is played on it (the Flawless fixtures fix only the
+	## first), the rest come out of the turn's own throw.
 	var snaps: Array = []
-	var first: bool = true
 	for run in f.runs:
-		if first:
+		if run.has("hand"):
 			a.hand = _hand(a, run.hand)
-			first = false
 		state.phase = "resolving"
 		a.firing_target = a.target
 		var queue: Array = [{"kind": "rail_begin", "unit": "p0"}]
@@ -218,11 +222,23 @@ func _snapshot(state: Dictionary, a: Dictionary, events: Array) -> Dictionary:
 	for roll in a.hand:
 		hand.append([str(roll.die_id), int(roll.value), bool(roll.get("phantom", false)), int(roll.get("shown", -1)), int(roll.get("counted", -1))])
 	var faces: Array = []
+	var shapes: Array = []
+	var tops: Array = []
 	for die in a.dice:
 		var values: Array = []
 		for face in die.faces:
 			values.append(int(face.value))
 		faces.append(values)
+		shapes.append(str(die.shape))
+		tops.append(DeepDice.top(die))
+	## The bowl the fight would hand back were it to end here: the Ovation's sizes off, what was
+	## done for good kept.
+	var after: Array = []
+	for die in DeepBattle.dice_after_fight(a):
+		var kept: Array = []
+		for face in die.faces:
+			kept.append(int(face.value))
+		after.append([str(die.shape), kept])
 	var rail: Array = []
 	var carats: Array = []
 	for stone in a.rail:
@@ -254,15 +270,29 @@ func _snapshot(state: Dictionary, a: Dictionary, events: Array) -> Dictionary:
 			"gem_fire", "gem_fizzle":
 				log.append([str(event.kind), int(event.socket), int(event.get("resonance", 0))])
 			"birthstone":
+				## The tiers that fired, the ones another took the place of, how many things each did
+				## (a knife thrown again is one more), the Resonance it opened on, what an Arpeggio
+				## added, and what each tier's trigger counted (the dice showing 1, the colors fired).
 				var lit: Array = []
+				var dark: Array = []
+				var did: Array = []
+				var counted: Array = []
 				for tier in event.get("tiers", []):
 					lit.append(bool(tier.get("active", false)))
-				log.append(["birthstone", bool(event.get("fired", false)), lit])
+					dark.append(bool(tier.get("eclipsed", false)))
+					did.append(tier.get("effects", []).size())
+					counted.append(int(tier.get("counted", 0)))
+				log.append(["birthstone", bool(event.get("fired", false)), lit, dark, did, int(event.get("resonance", 0)), int(event.get("climbed", 0)), counted])
 	return {"unit": {"hp": int(a.hp), "max_hp": int(a.max_hp), "block": int(a.block), "resonance": int(a.resonance), "gold": int(a.get("gold", 0)),
 		"pyrite_delta": int(a.get("pyrite_delta", 0)), "pot": int(a.get("pot", 0)), "statuses": _ints(a.statuses), "granted_rerolls": int(a.get("granted_rerolls", 0)),
 		"sparkle": int(a.get("sparkle", 0)), "quality_bonus": int(a.get("quality_bonus", 0)), "rank_buff": _ints(a.get("rank_buff", {})), "gem_buffs": buffs,
 		"fired": a.get("fired_sockets", []).map(func(x: Variant) -> int: return int(x)), "fizzled": a.get("fizzled_sockets", []).map(func(x: Variant) -> int: return int(x)),
 		"rail": rail, "hand": hand, "faces": faces, "amplify": snappedf(float(a.get("amplify", 1.0)), 0.0001), "cut_step_bonus": int(a.get("cut_step_bonus", 0)),
 		"nullify_next": bool(a.get("nullify_next", false)), "repeat_next": int(a.get("repeat_next", 0)), "healed": int(a.get("healed", 0)), "dealt": int(a.get("dealt", 0)),
-		"once": once, "carats": carats, "run_counts": _ints(a.get("run_counts", {})), "rerolls": int(a.get("rerolls", 0)), "granted": int(a.get("granted_rerolls", 0)), "setups": setups},
+		"once": once, "carats": carats, "run_counts": _ints(a.get("run_counts", {})), "rerolls": int(a.get("rerolls", 0)), "granted": int(a.get("granted_rerolls", 0)), "setups": setups,
+		## The Birthstone worn and what the variants keep: the 1s a Bloodroot has counted, what a
+		## Thornwork holds up until next turn, a Whole Cloth spent, the bowl a Standing Ovation grew
+		## (a Renown's Trophies are among the run's counts above).
+		"worn": str(a.get("birthstone_key", "")), "stone": str(a.get("birthstone", {}).get("name", "")), "fight_ones": int(a.get("fight_ones", 0)), "timed": _ints(a.get("timed", {})),
+		"second_act": bool(a.get("second_act", false)), "shapes": shapes, "tops": tops, "fight_grown": _ints(a.get("fight_grown", {})), "after": after},
 		"enemies": foes, "events": log}

@@ -71,6 +71,7 @@ const KEYWORDS = {
 	Dulled: 'Your gems lose a Cut step a stack while it lasts.',
 	Festering: 'Healing is halved while it lasts.',
 	Strength: 'Every hit does that much more.',
+	Break: "Takes a die out of your bowl. Broken for the fight, it is back as it was once the fight ends. Granite can't break.",
 	Stun: 'Skips the next action.',
 	'Acid Armour': 'Whoever hits it takes that much Poison.',
 	Sturdy: 'No single hit takes more than that share of its health.',

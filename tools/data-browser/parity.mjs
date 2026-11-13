@@ -2,7 +2,7 @@
 // fixtures, has Godot play them with the real DeepBattle (tools/balance_parity.gd), plays the
 // same fixtures here, and compares the state after every rail field by field.
 //
-//   node tools/data-browser/parity.mjs [--count 400] [--seed 1] [--keep] [--etched]
+//   node tools/data-browser/parity.mjs [--count 400] [--seed 1] [--keep] [--etched] [--first]
 //
 // --etched etches Exploding and Doubled faces onto some fixtures' dice and writes each
 // exploding face's throws after it (`chain`, face indices), so shown faces, `base` and the
@@ -13,6 +13,13 @@
 // real turns (see flawlessFixtures). They draw from a copy of Godot's own generator (makePcg), so
 // procs, coins and thrown dice agree, and they have a stream of their own, so the plain fixtures
 // stay as they were.
+//
+// Every fixture names the Birthstone its player wears (`worn`: a variant's key, or "" for the
+// delver's first), drawn from a stream of its own so each of a delver's three stones gets a third
+// of that delver's fixtures and the gems and hands stay as they were. Last come the fixtures
+// aimed at the twelve variants (see variantFixtures): hands chosen to light each tier, played
+// dry, live and over real turns. A variant may pick a creature at random or throw the dice again,
+// so every fixture is played here on the copy of Godot's generator.
 //
 // Exits 1 on any difference. Files go to build/parity/ (kept with --keep).
 
@@ -35,6 +42,9 @@ const option = (name, fallback) => { const i = args.indexOf(`--${name}`); return
 const COUNT = Number(option('count', 400));
 const SEED = Number(option('seed', 1));
 const ETCHED = args.includes('--etched');
+// --first: every fixture in its delver's first Birthstone and none aimed at the variants, which
+// is the fixtures as they were before there were variants.
+const FIRST_ONLY = args.includes('--first');
 const ETCH_KINDS = ['exploding', 'doubled'];
 const OUT = path.join(ROOT, 'build', 'parity');
 
@@ -51,8 +61,16 @@ const LIVE_SKIP_SKILLS = ['ENRICH', 'FIRE_OPAL', 'STAKE', 'DOUBLE_DOWN', 'POLISH
 	'BLOODLETTING', 'TUMBLE', 'CONTRA_LUZ', 'RATTLE', 'PLACER', 'REFRACT', 'HEX'];
 const LIVE_SKIP_INCLUSIONS = ['FRACTURE', 'BRUISE', 'KNOT', 'CAVITY', 'CHIP', 'HALO', 'VOID'];
 
+// Which of a delver's Birthstones a fixture wears, from a stream apart from the one that picks
+// its gems and hands: the first stone or either variant, each a third of the time.
+function dresser(seed) {
+	const rng = makeRng(seed);
+	return (character) => { const keys = C.birthstoneKeys(character); const at = rng.randiRange(0, keys.length - 1); return FIRST_ONLY ? '' : keys[at]; };
+}
+
 function fixtures(count, seed) {
 	const rng = makeRng(seed * 7919 + 11);
+	const dress = dresser(seed * 1299709 + 23);
 	const pick = (list) => list[rng.randiRange(0, list.length - 1)];
 	const characters = C.keys('characters');
 	const skills = C.keys('skills');
@@ -101,7 +119,7 @@ function fixtures(count, seed) {
 			return spec;
 		}) }));
 		const enemy = () => ({ block: rng.randf() < 0.5 ? 0 : rng.randiRange(1, 10), statuses: { poison: rng.randiRange(0, 6), curse: rng.randiRange(0, 2), marked: rng.randiRange(0, 1) } });
-		out.push({ id: n, mode: live ? 'live' : 'dry', seed: seed * 1000 + n, character, pyrite: rng.randiRange(0, 80), depth: 3, rail, runs, ...(etch.length ? { etch } : {}),
+		out.push({ id: n, mode: live ? 'live' : 'dry', seed: seed * 1000 + n, character, worn: dress(character), pyrite: rng.randiRange(0, 80), depth: 3, rail, runs, ...(etch.length ? { etch } : {}),
 			enemies: [enemy(), enemy()], unit: { hp: rng.randiRange(20, Number(def.hp)), block: rng.randiRange(0, 10), block_lost: rng.randiRange(0, 8), statuses: {},
 				initial_resonance: rng.randiRange(0, 5), rerolls: rng.randiRange(0, 2) } });
 	}
@@ -159,6 +177,7 @@ const FLAWLESS_SCENES = {
 
 function flawlessFixtures(seed, firstId) {
 	const rng = makeRng(seed * 15485863 + 5);
+	const dress = dresser(seed * 2750159 + 29);
 	const pick = (list) => list[rng.randiRange(0, list.length - 1)];
 	const characters = C.keys('characters');
 	const lines = C.keys('skills').filter((k) => Object.keys(C.skill(k).flawless || {}).length);
@@ -200,7 +219,93 @@ function flawlessFixtures(seed, firstId) {
 			const blow = () => ({ foe: 1, amount: rng.randiRange(1, 8) });
 			const breaker = { blow: { foe: 1, through_block: true }, strip: { foe: 1, kind: 'remove_block', amount: 0 } }[scene.breaker];
 			const runs = Array.from({ length: FLAWLESS_TURNS }, (_, turn) => ({ ...(turn === 0 ? { hand } : {}), blows: scene.quiet ? [] : breaker ? [breaker] : [blow(), blow()] }));
-			out.push({ id: firstId + out.length, mode: 'full', seed: seed * 1000 + firstId + out.length, character, pyrite, depth: 3, rail, runs, enemies, unit });
+			out.push({ id: firstId + out.length, mode: 'full', seed: seed * 1000 + firstId + out.length, character, worn: dress(character), pyrite, depth: 3, rail, runs, enemies, unit });
+		}
+	}
+	return out;
+}
+
+// The fixtures aimed at the variant Birthstones: for each of the twelve, hands chosen to light
+// every tier (the ones tests/test_birthstones.gd plays), written as the numbers each die shows.
+// `rail` is the gems a stone needs around it (a Nocturne's dark gems, a Patchwork's colors), cut
+// to fire or stay dark on those hands; `foes`, each creature's health (0: more than any blow
+// takes), so a kill, a Trophy or a knife thrown again is there to be had; `unit`, what the player
+// stands in. Each scene is played three ways: dry, live (a rail a hand), and over real turns (a
+// turn a hand, the creatures hitting back, then a turn on whatever the dice throw).
+const gem = (skill, cut = 4, carat = 1) => ({ skill, cut, carat });
+const VARIANT_SCENES = [
+	// Ardor (d6 d6 d6 d8 d8). Rampart: even dice; Ram wants Block to swing, Keep a Tempo's Block to hold.
+	{ character: 'ARDOR', worn: 'RAMPART', hands: [[2, 4, 1, 3, 5], [2, 4, 6, 3, 5], [2, 4, 6, 2, 5], [2, 4, 6, 2, 8], [1, 3, 5, 1, 3]], unit: { block: 30 } },
+	{ character: 'ARDOR', worn: 'RAMPART', hands: [[2, 4, 6, 2, 8], [1, 3, 5, 1, 3], [2, 4, 6, 3, 5]], rail: [gem('TEMPO')], unit: { block: 9, statuses: { spikes: 4 } } },
+	// Renown: dice showing 6 or more; a creature a Lance can kill is a Trophy, and the Tourney finds the weakest.
+	{ character: 'ARDOR', worn: 'RENOWN', hands: [[6, 1, 2, 3, 4], [6, 6, 6, 7, 1], [6, 6, 6, 7, 8], [1, 2, 3, 4, 5]], foes: [0, 50] },
+	{ character: 'ARDOR', worn: 'RENOWN', hands: [[6, 1, 2, 3, 4], [6, 6, 6, 7, 1], [6, 6, 6, 7, 8]], foes: [5, 8, 0] },
+	// Vesper (d4 d4 d4 d4 d12). Ill Omen: 1s.
+	{ character: 'VESPER', worn: 'ILL_OMEN', hands: [[1, 2, 3, 4, 7], [1, 1, 1, 2, 7], [1, 1, 1, 1, 7], [1, 1, 1, 1, 1], [2, 2, 3, 4, 7]] },
+	{ character: 'VESPER', worn: 'ILL_OMEN', hands: [[1, 1, 1, 1, 1], [1, 1, 1, 1, 7]], foes: [40, 0, 0] },
+	// Fan of Knives: sets; three creatures, two of them a knife's worth of health, so knives are thrown again.
+	{ character: 'VESPER', worn: 'FAN_OF_KNIVES', hands: [[3, 3, 1, 2, 9], [3, 3, 2, 2, 9], [3, 3, 3, 3, 9], [1, 2, 3, 4, 9]] },
+	{ character: 'VESPER', worn: 'FAN_OF_KNIVES', hands: [[3, 3, 3, 2, 9], [3, 3, 2, 2, 9], [3, 3, 3, 3, 9]], foes: [5, 5, 0] },
+	{ character: 'VESPER', worn: 'FAN_OF_KNIVES', hands: [[2, 2, 2, 2, 2], [4, 4, 1, 1, 12]], foes: [12, 0, 30, 0] },
+	// Cadence (d4 d6 d8 d10 d12). Nocturne: low totals wake the gems that stayed dark.
+	{ character: 'CADENCE', worn: 'NOCTURNE', hands: [[1, 2, 3, 4, 5], [1, 2, 3, 1, 4], [1, 1, 2, 2, 3], [2, 3, 4, 5, 6]], rail: [gem('HEARTWOOD'), gem('PETRIFY')] },
+	{ character: 'CADENCE', worn: 'NOCTURNE', hands: [[1, 2, 3, 4, 5], [1, 1, 2, 2, 3], [1, 2, 3, 1, 4]], rail: [gem('STRIKE'), gem('PETRIFY'), gem('GUARD'), gem('HEARTWOOD')] },
+	// Arpeggio: a scale.
+	{ character: 'CADENCE', worn: 'ARPEGGIO', hands: [[2, 3, 5, 4, 11], [1, 2, 3, 4, 5], [4, 3, 2, 1, 2], [1, 5, 2, 9, 3], [4, 1, 2, 3, 12]] },
+	{ character: 'CADENCE', worn: 'ARPEGGIO', hands: [[1, 2, 3, 4, 5], [2, 3, 5, 4, 11]], rail: [gem('PRISM'), gem('STRIKE')], foes: [20, 0] },
+	// Rue (d4 d4 d6 d6 and the Phial, 1 1 2 2 3 3). Mithridate: straights.
+	{ character: 'RUE', worn: 'MITHRIDATE', hands: [[1, 2, 3, 1, 1], [1, 2, 3, 4, 1], [2, 3, 4, 5, 1], [1, 1, 3, 3, 1], [2, 3, 4, 5, 1]] },
+	{ character: 'RUE', worn: 'MITHRIDATE', hands: [[2, 3, 4, 5, 1], [2, 3, 4, 5, 1]], rail: [gem('STRIKE')], unit: { block: 0, initial_resonance: 23 } },
+	// Bloodroot: 1s and sets; one of them with a single point of health, which a Tap takes.
+	{ character: 'RUE', worn: 'BLOODROOT', hands: [[1, 1, 4, 3, 2], [1, 2, 4, 3, 2], [2, 2, 4, 3, 2], [2, 2, 2, 2, 3], [2, 2, 2, 2, 2]], unit: { hp: 64 } },
+	{ character: 'RUE', worn: 'BLOODROOT', hands: [[3, 3, 3, 3, 2], [1, 1, 1, 3, 1], [2, 2, 2, 2, 2]], unit: { hp: 60 }, foes: [0, 0, 0] },
+	{ character: 'RUE', worn: 'BLOODROOT', hands: [[1, 2, 3, 4, 2], [1, 1, 4, 3, 2]], unit: { hp: 1 } },
+	// Puck (d6 d6 d8 d8 d10). Highs and Lows: crowns and 1s; `grown` are hands on the dice the Ovation grew.
+	{ character: 'PUCK', worn: 'HIGHS_AND_LOWS', hands: [[6, 2, 3, 4, 5], [6, 1, 8, 3, 10], [2, 3, 1, 5, 1], [6, 1, 8, 1, 10]], grown: [[8, 1, 10, 1, 12], [7, 2, 9, 3, 11]] },
+	{ character: 'PUCK', worn: 'HIGHS_AND_LOWS', hands: [[6, 1, 8, 1, 10]], grown: [[8, 8, 10, 10, 12], [1, 1, 1, 1, 1]], rail: [gem('STRIKE'), gem('GUARD')] },
+	// A Glimmer raises a face for good every turn: the faces it raises after the Ovation stay raised when the fight files the dice back down.
+	{ character: 'PUCK', worn: 'HIGHS_AND_LOWS', hands: [[6, 1, 8, 1, 10]], grown: [[2, 3, 4, 5, 6], [8, 1, 10, 1, 12]], rail: [gem('GLIMMER')] },
+	// Patchwork: colors fired. Six gems that fire on a pair, one a color; three, four and all six of them.
+	{ character: 'PUCK', worn: 'PATCHWORK', hands: [[2, 2, 3, 5, 7], [1, 2, 3, 5, 7]], rail: [gem('STRIKE'), gem('RIPOSTE'), gem('THIRST')] },
+	{ character: 'PUCK', worn: 'PATCHWORK', hands: [[2, 2, 3, 5, 7], [4, 4, 3, 5, 7]], rail: [gem('STRIKE'), gem('RIPOSTE'), gem('THIRST'), gem('TITHE')], unit: { hp: 40 } },
+	{ character: 'PUCK', worn: 'PATCHWORK', hands: [[2, 2, 3, 5, 7], [3, 3, 3, 5, 7]], rail: [gem('STRIKE'), gem('RIPOSTE'), gem('THIRST'), gem('MIASMA'), gem('TITHE'), gem('PRISM')], unit: { hp: 40 } },
+	// Florin (five Gambler's d6: 1 2 3 4 5 7). One-Armed Bandit: sets by size, a prize a number.
+	{ character: 'FLORIN', worn: 'ONE_ARMED_BANDIT', hands: [[5, 5, 5, 2, 2], [1, 1, 3, 4, 7], [3, 3, 4, 4, 7], [4, 4, 4, 4, 7], [7, 7, 7, 7, 7], [1, 2, 3, 4, 5]], unit: { hp: 30 } },
+	{ character: 'FLORIN', worn: 'ONE_ARMED_BANDIT', hands: [[7, 7, 1, 2, 3], [2, 2, 2, 2, 2], [7, 7, 7, 5, 5]], foes: [25, 0] },
+	// Blackjack: the total in a window, on a number, or over it.
+	{ character: 'FLORIN', worn: 'BLACKJACK', hands: [[5, 4, 3, 7, 1], [5, 4, 3, 4, 1], [5, 5, 3, 7, 1], [7, 7, 5, 2, 1], [1, 2, 3, 4, 5]] },
+	{ character: 'FLORIN', worn: 'BLACKJACK', hands: [[7, 7, 5, 2, 1], [7, 7, 7, 7, 7], [5, 5, 3, 7, 1]], unit: { hp: 12, initial_resonance: 9 } },
+];
+
+function variantFixtures(seed, firstId) {
+	const rng = makeRng(seed * 32452843 + 7);
+	const out = [];
+	for (const scene of VARIANT_SCENES) {
+		const def = C.character(scene.character);
+		const dice = def.dice.map((ref, i) => Dice.dieFrom(ref, `p${i}`));
+		const sockets = def.sockets.length;
+		const rail = Array.from({ length: sockets }, () => null);
+		(scene.rail || []).forEach((stone, socket) => { rail[socket] = { skill: stone.skill, carat: stone.carat, cut: stone.cut, clarity: 3, inclusions: [], id: `g${socket}` }; });
+		// The face of each die that shows the number asked for. A `grown` hand is laid on the bowl
+		// a size bigger, as a Standing Ovation leaves it; a forecast grows nothing, so the dry
+		// fixture leaves those hands out.
+		const bigger = dice.map((die) => { const copy = { ...die, faces: die.faces.map((f) => ({ ...f })) }; Dice.resize(copy, 1); return copy; });
+		const hand = (values, bowl) => bowl.map((die, index) => {
+			const face = die.faces.findIndex((f) => Dice.faceValue(f) === values[index]);
+			if (face < 0) throw new Error(`${scene.worn}: die ${index} (${die.shape}) has no face showing ${values[index]}`);
+			return { face, rerolls: 0, held: false };
+		});
+		const foes = scene.foes || [0, 0];
+		const last = foes.length - 1;
+		for (const mode of ['dry', 'live', 'full']) {
+			const enemies = foes.map((hp) => ({ block: 0, statuses: {}, ...(hp > 0 ? { hp } : {}) }));
+			const unit = { hp: Number(def.hp), block: 10, block_lost: 0, statuses: {}, initial_resonance: 10, rerolls: rng.randiRange(0, 2), ...(scene.unit || {}) };
+			unit.statuses = { ...unit.statuses };
+			const hands = scene.hands.map((values) => hand(values, dice)).concat(mode === 'dry' ? [] : (scene.grown || []).map((values) => hand(values, bigger)));
+			const runs = hands.map((laid) => (mode === 'full' ? { hand: laid, blows: [{ foe: last, amount: rng.randiRange(2, 6) }] } : { hand: laid }));
+			// A last turn on whatever the dice throw: the bowl a Standing Ovation grew, the Spikes that came down.
+			if (mode === 'full') runs.push({ blows: [{ foe: last, amount: rng.randiRange(2, 6) }] });
+			out.push({ id: firstId + out.length, mode, seed: seed * 1000 + firstId + out.length, character: scene.character, worn: scene.worn, pyrite: 40, depth: 3, rail, runs, enemies, unit, aimed: true });
 		}
 	}
 	return out;
@@ -267,15 +372,16 @@ function makePcg(seed) {
 
 const ints = (source) => Object.fromEntries(Object.entries(source || {}).filter(([, v]) => typeof v === 'number' && Math.trunc(v) !== 0).map(([k, v]) => [k, Math.trunc(v)]));
 
-// A "full" fixture: real turns. Only the first hand is fixed; the rest come out of the turn's own
-// throw. tools/balance_parity.gd _run_full plays the same.
+// A "full" fixture: real turns. A turn that names a hand is played on it (the Flawless fixtures
+// fix only the first); the rest come out of the turn's own throw. tools/balance_parity.gd
+// _run_full plays the same.
 function playFull(f, state, unit) {
 	const rng = makePcg(7);
 	const snaps = [];
 	state.turn = 1;
 	f.runs.forEach((run, index) => {
 		if (unit.downed && index > 0) return;
-		if (index === 0) unit.hand = unit.dice.map((die, at) => buildRoll(die, run.hand[at]));
+		if (run.hand) unit.hand = unit.dice.map((die, at) => buildRoll(die, run.hand[at]));
 		Fight.startRail(state, unit);
 		snaps.push(snapshot(state, unit, Fight.runQueue(state, rng, true)));
 		if (unit.downed) return;
@@ -302,7 +408,7 @@ function play(f) {
 	const dice = def.dice.map((ref, i) => Dice.dieFrom(ref, `p${i}`));
 	for (const at of f.etch || []) Dice.etch(dice[at.die], at.face, at.kind);
 	const rail = f.rail.map((s) => (s ? { ...Stone.make(s.skill, s.carat, s.cut, s.clarity, s.inclusions, s.id), ...(s.absorbed ? { absorbed: s.absorbed } : {}) } : null));
-	const unit = Fight.makePlayer('p0', f.character, rail, dice, { pyrite: f.pyrite });
+	const unit = Fight.makePlayer('p0', f.character, rail, dice, { pyrite: f.pyrite, worn: f.worn || '' });
 	const enemies = f.enemies.map((spec, i) => { const foe = Fight.makeDummy(`e${i}`, { dice: f.mode === 'full' ? ['D4', 'D4', 'D4'] : ['D4', 'D4'], hp: spec.hp ?? 0 }); foe.block = spec.block; foe.statuses = ints(spec.statuses); foe.dread_turns = spec.dread_turns | 0; return foe; });
 	const state = Fight.makeFight({ players: [unit], enemies, depth: f.depth });
 	unit.hp = f.unit.hp;
@@ -313,7 +419,10 @@ function play(f) {
 	unit.rerolls = f.unit.rerolls;
 	unit.target = 'e0';
 	if (f.mode === 'full') return playFull(f, state, unit);
-	const rng = makeRng(7);
+	// Godot's own generator here too: a variant Birthstone may pick a creature at random (a Fan
+	// of Knives, a Heartsblood) or throw the dice again (a Whole Cloth), forecast or not. Nothing
+	// else on these rails asks it for a number that matters.
+	const rng = makePcg(7);
 	const snaps = [];
 	for (const run of f.runs) {
 		unit.hand = unit.dice.map((die, index) => buildRoll(die, run.hand[index]));
@@ -343,6 +452,9 @@ function buildRoll(die, spec) {
 // The forecast's way through a rail: every gem and the Birthstone resolved dry.
 function playDry(state, unit, rng) {
 	const events = [];
+	// No rail begins for a player who is down (a Bloodroot's Tap can take the last of her health):
+	// every step of theirs is dropped, as sim/battle.gd _drop_steps drops them.
+	if (unit.downed) state.queue = state.queue.filter((s) => s.unit !== unit.id);
 	while (state.queue.length) {
 		const s = state.queue.shift();
 		if (s.kind === 'gem') events.push(Fight.resolveGem(state, unit, s.socket, { dry: true, retrigger: Boolean(s.retrigger), scale: s.scale ?? 100 }, rng));
@@ -357,7 +469,11 @@ function snapshot(state, a, events) {
 	for (const e of events) {
 		if (!e) continue;
 		if (e.kind === 'gem_fire' || e.kind === 'gem_fizzle') log.push([e.kind, e.socket, e.resonance | 0]);
-		else if (e.kind === 'birthstone') log.push(['birthstone', Boolean(e.fired), e.tiers.map((t) => Boolean(t.active))]);
+		// The tiers that fired, the ones another took the place of, how many things each did (a
+		// knife thrown again is one more), the Resonance it opened on, what an Arpeggio added, and
+		// what each tier's trigger counted (the dice showing 1, the colors fired).
+		else if (e.kind === 'birthstone') log.push(['birthstone', Boolean(e.fired), e.tiers.map((t) => Boolean(t.active)), e.tiers.map((t) => Boolean(t.eclipsed)), e.tiers.map((t) => t.effects.length),
+			Math.trunc(e.resonance), Math.trunc(e.climbed), e.tiers.map((t) => Math.trunc(t.counted))]);
 	}
 	const buffs = {};
 	for (const [id, entry] of Object.entries(a.gem_buffs || {})) { const clean = ints(entry); if (Object.keys(clean).length) buffs[id] = clean; }
@@ -370,7 +486,14 @@ function snapshot(state, a, events) {
 		// What the Flawless lines have set up, or hold for later, that nothing above reads yet.
 		setups: { strength_guard: Boolean(a.strength_guard), poison_safe: Boolean(a.poison_safe), thorns: Boolean(a.envenom_thorns), gilded_pay: a.gilded_pay | 0, carry_next: Boolean(a.carry_rerolls_next),
 			carrying: Boolean(a.carrying_rerolls), mortar: 'mortar' in a, grow_next: a.grow_next | 0, bound_next: (a.bound_next || []).slice(), fight_max_hp: a.fight_max_hp | 0, enriched: ints(a.enriched),
-			shattered: (a.shattered || []).slice(), refracted: (a.refracted || []).length, overhealed: a.overhealed | 0, gifts: Object.values(a.after_fire_fight || {}).reduce((sum, gift) => sum + (gift.amount | 0), 0) } },
+			shattered: (a.shattered || []).slice(), refracted: (a.refracted || []).length, overhealed: a.overhealed | 0, gifts: Object.values(a.after_fire_fight || {}).reduce((sum, gift) => sum + (gift.amount | 0), 0) },
+		// The Birthstone worn and what the variants keep: the 1s a Bloodroot has counted, what a
+		// Thornwork holds up until next turn, a Whole Cloth spent, the bowl a Standing Ovation grew
+		// (a Renown's Trophies are among the run's counts above).
+		worn: String(a.birthstone_key || ''), stone: String((a.birthstone || {}).name || ''), fight_ones: Math.trunc(a.fight_ones || 0), timed: ints(a.timed), second_act: Boolean(a.second_act),
+		shapes: a.dice.map((d) => String(d.shape)), tops: a.dice.map((d) => Dice.top(d)), fight_grown: ints(a.fight_grown),
+		// The bowl the fight would hand back were it to end here: the Ovation's sizes off, what was done for good kept.
+		after: Fight.diceAfterFight(a).map((d) => [String(d.shape), d.faces.map((f) => f.value | 0)]) },
 	enemies: state.enemies.map((foe) => ({ hp: foe.hp, max_hp: foe.max_hp, block: foe.block, statuses: ints(foe.statuses), stolen_dice: foe.stolen_dice | 0, dread_turns: foe.dread_turns | 0, marks_kept: foe.marks_kept | 0, plague: Boolean(foe.plague) })),
 	events: log };
 }
@@ -393,7 +516,7 @@ function differences(want, got, where = '', out = []) {
 }
 
 function describe(f) {
-	return `${f.mode} ${f.character} [${f.rail.map((s) => (s ? `${s.skill} ${s.carat}ct c${s.cut} k${s.clarity}${s.inclusions.length ? ' +' + s.inclusions.join('+') : ''}` : '·')).join(', ')}]`;
+	return `${f.mode} ${f.character}${f.worn ? ` in ${f.worn}` : ''}${f.aimed ? ' (aimed)' : ''} [${f.rail.map((s) => (s ? `${s.skill} ${s.carat}ct c${s.cut} k${s.clarity}${s.inclusions.length ? ' +' + s.inclusions.join('+') : ''}` : '·')).join(', ')}]`;
 }
 
 // Godot 4.7.2: GODOT_BIN, the path, or a build (console or not) beside the project, on the desktop or in
@@ -432,6 +555,7 @@ function runGodot(fixtureFile, outFile) {
 await mkdir(OUT, { recursive: true });
 const list = fixtures(COUNT, SEED);
 list.push(...flawlessFixtures(SEED, COUNT));
+if (!FIRST_ONLY) list.push(...variantFixtures(SEED, list.length));
 const fixtureFile = path.join(OUT, 'fixtures.json');
 const godotFile = path.join(OUT, 'godot.json');
 await writeFile(fixtureFile, JSON.stringify(list));
@@ -440,8 +564,18 @@ await runGodot(fixtureFile, godotFile);
 const godot = JSON.parse(await readFile(godotFile, 'utf8'));
 console.log(`Godot played ${godot.length} fixtures in ${((Date.now() - started) / 1000).toFixed(1)}s`);
 let failed = 0;
+// What each Birthstone was given to do: the fixtures that wore it, the ones it fired in, and
+// which of its tiers lit at least once (as Godot played them).
+const worn = new Map();
 for (const f of list) {
 	const want = godot.find((g) => g.id === f.id);
+	const key = `${f.character}/${f.worn || ''}`;
+	const seen = worn.get(key) || { fixtures: 0, fired: 0, tiers: new Set() };
+	worn.set(key, seen);
+	seen.fixtures += 1;
+	let lit = false;
+	for (const snap of want.snaps) for (const e of snap.events) if (e[0] === 'birthstone' && e[1]) { lit = true; e[2].forEach((on, tier) => { if (on) seen.tiers.add(tier); }); }
+	if (lit) seen.fired += 1;
 	let got;
 	try { got = play(f); } catch (error) { failed += 1; console.log(`\n#${f.id} ${describe(f)}\n  JS threw: ${error.stack || error}`); continue; }
 	const diff = differences(want.snaps, got.snaps, 'rail');
@@ -450,6 +584,13 @@ for (const f of list) {
 		if (failed <= 25) console.log(`\n#${f.id} ${describe(f)}\n  ${diff.join('\n  ')}`);
 	}
 }
-console.log(`\n${list.length - failed} of ${list.length} fixtures agree (${list.filter((f) => f.mode === 'live').length} live, ${list.filter((f) => f.mode === 'dry').length} dry, ${list.filter((f) => f.mode === 'full').length} full).`);
+console.log(`\n${list.length - failed} of ${list.length} fixtures agree (${list.filter((f) => f.mode === 'live').length} live, ${list.filter((f) => f.mode === 'dry').length} dry, ${list.filter((f) => f.mode === 'full').length} full; ${list.filter((f) => f.aimed).length} of them aimed at the variant Birthstones).`);
+console.log('Birthstones worn: fixtures / fired in / tiers lit of its tiers');
+for (const [character, key] of C.allBirthstones()) {
+	const def = C.birthstoneDef(character, key);
+	const seen = worn.get(`${character}/${key}`) || { fixtures: 0, fired: 0, tiers: new Set() };
+	const dark = (def.tiers || []).filter((_, tier) => !seen.tiers.has(tier)).map((tier) => tier.name);
+	console.log(`  ${String(def.name).padEnd(18)} ${String(seen.fixtures).padStart(4)} / ${String(seen.fired).padStart(4)} / ${seen.tiers.size} of ${(def.tiers || []).length}${dark.length ? ` (never lit: ${dark.join(', ')})` : ''}`);
+}
 if (!args.includes('--keep')) await rm(OUT, { recursive: true, force: true });
 process.exit(failed ? 1 : 0);

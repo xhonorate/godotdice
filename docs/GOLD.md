@@ -20,7 +20,7 @@ This is the plan for giving gold uses outside a run and new ways to earn it. Whe
 | 🟢  | First-conquest purse                                                                     | §4.4       | 1, built October 7, 2026                                    |
 | 🟢  | Groundwork: economy code, save upgrade, daily turnover, Gold page in the balance browser | §5, §6     | 0, built October 7, 2026                                    |
 | 🟢  | The no-profit test: all four checks                                                      | §7         | grew with 4 and 5                                           |
-| ⚪  | Birthstone upgrades                                                                      | §8.1       | not scheduled                                               |
+| 🟢  | Birthstone upgrades: the variant Birthstones (Swap it)                                   | §8.1       | built November 13, 2026 (docs/CHARACTERS.md §7)             |
 | 🟢  | The Wheel and the Oven, once a day each                                                  | §3.6, §8.2 | built October 12, 2026                                      |
 | ⛔  | Everything in §9                                                                         | §9         | —                                                           |
 
@@ -404,6 +404,7 @@ The first time a player beats a mine's final boss, they receive a one-off purse:
 - 🟢 `records.geodes`, `records.contracts`, `records.dailies`.
 - 🟢 `outfit`: `{insure: bool}`.
 - 🟢 `characters.<key>.sockets`: how many sockets that lapidary has unlocked (3 to start).
+- 🟢 `characters.<key>.birthstones`: the variant Birthstones bought for that lapidary (keys); `characters.<key>.birthstone`: the one worn, "" for their first. A save without them owns none and wears the first. `stone_conquests["CHAR:KEY"]`: the mines each stone has beaten.
 - 🟢 `conquest_paid`: the mines whose first-conquest purse has been paid.
 - 🟢 `warden_paid`: the Wardens whose purse has been paid, as `"<mine>:<index>"` (`"QUARRY:0"` is The Foreman).
 - 🟢 `charged_run`: the last run this profile paid its fare for, so no run is billed twice.
@@ -440,7 +441,9 @@ The test reads prices from content, so retuning a number can never quietly open 
 
 None of this is in the build order.
 
-### ⚪ 8.1 Birthstone upgrades
+### 🟢 8.1 Birthstone upgrades
+
+**Swap it was built November 13, 2026** as the variant Birthstones (docs/CHARACTERS.md §7). Each lapidary has two variants, 1,000 and 2,500 gold, bought once on the dossier's Birthstone card with a second press (`DeepEconomy.unlock_birthstone`), worn there or from the rail's Birthstone tile, and shown to the party on the lobby line. All twelve come to 21,000 gold. Raise it was not taken up. The plan as it stood before follows.
 
 Like socket unlocks (§3.5), these grow one lapidary permanently. Rule 1 still holds: none of this touches a vault stone.
 

@@ -42,6 +42,22 @@ export function policyFor(trigger) {
 		case 'at_least': case 'high_pct_at_least': case 'total_pct_at_least': return 'high';
 		case 'crowns': return 'high';
 		case 'crowns_at_most': return 'low';
+		// What the variant Birthstones read. Dice showing a number or more are kept; a low total
+		// is chased like low dice; a total in a window stands once it is in it and otherwise throws
+		// the dice on the wrong side of it again (with no top to the window, the low ones); a
+		// scale keeps the dice already climbing; Highs and Lows keeps crowns and 1s; sets are sets.
+		// The colors a rail has fired are not the dice's to chase.
+		case 'high_count': return `floor:${Math.trunc(Number(trigger.value ?? 6))}`;
+		case 'total_at_most': return 'low';
+		case 'total_window': {
+			const least = Math.trunc(Number(trigger.amount ?? (trigger.ladder || [0])[0] ?? 0));
+			const most = Math.trunc(Number(trigger.max ?? -1));
+			return most < 0 ? 'high' : `total:${least}:${most}`;
+		}
+		case 'scale': return 'scale';
+		case 'all_faces': return 'faces';
+		case 'set': return 'sets';
+		case 'colors': return 'none';
 		case 'held': return 'none';
 		case 'rerolled': return 'all';
 		case 'always': {
@@ -81,6 +97,20 @@ export function rerollIds(policy, hand, a, cutHint = 4) {
 	} else if (policy.startsWith('value:')) {
 		const wanted = policy.slice(6).split(',').map(Number);
 		for (const r of hand) if (wanted.includes(r.value)) keep.add(r.die_id);
+	} else if (policy.startsWith('floor:')) {
+		const floor = Number(policy.slice(6));
+		for (const r of hand) if (r.kind !== 'blank' && r.value >= floor) keep.add(r.die_id);
+	} else if (policy.startsWith('total:')) {
+		// In the window: stand. Under it: the low dice go again. Over it: the high ones.
+		const [least, most] = policy.slice(6).split(':').map(Number);
+		const under = a.total < least;
+		const standing = a.total >= least && a.total <= most;
+		for (const r of hand) if (r.kind !== 'blank' && (standing || (r.value * 2 > sizeOfRoll(r)) === under)) keep.add(r.die_id);
+	} else if (policy === 'scale') {
+		for (const id of (a.scale || {}).dice || []) keep.add(id);
+	} else if (policy === 'faces') {
+		for (const id of a.crown_ids || []) keep.add(id);
+		for (const id of a.one_ids || []) keep.add(id);
 	} else if (policy === 'low') {
 		for (const r of hand) if (r.kind !== 'blank' && r.value * 2 <= sizeOfRoll(r)) keep.add(r.die_id);
 	} else if (policy === 'high') {
@@ -225,7 +255,10 @@ export function triggerOdds({ bowl, variations = [], rerolls = 2, samples = 4000
 			}
 		}
 	}
-	return { samples, rerolls, results: out.map((o) => ({ fireRate: o.fired / samples, meanValue: o.fired ? o.valueSum / o.fired : 0, meanCount: o.fired ? o.countSum / o.fired : 0 })) };
+	// A trigger the fight answers and not the dice (the colors a rail has fired, its Resonance) has
+	// no odds against a bowl alone: `unknown` says so.
+	return { samples, rerolls, results: out.map((o, i) => ({ fireRate: o.fired / samples, meanValue: o.fired ? o.valueSum / o.fired : 0, meanCount: o.fired ? o.countSum / o.fired : 0,
+		unknown: Patterns.FIGHT_KINDS.includes(triggers[i].kind || 'always') })) };
 }
 
 // --- hands -----------------------------------------------------------------------------------

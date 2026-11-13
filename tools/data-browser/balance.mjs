@@ -11,6 +11,9 @@
 // opals) and --apart (no opal reaches another: a rule tried in the sim, not the game's).
 // --gem-plays N lets no gem play more than N times a turn (also a rule tried only in the sim).
 // --pack <file> plays a changed copy of the content pack instead of content/deep_cut.json.
+// --worn RENOWN,BLOODROOT plays those variant Birthstones: each delver wears the one named that
+// is theirs, and the rest their first stone (tools/data-browser/birthstones.mjs sets every
+// Birthstone side by side).
 //
 // The pairs, rails, carats, hunt and growth sweeps read which gem a rail's rerolls chase from
 // the gems sweep, so they run it first when it is missing or the pack has moved on.
@@ -42,7 +45,7 @@ if (!isMainThread) {
 	const option = (name) => { const i = args.indexOf(`--${name}`); return i >= 0 ? args[i + 1] : undefined; };
 	const number = (name) => (option(name) === undefined ? undefined : Number(option(name)));
 	const flag = (name) => args.includes(`--${name}`);
-	const valued = new Set(['workers', 'turns', 'samples', 'carat', 'seed', 'hosts', 'bands', 'fights', 'limit', 'copies', 'opals', 'pack', 'gem-plays']);
+	const valued = new Set(['workers', 'turns', 'samples', 'carat', 'seed', 'hosts', 'bands', 'fights', 'limit', 'copies', 'opals', 'pack', 'gem-plays', 'worn']);
 	const words = args.filter((a, i) => !a.startsWith('--') && !(i > 0 && valued.has(args[i - 1].replace(/^--/, ''))));
 	const wanted = words[0] || 'all';
 	const checking = wanted === 'check';
@@ -59,6 +62,7 @@ if (!isMainThread) {
 	if (number('opals') !== undefined) settings.opals = number('opals');
 	if (flag('apart')) settings.opalsApart = true;
 	if (number('gem-plays') !== undefined) settings.gemPlays = number('gem-plays');
+	if (option('worn')) settings.worn = option('worn');
 	if (checking && flag('quick')) Object.assign(settings, { huntStarts: 2, huntPasses: 1, huntVerify: 150, samples: { ...settings.samples, hunt: 10 } });
 	const count = Math.max(1, number('workers') ?? Math.max(1, availableParallelism() - 1));
 	const workers = Array.from({ length: count }, () => new Worker(fileURLToPath(import.meta.url), { workerData: { pack } }));
@@ -105,7 +109,9 @@ if (!isMainThread) {
 
 	let gems = await Store.load('gems');
 	const freshGems = async () => {
-		if (!gems || gems.packHash !== hash || (gems.vector || []).length !== Balance.VECTOR.length) {
+		// Played on another pack, or in other Birthstones than this run wears: not this run's to read.
+		const dressed = String((gems && gems.settings && gems.settings.worn) || '') === String(Balance.sweepSettings(settings, 'gems').worn || '');
+		if (!gems || gems.packHash !== hash || (gems.vector || []).length !== Balance.VECTOR.length || !dressed) {
 			console.log('reading the gems sweep first: running it');
 			gems = await run('gems', {}, { ...settings, samples: { ...Balance.DEFAULTS.samples } });
 			await Store.save('gems', gems);
