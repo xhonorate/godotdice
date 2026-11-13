@@ -16,8 +16,14 @@ extends CanvasLayer
 ## 2026) is the same two-stone swirl, and before the sheet its weight rolls up from the heavier
 ## of the two to what the fire made.
 ##
-## A click or Space strikes; held Space strikes all three; Escape skips to the stone's card, and
-## at the end takes the gentlest way out (the stone waits in the vault, unappraised).
+## A click or Space strikes; a held click, finger or Space strikes all three; Escape skips to the
+## stone's card, and at the end takes the gentlest way out (the stone waits in the vault,
+## unappraised).
+##
+## Two shorter endings (November 13, 2026, the haul redo): `finale` is a Geode cracked on the
+## haul's table, which ends once the stone is out and its grade called (the table reads it out
+## with the rest); `spotlight` hands the stone to the spotlight (spotlight.gd) with its fates as
+## buttons, the way every reveal at home ends, in place of this layer's own card.
 
 const GemView = preload("res://view/gems/gem_view.gd")
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
@@ -85,6 +91,12 @@ var _phase: String = "ready"
 var _done: bool = false
 var _closing: bool = false
 var _held: float = 0.0
+## A pointer or a finger held down on the rock: it strikes on its own, as held Space does.
+var _pressing: bool = false
+## The table's finale (no card, closes once the stone is out) and the hand-off to the spotlight.
+var _finale: bool = false
+var _spotlight: bool = false
+var _opts: Dictionary = {}
 
 static func is_open() -> bool:
 	return _open != null and is_instance_valid(_open)
@@ -137,6 +149,9 @@ func build(kind: String, shelf_geode: Dictionary, inputs: Array, made: Dictionar
 	actions = opts.get("actions", [])
 	new_skill = bool(opts.get("new_skill", owned.is_empty() and not DeepStone.is_birthstone(stone)))
 	wanted = str(opts.get("wanted", ""))
+	_finale = bool(opts.get("finale", false))
+	_spotlight = bool(opts.get("spotlight", false))
+	_opts = opts
 	_tone = theme_tone(geode) if mode == "geode" else DeepUi.ACCENT
 	_tier_tone = DeepUi.tier_color(str(DeepStone.grade(stone).tier))
 	_root = Control.new()
@@ -145,7 +160,8 @@ func build(kind: String, shelf_geode: Dictionary, inputs: Array, made: Dictionar
 	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_root)
 	_dim = ColorRect.new()
-	_dim.color = Color(0.0, 0.0, 0.015, 0.94)
+	## Nearly opaque: the page behind must not read through (review card Q2, November 13, 2026).
+	_dim.color = Color(0.004, 0.005, 0.016, 1.0)
 	_dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_dim.mouse_filter = Control.MOUSE_FILTER_STOP
 	_root.add_child(_dim)
@@ -246,6 +262,9 @@ func build(kind: String, shelf_geode: Dictionary, inputs: Array, made: Dictionar
 	_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_card.modulate.a = 0.0
 	row.add_child(_card)
+	## The table's finale and the hand-off to the spotlight read nothing here: the rock stands alone.
+	if _finale or _spotlight:
+		_card.visible = false
 	var card_box := DeepUi.vbox(_card, int(DeepUi.pt(3)) if DeepUi.phone else 8)
 	if new_skill:
 		var fanfare := DeepUi.hbox(card_box, 8)
@@ -264,7 +283,7 @@ func build(kind: String, shelf_geode: Dictionary, inputs: Array, made: Dictionar
 	var foot := DeepUi.vbox(column, 6)
 	foot.custom_minimum_size.y = DeepUi.pt(40) if DeepUi.phone else 80.0
 	_foot = foot
-	_skip = DeepUi.label(foot, ("Tap the Geode to strike" if mode == "geode" else "Tap to skip ahead") if DeepUi.phone else ("Click the Geode or press Space to strike · Esc skips" if mode == "geode" else "Click or press Space to skip ahead"), 13, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+	_skip = DeepUi.label(foot, ("Tap the Geode to strike · hold for all three" if mode == "geode" else "Tap to skip ahead") if DeepUi.phone else ("Click the Geode or press Space to strike · hold for all three" if mode == "geode" else "Click or press Space to skip ahead"), 13, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 	_choices = Appraisal.choices(foot, actions, close)
 	_choices.visible = false
 	_flash = ColorRect.new()
@@ -354,6 +373,8 @@ func play() -> void:
 	_art.wobble = true
 
 func _centring() -> float:
+	if not _card.visible:
+		return 0.0
 	## How far right of its place the stage is drawn to sit in the middle of the screen: half
 	## the width of the card that will come in beside it, and the gap between them.
 	var row: Control = _stage.get_parent() as Control
@@ -440,7 +461,38 @@ func _split() -> void:
 		rise.tween_interval(ROLL + 0.5)
 	else:
 		rise.tween_interval(0.6)
-	rise.tween_callback(_read)
+	rise.tween_callback(_after_rise)
+
+func _after_rise() -> void:
+	## The stone is out and its grade called: read here, handed to the spotlight, or (the table's
+	## finale) left for the table to read with the rest.
+	if _finale:
+		_phase = "done"
+		_done = true
+		_skip.visible = false
+		var hold := _track(create_tween())
+		hold.tween_interval(0.85)
+		hold.tween_callback(close)
+	elif _spotlight:
+		_handoff()
+	else:
+		_read()
+
+func _handoff() -> void:
+	## The spotlight reads the stone out with its fates as buttons (spotlight.gd); this layer goes.
+	## Whoever opened it is told once the spotlight closes, after its choice has been carried out.
+	if _closing:
+		return
+	_done = true
+	_phase = "done"
+	var then: Callable = closed
+	closed = Callable()
+	var shown: CanvasLayer = load("res://view/gems/spotlight.gd").show_stone(stone, {"kind": "find", "owned": owned, "actions": actions, "slot": _opts.get("slot", {}), "records": _opts.get("records", [])})
+	if shown != null and then.is_valid():
+		shown.connect("done", func(_how: String) -> void: then.call(), CONNECT_ONE_SHOT)
+	elif then.is_valid():
+		then.call()
+	close()
 
 func _roll_carat() -> void:
 	## The weight counts up from the heavier stone that went in to what came out, and says by
@@ -512,6 +564,19 @@ func finish() -> void:
 	## Straight to the end: the stone out, every line read, the choices up.
 	if _done:
 		return
+	if _finale:
+		if _phase in ["ready", "fusing"] and not GemView.headless() and is_inside_tree():
+			DeepAudio.reveal_stone(stone)
+		_done = true
+		close()
+		return
+	if _spotlight:
+		for tween in _tweens:
+			if tween != null and tween.is_valid():
+				tween.kill()
+		_tweens.clear()
+		_handoff()
+		return
 	for tween in _tweens:
 		if tween != null and tween.is_valid():
 			tween.kill()
@@ -568,16 +633,22 @@ func close() -> void:
 		closed.call()
 
 func _stage_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+		_pressing = false
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		if _phase == "ready":
 			strike()
+			_pressing = true
+			_held = 0.0
 		elif not _done:
 			finish()
 		get_viewport().set_input_as_handled()
 
 func _process(delta: float) -> void:
 	## Space held down strikes on its own, a blow every third of a second.
-	if _phase == "ready" and Input.is_key_pressed(KEY_SPACE):
+	if _pressing and not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+		_pressing = false
+	if _phase == "ready" and (Input.is_key_pressed(KEY_SPACE) or _pressing):
 		_held += delta
 		if _held > 0.33:
 			_held = 0.0
@@ -608,6 +679,8 @@ func _input(event: InputEvent) -> void:
 		## The rock is drawn right of the stage it stands on (see `_centring`), so a blow lands
 		## wherever the rock is seen, not only over the part still above its stage.
 		strike()
+		_pressing = true
+		_held = 0.0
 		get_viewport().set_input_as_handled()
 	elif event is InputEventMouseButton and event.pressed and not _done and _phase != "ready":
 		finish()

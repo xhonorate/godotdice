@@ -130,6 +130,10 @@ static func forget_removed(profile: Dictionary) -> bool:
 				changed = true
 	var tray: Variant = profile.get("tray", [])
 	if tray is Array:
+		## An older save's raw stone may still hide a Void, which never forms at home any more.
+		for stone in tray:
+			if stone is Dictionary and not bool(stone.get("appraised", false)) and not DeepForge.unvoid(stone).is_empty():
+				changed = true
 		var kept: Array = tray.filter(func(s: Variant) -> bool: return not (s is Dictionary and gone.call(s.get("skill", ""))))
 		if kept.size() != tray.size():
 			profile.tray = kept
@@ -547,6 +551,8 @@ static func appraise(profile: Dictionary, stone: Dictionary) -> bool:
 	if int(profile.get("gold", 0)) < fee:
 		return false
 	profile.gold = int(profile.gold) - fee
+	## Void only forms down the mine: read at home, it has grown into something else.
+	DeepForge.unvoid(stone)
 	stone.appraised = true
 	stone.inclusions_revealed = true
 	## Cracking a Geode brought up from a mine: the rock comes away and the stone inside is an
@@ -901,6 +907,10 @@ static func apply_result(profile: Dictionary, result: Dictionary, player_id: Str
 				saw(profile, str(stone.get("skill", "")))
 			continue
 		var home: Dictionary = DeepStone.unstake(stone.duplicate(true))
+		## A stone nobody read down there is read at home, where Void never forms (DeepForge.unvoid):
+		## it comes up already sound, so a rough sale or a reading can never shatter it.
+		if not bool(home.get("appraised", false)):
+			DeepForge.unvoid(home)
 		home.erase("lent")
 		## What a Black Opal took in down there is gone with the run, and so is the Hollow's Void.
 		home.erase("absorbed")
@@ -910,9 +920,12 @@ static func apply_result(profile: Dictionary, result: Dictionary, player_id: Str
 		home.provenance.date = Time.get_date_string_from_system()
 		profile.tray.append(home)
 		brought.append(home)
-	## Stones came home: the workshop opens on them, and stays there until each is decided.
+	## Stones came home: the workshop opens on them, and stays there until each is decided. A
+	## table left half-worked in the vault starts over as part of this haul.
 	if not brought.is_empty():
 		profile.homecoming = true
+		profile.erase("haul")
+		profile.erase("haul_report")
 	for die in mine_result.get("dice", []):
 		profile.bowl.append(die.duplicate(true))
 	## The day's seam pays its score's worth in gold, less what the day's best already paid.
@@ -1048,3 +1061,320 @@ static func decide_tray(profile: Dictionary, stone_id: String, keep_it: bool) ->
 			return {"ok": true, "kept": true, "replaced": kept.replaced, "paid": 0, "forced": forced}
 		return {"ok": true, "kept": false, "paid": sell(profile, stone)}
 	return {"ok": false, "error": "no such stone in the tray"}
+
+# --- the haul: every stone on the tray decided at once ---------------------------------------
+## Coming home (November 13, 2026; docs/GOLD.md "Coming home"): the tray is laid out as one
+## table, read with one press, and settled with one more. Each stone has a fate: into the vault
+## (a skill not kept yet), in place of the one kept, sold, turned in for a commission, or sold
+## rough without being read. What follows suggests them, holds them to what can happen, says
+## which would give up the finer stone, and carries them out.
+
+const FATES: Array = ["vault", "replace", "sell", "turnin", "rough"]
+## The vault sizes a report calls out when a haul carries the collection past them.
+const VAULT_MILESTONES: Array = [25, 50, 75, 100]
+
+static func better_stone(a: Dictionary, b: Dictionary) -> bool:
+	## Whether `a` is the finer of two stones of a skill: the higher grade, and on a tie the one
+	## worth more. Anything is finer than nothing.
+	if b.is_empty():
+		return not a.is_empty()
+	if a.is_empty():
+		return false
+	var ga: int = int(DeepStone.grade(a).score)
+	var gb: int = int(DeepStone.grade(b).score)
+	return ga > gb or (ga == gb and DeepStone.value(a) > DeepStone.value(b))
+
+static func crack_plan(profile: Dictionary, stones: Array, rough: Array = []) -> Dictionary:
+	## What reading the haul costs and what the purse covers: every raw stone and Geode not set
+	## aside to be sold rough, the biggest first, as many as the gold pays for (a smaller one
+	## still goes in after a bigger one the purse could not meet). {crack: ids, short: ids,
+	## fee: what the cracked ones cost, total: what all of them would}.
+	var waiting: Array = stones.filter(func(s: Dictionary) -> bool: return not bool(s.get("appraised", false)) and not rough.has(str(s.get("id", ""))))
+	waiting.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return DeepStone.rough_value(a) > DeepStone.rough_value(b))
+	var purse: int = int(profile.get("gold", 0))
+	var out: Dictionary = {"crack": [], "short": [], "fee": 0, "total": 0}
+	for stone in waiting:
+		var fee: int = appraisal_fee(stone)
+		out.total = int(out.total) + fee
+		if int(out.fee) + fee <= purse:
+			out.crack.append(str(stone.id))
+			out.fee = int(out.fee) + fee
+		else:
+			out.short.append(str(stone.id))
+	return out
+
+static func _open_commission(profile: Dictionary, stone: Dictionary, claimed: Dictionary) -> Dictionary:
+	## The best-paying open commission this stone meets that no other stone of the haul has.
+	var best: Dictionary = {}
+	for commission in DeepEconomy.open_commissions(profile):
+		if claimed.has(str(commission.get("id", ""))) or not DeepEconomy.meets(commission, stone):
+			continue
+		if best.is_empty() or DeepEconomy.payout(commission, stone) > DeepEconomy.payout(best, stone):
+			best = commission
+	return best
+
+static func _haul_groups(stones: Array) -> Dictionary:
+	## The read stones of a haul by skill, the finest of each first.
+	var groups: Dictionary = {}
+	for stone in stones:
+		if not bool(stone.get("appraised", false)) or DeepStone.is_fragile(stone) or str(stone.get("skill", "")).is_empty():
+			continue
+		var skill: String = str(stone.skill)
+		if not groups.has(skill):
+			groups[skill] = []
+		groups[skill].append(stone)
+	for skill in groups:
+		groups[skill].sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return better_stone(a, b))
+	return groups
+
+static func suggest_fates(profile: Dictionary, stones: Array) -> Dictionary:
+	## The fate each stone of a haul is given unless the player says otherwise: the finest of a
+	## skill not kept yet goes into the vault, the finest of one kept goes in its place if it is
+	## finer, a commission takes what it wants of the rest, and the rest is sold. A stone nobody
+	## read is sold rough. Returns {id: fate}.
+	var out: Dictionary = {}
+	var claimed: Dictionary = {}
+	for stone in stones:
+		if not bool(stone.get("appraised", false)):
+			out[str(stone.id)] = "rough"
+	var groups: Dictionary = _haul_groups(stones)
+	for skill in groups:
+		var list: Array = groups[skill]
+		var kept: Dictionary = owned(profile, str(skill))
+		for index in range(list.size()):
+			var stone: Dictionary = list[index]
+			var id: String = str(stone.id)
+			if index == 0 and kept.is_empty():
+				out[id] = "vault"
+			elif index == 0 and better_stone(stone, kept):
+				out[id] = "replace"
+			else:
+				var wanted: Dictionary = _open_commission(profile, stone, claimed)
+				if not wanted.is_empty():
+					out[id] = "turnin"
+					claimed[str(wanted.id)] = true
+				else:
+					out[id] = "sell"
+	return out
+
+static func fates_for(profile: Dictionary, stone: Dictionary, stones: Array) -> Array:
+	## What one stone of the haul can be given, in the order they are offered. A stone not read
+	## can only be sold rough; a first of its skill is never sold unless another of its skill in
+	## the haul could be the first kept instead.
+	if not bool(stone.get("appraised", false)):
+		return ["rough"]
+	if DeepStone.is_fragile(stone):
+		return []
+	var out: Array = []
+	if owned(profile, str(stone.get("skill", ""))).is_empty():
+		out.append("vault")
+		if stones.any(func(s: Dictionary) -> bool: return str(s.get("id", "")) != str(stone.id) and str(s.get("skill", "")) == str(stone.skill) and bool(s.get("appraised", false)) and not DeepStone.is_fragile(s)):
+			out.append("sell")
+	else:
+		out.append_array(["replace", "sell"])
+	if not DeepEconomy.commission_for(profile, stone).is_empty():
+		out.append("turnin")
+	return out
+
+static func normalize_fates(profile: Dictionary, stones: Array, fates: Dictionary, changed: String = "") -> Dictionary:
+	## Holds a haul's fates to what can happen: one commission one stone (the one just chosen
+	## first), one stone of a skill kept at most (the one just chosen wins, the others are sold),
+	## and a skill not kept yet always keeps one, the finest left, since a first is never sold.
+	## "vault" and "replace" are named for whether a stone of the skill is kept already.
+	var out: Dictionary = fates.duplicate()
+	var claimed: Dictionary = {}
+	var order: Array = stones.duplicate()
+	if not changed.is_empty():
+		var first: Array = order.filter(func(s: Dictionary) -> bool: return str(s.get("id", "")) == changed)
+		order = first + order.filter(func(s: Dictionary) -> bool: return str(s.get("id", "")) != changed)
+	for stone in order:
+		var id: String = str(stone.get("id", ""))
+		if str(out.get(id, "")) != "turnin":
+			continue
+		var wanted: Dictionary = _open_commission(profile, stone, claimed)
+		if wanted.is_empty():
+			out[id] = "sell"
+		else:
+			claimed[str(wanted.id)] = true
+	var groups: Dictionary = _haul_groups(stones)
+	for skill in groups:
+		var list: Array = groups[skill]
+		var kept_now: bool = not owned(profile, str(skill)).is_empty()
+		var keepers: Array = list.filter(func(s: Dictionary) -> bool: return str(out.get(str(s.id), "")) in ["vault", "replace"])
+		if keepers.size() > 1:
+			var winner: Dictionary = keepers[0]
+			for stone in keepers:
+				if str(stone.id) == changed:
+					winner = stone
+			for stone in keepers:
+				if stone != winner:
+					out[str(stone.id)] = "sell"
+		for stone in list:
+			if str(out.get(str(stone.id), "")) in ["vault", "replace"]:
+				out[str(stone.id)] = "replace" if kept_now else "vault"
+		if not kept_now and not list.any(func(s: Dictionary) -> bool: return str(out.get(str(s.id), "")) == "vault"):
+			## The finest left keeps the skill, passing over the one the player just let go.
+			var heir: Dictionary = {}
+			for stone in list:
+				if str(out.get(str(stone.id), "sell")) != "sell" or str(stone.id) == changed:
+					continue
+				heir = stone
+				break
+			## Only the stone just let go is left: it stays, since a first is never sold.
+			if heir.is_empty():
+				for stone in list:
+					if str(out.get(str(stone.id), "sell")) == "sell":
+						heir = stone
+						break
+			if not heir.is_empty():
+				out[str(heir.id)] = "vault"
+	return out
+
+static func costly_fates(profile: Dictionary, stones: Array, fates: Dictionary) -> Dictionary:
+	## The stones whose fate gives up the finest stone of their skill (one sold or turned in
+	## while a worse one is kept, or the kept one let go for a worse): {id: true}.
+	var out: Dictionary = {}
+	var groups: Dictionary = _haul_groups(stones)
+	for skill in groups:
+		var list: Array = groups[skill]
+		var kept_now: Dictionary = owned(profile, str(skill))
+		var ends: Dictionary = kept_now
+		for stone in list:
+			if str(fates.get(str(stone.id), "")) in ["vault", "replace"]:
+				ends = stone
+		var finest: Dictionary = kept_now
+		for stone in list:
+			if better_stone(stone, finest):
+				finest = stone
+		if finest.is_empty() or finest == ends:
+			continue
+		if finest == kept_now:
+			for stone in list:
+				if str(fates.get(str(stone.id), "")) == "replace":
+					out[str(stone.id)] = true
+		else:
+			out[str(finest.id)] = true
+	return out
+
+static func haul_worth(stones: Array) -> int:
+	## What a haul is worth: every read stone at its worth, a raw one at its rough price.
+	var sum: int = 0
+	for stone in stones:
+		if DeepStone.is_fragile(stone):
+			continue
+		sum += DeepStone.value(stone) if bool(stone.get("appraised", false)) else DeepStone.rough_value(stone)
+	return sum
+
+static func _owned_of_color(profile: Dictionary, color: String) -> Array:
+	## [kept, known] counts of the skills of a color: how many are in the vault, of how many.
+	var known: Array = known_skills(profile).filter(func(k: Variant) -> bool: return str(DeepContent.skill(str(k)).get("color", "")) == color)
+	var kept: int = known.filter(func(k: Variant) -> bool: return profile.get("vault", {}).has(str(k))).size()
+	return [kept, known.size()]
+
+static func haul_snapshot(profile: Dictionary) -> Dictionary:
+	## What the report's records are measured against, taken before the haul is settled.
+	var best: Dictionary = profile.get("records", {}).get("best", {})
+	var colors: Dictionary = {}
+	for color in DeepStone.colorS:
+		colors[str(color)] = _owned_of_color(profile, str(color))
+	return {"best": int(best.get("score", -1)), "tier": str(best.get("tier", "")), "owned": profile.get("vault", {}).size(),
+		"opal": profile.get("vault", {}).values().any(func(s: Variant) -> bool: return s is Dictionary and DeepStone.is_opal(s)),
+		"colors": colors, "best_haul": int(profile.get("records", {}).get("best_haul", 0))}
+
+static func haul_records(profile: Dictionary, before: Dictionary, kept: Array, worth: int) -> Array:
+	## The firsts a settled haul set, each [glyph, words, kind]: a best grade, a first Exquisite
+	## or Peerless, a first opal, a color's every skill kept, a vault milestone, the most
+	## valuable haul brought up. The record of the best haul is moved on here too.
+	var out: Array = []
+	var top: Dictionary = {}
+	for entry in kept:
+		if top.is_empty() or better_stone(entry.stone, top):
+			top = entry.stone
+	if not top.is_empty():
+		var grade: Dictionary = DeepStone.grade(top)
+		if int(before.best) >= 0 and int(grade.score) > int(before.best):
+			out.append(["crown", "New best grade · %d (was %d)" % [int(grade.score), int(before.best)], "best"])
+		var had: int = DeepStone.TIERS.find(str(before.tier))
+		for tier in ["PEERLESS", "EXQUISITE"]:
+			var rank: int = DeepStone.TIERS.find(tier)
+			if had < rank and DeepStone.TIERS.find(str(grade.tier)) >= rank:
+				out.append(["star", "First %s" % str(DeepStone.TIER_NAMES.get(tier, tier.capitalize())), tier])
+				break
+	if not bool(before.opal) and kept.any(func(e: Dictionary) -> bool: return DeepStone.is_opal(e.stone)):
+		out.append(["rainbow_star", "First opal", "OPAL"])
+	var colors_done: Dictionary = {}
+	for entry in kept:
+		var color: String = str(DeepContent.skill(str(entry.stone.get("skill", ""))).get("color", ""))
+		if colors_done.has(color) or not before.colors.has(color):
+			continue
+		colors_done[color] = true
+		var now: Array = _owned_of_color(profile, color)
+		var was: Array = before.colors[color]
+		if int(now[1]) > 0 and int(now[0]) >= int(now[1]) and int(was[0]) < int(was[1]):
+			out.append(["gem", "Every %s skill owned" % str(DeepContent.color(color).get("name", color.capitalize())), color])
+	var owned_now: int = profile.get("vault", {}).size()
+	for mark in VAULT_MILESTONES:
+		if int(before.owned) < int(mark) and owned_now >= int(mark):
+			out.append(["chest", "Vault milestone · %d" % int(mark), "milestone"])
+	if profile.has("records"):
+		if int(before.best_haul) > 0 and worth > int(before.best_haul):
+			out.append(["coins", "Most valuable haul · %s" % _thousands(worth), "haul"])
+		profile.records.best_haul = maxi(int(before.best_haul), worth)
+	return out
+
+static func _thousands(value: int) -> String:
+	var digits: String = str(absi(value))
+	var out: String = ""
+	while digits.length() > 3:
+		out = "," + digits.right(3) + out
+		digits = digits.left(digits.length() - 3)
+	return ("-" if value < 0 else "") + digits + out
+
+static func settle_tray(profile: Dictionary, fates: Dictionary) -> Dictionary:
+	## Carries out a haul's fates, every stone on the tray named in `fates`: the keeps first, so
+	## a first of its skill is kept before another of it is sold; then the commissions; then the
+	## sales. Returns what came of it for the report: {kept: [{stone, was, fresh}], sold: [{stone,
+	## paid, rough}], turned: [{stone, paid}], gold, worth, best (the finest stone of the haul,
+	## whatever its fate), records}. The finest is remembered as `brought`, for the party.
+	var before: Dictionary = haul_snapshot(profile)
+	var by_id: Dictionary = {}
+	for stone in profile.get("tray", []):
+		if fates.has(str(stone.get("id", ""))):
+			by_id[str(stone.id)] = stone
+	var stones: Array = by_id.values()
+	var worth: int = haul_worth(stones)
+	var best: Dictionary = {}
+	for stone in stones:
+		if bool(stone.get("appraised", false)) and not DeepStone.is_fragile(stone) and better_stone(stone, best):
+			best = stone.duplicate(true)
+	var out: Dictionary = {"kept": [], "sold": [], "turned": [], "gold": 0, "worth": worth, "best": best}
+	for fate in ["vault", "replace", "turnin", "sell", "rough"]:
+		for id in fates:
+			if str(fates[id]) != fate or not by_id.has(str(id)):
+				continue
+			var stone: Dictionary = by_id[str(id)]
+			var skill: String = str(stone.get("skill", ""))
+			if fate == "turnin":
+				var wanted: Dictionary = DeepEconomy.commission_for(profile, stone)
+				var handed: Dictionary = DeepEconomy.turn_in(profile, str(id), str(wanted.get("id", ""))) if not wanted.is_empty() else {}
+				if bool(handed.get("ok", false)):
+					out.turned.append({"stone": stone.duplicate(true), "paid": int(handed.paid)})
+					out.gold = int(out.gold) + int(handed.paid)
+					continue
+			var was: Dictionary = owned(profile, skill).duplicate(true)
+			var gold_before: int = int(profile.get("gold", 0))
+			var done: Dictionary = decide_tray(profile, str(id), fate in ["vault", "replace"])
+			if not bool(done.get("ok", false)):
+				continue
+			if bool(done.get("kept", false)):
+				out.kept.append({"stone": owned(profile, skill).duplicate(true), "was": was, "fresh": was.is_empty()})
+			elif not bool(done.get("shattered", false)):
+				var paid: int = int(profile.get("gold", 0)) - gold_before
+				out.sold.append({"stone": stone.duplicate(true), "paid": paid, "rough": not bool(stone.get("appraised", false))})
+				out.gold = int(out.gold) + paid
+	out.records = haul_records(profile, before, out.kept, worth)
+	if not best.is_empty():
+		var history: Array = profile.get("history", [])
+		profile.brought = {"run": str(history.back().get("run_id", "")) if not history.is_empty() else "", "skill": str(best.get("skill", "")),
+			"score": int(DeepStone.grade(best).score), "tier": str(DeepStone.grade(best).tier), "carat": int(best.get("carat", 1)), "at": Time.get_unix_time_from_system()}
+	return out

@@ -86,6 +86,7 @@ func _workshop(app: Control) -> void:
 	home._vault_view = "unappraised"
 	home.open("vault", true)
 	await _fits(screen, "the tray's bench")
+	await _haul_phases(app, screen)
 	for tab in ["case", "geodes", "commissions", "bench"]:
 		home.set_meta("market_tab", tab)
 		home.open("market")
@@ -913,3 +914,29 @@ func check(condition: bool, message: String) -> void:
 	checks += 1
 	if not condition:
 		failures.append(message)
+
+func _haul_phases(app: Control, view: Node) -> void:
+	## The haul's table coming home, through every phase: laid out, cracked with every fate on,
+	## settled, and its report. The profile is put back as it was after.
+	var home: Control = app.home
+	var keep: Dictionary = {"tray": app.profile.tray.duplicate(true), "vault": app.profile.vault.duplicate(true), "gold": app.profile.gold, "records": app.profile.records.duplicate(true)}
+	app.profile.gold = 999999
+	app.profile.homecoming = true
+	home.let_go_kept("haul_")
+	home.open("descend", true)
+	await _fits(view, "the haul's table coming home")
+	var table: Control = home.find_child("HaulTable", true, false)
+	if table != null:
+		table.crack_all()
+		await _fits(view, "the haul's table after the crack, every fate on")
+		table.focus_on(str(table.order[table.order.size() - 1]))
+		await _fits(view, "the haul's pane on its last stone")
+		table.settle()
+		await _fits(view, "the haul's report")
+	app.profile.erase("haul")
+	app.profile.erase("haul_report")
+	app.profile.erase("homecoming")
+	app.profile.erase("brought")
+	for key in keep:
+		app.profile[key] = keep[key]
+	home.let_go_kept("haul_")

@@ -327,47 +327,46 @@ func _init() -> void:
 	app._back_home()
 	await process_frame
 	check(app.home.visible and not app.descent.visible, "back in the workshop")
-	## Under the loupe at home: the stone is known the moment the loupe goes on, and the
-	## choice at the end is which of two to keep when one of its skill is already kept.
+	## The haul's table in the vault (November 13, 2026): a raw stone lies on it named by its size
+	## class and color, never its carat; one press reads it for its fee; then its fate is chosen.
 	var raw: Dictionary = DeepStone.make("STRIKE", 11, 2, 1, ["STAR"], {}, "screens_raw")
 	app.profile.tray.append(raw)
 	app.profile.gold = 500
-	app.home._appraise_pick = "screens_raw"
 	app.home._vault_view = "unappraised"
 	app.home.open("vault", true)
+	var table: Control = app.home.find_child("HaulTable", true, false)
+	check(table != null and table.order.has("screens_raw"), "a stone waiting on the tray lies on the vault's table")
+	check(_label_count(app.home, "Medium red stone") >= 1 and _label_count(app.home, "11 ct") == 0, "a raw stone on the tray is named by its size class and color, never its carat")
 	var fee: int = DeepProfile.appraisal_fee(raw)
-	check(_count_text(app.home, "Read it") == 1 and _price_on(_find_button(app.home, "Read it")) == str(fee) and _label_count(app.home, "Medium red stone") >= 1 and _label_count(app.home, "11 ct") == 0, "a raw stone on the tray is named by its size class and color, never its carat")
-	## The loupe is paid work, and the other way off the tray is a buyer who never reads it.
-	check(_count_text(app.home, "Sell rough") == 1 and _price_on(_find_button(app.home, "Sell rough")) == "+%d" % DeepStone.rough_value(raw) and fee > DeepStone.rough_value(raw), "the tray offers the fee or a rough sale, and the fee is the dearer of the two")
+	check(fee > DeepStone.rough_value(raw), "the fee is dearer than a rough sale")
+	if table != null:
+		table.focus_on("screens_raw")
+		check(_count_text(app.home, "Sell it rough instead") == 1, "a raw stone can be set aside to be sold rough")
 	var purse: int = int(app.profile.gold)
-	var read: Button = _find_button(app.home, "Read it")
-	if read != null:
-		read.pressed.emit()
-	check(bool(raw.appraised) and bool(raw.inclusions_revealed) and app.profile.tray.has(raw), "the loupe reads the stone and leaves it on the tray")
-	check(int(app.profile.gold) == purse - fee and app.profile.seen.has("STRIKE"), "the fee comes out of the purse and the vault notes the skill")
+	var crack: Button = app.home.find_child("CrackAll", true, false) as Button
+	var plan: Dictionary = DeepProfile.crack_plan(app.profile, app.profile.tray)
+	if crack != null:
+		crack.pressed.emit()
+	check(bool(raw.appraised) and bool(raw.inclusions_revealed) and app.profile.tray.has(raw), "Crack all reads the stone and leaves it on the tray")
+	check(int(app.profile.gold) == purse - int(plan.fee) and app.profile.seen.has("STRIKE"), "the fees come out of the purse and the vault notes the skill")
 	app.profile.gold = 0
 	var poor: Dictionary = DeepStone.make("GUARD", 11, 2, 1, [], {}, "screens_poor")
 	check(not DeepProfile.appraise(app.profile, poor) and not bool(poor.get("appraised", false)), "an empty purse cannot pay for a loupe")
 	app.profile.gold = 500
-	## Today's commissions are drawn for the day and the profile; one that wanted a Strike would
-	## add a third way off the tray. With none open, the choice is between the two stones.
+	## With one of its skill kept, the choice is which to keep; the one that would give up the
+	## finer stone is flagged.
 	var open_today: Array = DeepEconomy.open_commissions(app.profile)
 	for commission in open_today:
 		commission.done = true
-	var choices: Array = Homecoming.actions(app.home, raw)
-	check(choices.size() == 2 and str(choices[0].label) == "Sell it" and str(choices[1].label) == "Keep it, replace yours", "with one of its skill kept, the choice is which to keep, keeping it last")
-	## The worse of the two asks before it replaces the better one; the better one asks before it is sold.
+	var offered: Array = DeepProfile.fates_for(app.profile, raw, [raw])
+	check(offered == ["replace", "sell"], "with one of its skill kept, the choice is which to keep: %s" % str(offered))
 	var kept_now: Dictionary = DeepProfile.owned(app.profile, "STRIKE")
-	var found_score: int = int(DeepStone.grade(raw).score)
-	var kept_score: int = int(DeepStone.grade(kept_now).score)
-	var found_better: bool = found_score > kept_score or (found_score == kept_score and DeepStone.value(raw) > DeepStone.value(kept_now))
-	check(str(choices[1 if not found_better else 0].get("confirm", "")).begins_with("Click again") and str(choices[0 if not found_better else 1].get("confirm", "")).is_empty(), "the choice that would cost the better stone asks for a second click, the other does not")
+	var found_better: bool = DeepProfile.better_stone(raw, kept_now)
+	check(DeepProfile.costly_fates(app.profile, [raw], {"screens_raw": "sell" if found_better else "replace"}).has("screens_raw"), "the choice that would cost the better stone is flagged")
 	for commission in open_today:
 		commission.done = false
-	app.home.open("vault", true)
-	check(_exact_labels(app.home, "Keep it, replace yours") == 1 and _exact_labels(app.home, "Sell it") == 1, "the tray offers the same choice beside the kept one")
 	var old_gold: int = int(app.profile.gold)
-	choices[1].call.call()
+	DeepProfile.settle_tray(app.profile, {"screens_raw": "replace"})
 	check(str(DeepProfile.owned(app.profile, "STRIKE").id) == "screens_raw" and not app.profile.tray.has(raw) and int(app.profile.gold) == old_gold, "keeping the new one lets the old one go for no gold")
 	for stone in app.profile.get("tray", []).duplicate():
 		stone.appraised = true

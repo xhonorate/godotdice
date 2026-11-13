@@ -528,12 +528,6 @@ func _void_preview(app: Control, target: String, out: String) -> void:
 		if not _start_home_appraisal(app):
 			return
 		await create_timer(0.5).timeout
-		for bench in app.home.find_children("*", "Control", true, false):
-			if bench is Homecoming.LoupeBench:
-				## Skip to the end of the reading but keep the loupe up: its done callback redraws the page without it.
-				bench._done = Callable()
-				bench._finish()
-				bench._break_open()
 		await create_timer(1.2).timeout
 		_save(out)
 		return
@@ -604,12 +598,12 @@ func _void_preview(app: Control, target: String, out: String) -> void:
 	_save(out)
 
 func _start_home_appraisal(app: Control) -> bool:
-	## Home appraisal now plays in the tray's loupe. Use the same button as the player.
-	for button in app.home.find_children("*", "Button", true, false):
-		if button.text == "Read it" and button.is_visible_in_tree() and not button.disabled:
-			button.pressed.emit()
-			return true
-	printerr("screenshot: no available Read it action")
+	## The haul's table at home: Crack all, as the player presses it.
+	var button: Node = app.home.find_child("CrackAll", true, false)
+	if button is Button and (button as Button).is_visible_in_tree() and not (button as Button).disabled:
+		(button as Button).pressed.emit()
+		return true
+	printerr("screenshot: no Crack all on the table")
 	quit(1)
 	return false
 

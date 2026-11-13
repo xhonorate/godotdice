@@ -278,7 +278,12 @@ func _draw_rail() -> void:
 		DeepUi.gap(_rail_box, DeepUi.pt(8))
 		var mark := DeepUi.icon(_rail_box, "lift", DeepUi.pt(22), DeepUi.GOOD)
 		mark.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		DeepUi.wrap(_rail_box, "Back from %s" % DeepContent.mine_name(str(last.get("mine", DeepContent.starter_mine()))), 11, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		DeepUi.wrap(_rail_box, ("Salvaged from %s" if str(last.get("outcome", "")) == "fallen" else "Back from %s") % DeepContent.mine_name(str(last.get("mine", DeepContent.starter_mine()))), 11, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		DeepUi.spacer(_rail_box, false)
+		## The vault's count, where kept stones fly on the haul's table.
+		var holder := DeepUi.vbox(_rail_box, 0)
+		holder.alignment = BoxContainer.ALIGNMENT_CENTER
+		Homecoming.vault_mark(self, holder, 12).size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		return
 	for index in range(TABS.size()):
 		var entry: Array = TABS[index]
@@ -944,15 +949,6 @@ func _cheer_purse(text: String) -> void:
 	if purse is Control:
 		## Gold spent reads red, so "-170 gold" is not mistaken for a gain.
 		var tone: Color = DeepUi.BAD if text.begins_with("-") else DeepUi.ACCENT
-		## Coming home, the tray's header sits right under the purse: the word rises from the
-		## homecoming's own "Gold since you came up" figure instead, into the room above it.
-		var since: Node = find_child("GoldSince", true, false)
-		if not _headless and since is Control and (since as Control).is_visible_in_tree():
-			var row: Control = since
-			DeepUi.pulse(purse as Control, 1.3, 0.45)
-			var at: Vector2 = row.global_position + Vector2(row.size.x * 0.5, -4.0) - global_position
-			DeepUi.float_text(self, at, text, tone, 20, 40.0, 1.5).z_index = 40
-			return
 		cheer_at(purse as Control, text, tone, "coin")
 
 func _cheer_tab(key: String, text: String, color: Color, glyph: String) -> void:

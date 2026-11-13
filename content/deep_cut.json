@@ -4666,7 +4666,7 @@
       "class": "FRACTURE",
       "rarity": "RARE",
       "weight": 1.0,
-      "text": "Can be equipped without taking up a socket. Fragile: cannot be sold or kept in the vault; shatters when the run ends, or when revealed at home.",
+      "text": "Can be equipped without taking up a socket. Fragile: cannot be sold or kept in the vault; shatters when the run ends. It only forms down the mine: a stone read at home grows another inclusion in its place.",
       "modifiers": [
         {
           "kind": "slotless"

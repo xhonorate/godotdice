@@ -94,7 +94,9 @@ func _ready() -> void:
 	session.saves = saves
 	session.speed = float(settings.get("speed", 1.0))
 	add_child(session)
-	session.lobby_changed.connect(func(_lobby: Dictionary) -> void: _refresh_home(true))
+	session.lobby_changed.connect(func(lobby: Dictionary) -> void:
+		_announce_finds(lobby)
+		_refresh_home(true))
 	session.status_changed.connect(func(_status: String) -> void:
 		_fetch_steam_avatar()
 		_refresh_home())
@@ -234,7 +236,8 @@ func member() -> Dictionary:
 		"last_depth": int(last.get("depth", 0)), "last_outcome": str(last.get("outcome", "")), "last_warden_unbeaten": DeepBoons.warden_unbeaten(profile, last),
 		"gold": int(profile.get("gold", 0)), "insured": bool(profile.get("outfit", {}).get("insure", false)), "sockets": DeepProfile.open_sockets(profile, character_key),
 		"daily_state": DeepEconomy.daily_state(profile), "showcase": DeepProfile.showcase(profile),
-		"hazard_top": DeepProfile.hazard_top(profile), "hazard_open": DeepProfile.open_mines(profile, DeepProfile.hazard_top(profile))}
+		"hazard_top": DeepProfile.hazard_top(profile), "hazard_open": DeepProfile.open_mines(profile, DeepProfile.hazard_top(profile)),
+		"brought": profile.get("brought", {})}
 
 func _kit(loadout: Dictionary) -> Dictionary:
 	## What the lobby is told whenever the profile changes: who goes down, wearing what,
@@ -243,9 +246,36 @@ func _kit(loadout: Dictionary) -> Dictionary:
 	## started, never the fall just come home from.
 	var fields: Dictionary = {}
 	for key in ["character", "birthstone", "rail", "dice", "gold", "insured", "sockets", "daily_state", "showcase", "hazard_top", "hazard_open",
-			"last_depth", "last_outcome", "last_warden_unbeaten"]:
+			"last_depth", "last_outcome", "last_warden_unbeaten", "brought"]:
 		fields[key] = loadout[key]
 	return fields
+
+## Each party member's best find from their last haul, as last told (`_announce_finds`).
+var _finds_heard: Dictionary = {}
+var _finds_ready: bool = false
+
+func _announce_finds(lobby: Dictionary) -> void:
+	## The party line (review card E3, November 13, 2026): when another member settles a haul,
+	## its best find is said to everyone, "Rue brought home an Exquisite Prism". What members
+	## had brought before this player joined is heard without being said.
+	var names: Dictionary = DeepSession.shown_names(lobby)
+	for id in lobby.get("members", {}):
+		var member: Dictionary = lobby.members[id]
+		var brought: Variant = member.get("brought", {})
+		if not brought is Dictionary or (brought as Dictionary).is_empty():
+			continue
+		var stamp: String = "%s:%s:%s" % [str(brought.get("run", "")), str(brought.get("skill", "")), str(brought.get("at", ""))]
+		var heard: String = str(_finds_heard.get(str(id), ""))
+		_finds_heard[str(id)] = stamp
+		if not _finds_ready or heard == stamp or str(id) == str(session.local_id):
+			continue
+		var tier: String = str(DeepStone.TIER_NAMES.get(str(brought.get("tier", "")), ""))
+		var skill: String = str(DeepContent.skill(str(brought.get("skill", ""))).get("name", ""))
+		if skill.is_empty():
+			continue
+		var article: String = "an" if tier.left(1) in ["A", "E", "I", "O", "U"] else "a"
+		toast("%s brought home %s %s %s" % [str(names.get(id, member.get("name", "Someone"))), article, tier, skill], DeepUi.tier_color(str(brought.get("tier", ""))), "crown")
+	_finds_ready = true
 
 func _refresh_home(party_only: bool = false) -> void:
 	if home == null:

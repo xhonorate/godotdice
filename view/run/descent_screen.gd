@@ -66,7 +66,6 @@ const MAP_WIDTH := 400.0
 const CHART_SCALE := 1.5
 ## How many salvage rolls, and how many stones coming home, go on one page.
 const SALVAGE_PAGE: int = 6
-const HOME_PAGE: int = 14
 ## Said at a landing with a Warden below it, on its pill and on the cage: the hall past the
 ## Warden has no lift, so this one is the last until the next landing.
 const LAST_LIFT: String = "The Warden's hall has no lift. This is the last lift until the next landing."
@@ -8998,7 +8997,9 @@ func _daily_strip(parent: Node) -> void:
 ## coming home and the way to the workshop. A tab's numbers count up the first time it is
 ## seen; the music plays once, on the first tab.
 
-const OVER_TABS: Array = [["run", "person", "Your run"], ["party", "party", "Party"], ["haul", "bag", "Haul"]]
+## The run end's tabs. The haul has no tab of its own (review card A2, November 13, 2026): it
+## rides along the foot of Your run, beside the button that opens it at home.
+const OVER_TABS: Array = [["run", "person", "Your run"], ["party", "party", "Party"]]
 const HAND_WORDS: Dictionary = {"quint": "Five of a kind", "quad": "Four of a kind", "straight": "A straight", "full_house": "A full house",
 	"triple": "Three of a kind", "two_pair": "Two pair", "pair": "A pair", "distinct": "All different", "nothing": "Nothing"}
 ## The order hands rank in, best first, for the one a run is remembered by.
@@ -9022,7 +9023,7 @@ func _show_over_tab(tab: String) -> void:
 
 func _page_over(content: VBoxContainer) -> void:
 	var party: bool = run.get("players", []).size() > 1
-	if _over_tab == "party" and not party:
+	if (_over_tab == "party" and not party) or not _over_tab in ["run", "party"]:
 		_over_tab = "run"
 	if _over_seen.is_empty():
 		DeepAudio.play("defeat" if str(run.get("outcome", "")) == "fallen" else "victory")
@@ -9037,8 +9038,6 @@ func _page_over(content: VBoxContainer) -> void:
 	match _over_tab:
 		"party":
 			_page_over_party(content, animate)
-		"haul":
-			_page_over_haul(content)
 		_:
 			_page_over_run(content, animate)
 
@@ -9532,9 +9531,17 @@ func _page_over_run(content: VBoxContainer, animate: bool) -> void:
 	_journey_row(journey, "Peak Resonance", str(int(stats.resonance)))
 	if DeepUi.phone:
 		_phone_parts(panels, [highlights, jewel, journey], [["spark", "Highlights"], ["crown", "Crown Jewel"], ["map", "The way down"]])
-	var foot := DeepUi.hbox(box, 12)
+	var foot := DeepUi.hbox(box, int(DeepUi.pt(6)) if DeepUi.phone else 14)
 	foot.alignment = BoxContainer.ALIGNMENT_CENTER
-	_main(DeepUi.primary(foot, "next", "Next: the party" if party else "Next: the haul", _show_over_tab.bind("party" if party else "haul"), 16))
+	if not run.get("daily", {}).is_empty():
+		_daily_strip(foot)
+		foot.get_child(foot.get_child_count() - 1).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	else:
+		_haul_strip(foot)
+	if party:
+		_main(DeepUi.primary(foot, "next", "Next: the party", _show_over_tab.bind("party"), 16))
+	else:
+		_go_home(foot)
 
 func _page_over_party(content: VBoxContainer, animate: bool) -> void:
 	var players: Array = _party_units()
@@ -9623,7 +9630,7 @@ func _page_over_party(content: VBoxContainer, animate: bool) -> void:
 	var foot := DeepUi.hbox(box, 12)
 	foot.alignment = BoxContainer.ALIGNMENT_CENTER
 	DeepUi.icon_button(foot, "prev", "Your run", _show_over_tab.bind("run"), 15, DeepUi.MUTED)
-	_main(DeepUi.primary(foot, "next", "Next: the haul", _show_over_tab.bind("haul"), 16))
+	_go_home(foot)
 
 func _party_column(parent: Node, unit: Dictionary, tone: Color, leads: Dictionary, mvp_id: String, animate: bool, delay: float, chart: Control) -> PanelContainer:
 	## One delver of the party: their face, the compared stats with a crown on each one they
@@ -9688,78 +9695,70 @@ func _party_column(parent: Node, unit: Dictionary, tone: Color, leads: Dictionar
 					DeepUi.burst(self, crown.global_position + crown.size * 0.5 - global_position, DeepUi.ACCENT_HI, 30, 220.0, 0.8, 6.0))
 	return col
 
-func _page_over_haul(content: VBoxContainer) -> void:
+func _haul_strip(parent: HBoxContainer) -> void:
+	## What is coming home, along the foot of the run's tally beside the button that opens it
+	## (review card A2, November 13, 2026): the stones in their rocks and Geodes as they will lie
+	## on the table at home, counted, and what shattered at the lift.
 	var unit: Dictionary = me()
-	var outcome: String = str(run.get("outcome", ""))
-	## An abandoned dig ends as a fall to the sim, but nobody died: it is titled for what it was.
-	var named: String = "abandoned" if bool(run.get("abandoned", false)) else outcome
-	var titles: Dictionary = {"extracted": "Extracted", "conquered": "The mine is yours", "fallen": "Fallen", "abandoned": "Abandoned"}
-	var glyphs: Dictionary = {"extracted": "lift", "conquered": "crown", "fallen": "skull", "abandoned": "door"}
-	var tone: Color = _over_tone()
-	var card := DeepUi.card(content, Color(tone, 0.6), int(DeepUi.pt(10)) if DeepUi.phone else 26)
-	card.size_flags_horizontal = Control.SIZE_FILL if DeepUi.phone else Control.SIZE_SHRINK_CENTER
-	card.custom_minimum_size.x = 0.0 if DeepUi.phone else 720.0
-	## The day's seam has one more line to say at the lift: the card closes up a little for it.
-	var box := DeepUi.vbox(card, int(DeepUi.pt(5)) if DeepUi.phone else (14 if run.get("daily", {}).is_empty() else 10))
-	var medal := Medallion.new(str(glyphs.get(named, "lift")), tone, 110)
-	medal.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	box.add_child(medal)
-	DeepUi.title(box, str(titles.get(named, named.capitalize())), 38, tone, HORIZONTAL_ALIGNMENT_CENTER)
-	var stats := DeepUi.hbox(box, 12)
-	stats.alignment = BoxContainer.ALIGNMENT_CENTER
-	## Exactly what the workshop's tray will be handed: the bag, and the stones found down here
-	## and set on the rail. The vault's own stones were never in question.
-	var haul: Array = DeepDescent.coming_home(run, unit)
-	## The day's seam keeps nothing: what came up is scored.
+	var carried: Array = DeepDescent.coming_home(run, unit)
+	var haul: Array = carried.filter(func(s: Dictionary) -> bool: return not DeepStone.known_fragile(s))
+	var lost: Array = unit.get("shattered", []) + carried.filter(func(s: Dictionary) -> bool: return DeepStone.known_fragile(s))
+	if haul.is_empty() and lost.is_empty():
+		return
+	var phone: bool = DeepUi.phone
+	var strip := DeepUi.card(parent, Color(DeepUi.ACCENT, 0.45), int(DeepUi.pt(4)) if phone else 10, Color(0.07, 0.055, 0.035, 0.92))
+	strip.name = "HaulStrip"
+	strip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var lines := DeepUi.vbox(strip, int(DeepUi.pt(2)) if phone else 6)
+	var head := DeepUi.hbox(lines, int(DeepUi.pt(4)) if phone else 8)
+	DeepUi.section(head, "bag", ("%d coming home" if phone else "The haul · %d coming home") % haul.size(), DeepUi.ACCENT, 12 if phone else 14).size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	var raw: int = haul.filter(func(s: Dictionary) -> bool: return not bool(s.get("appraised", false)) and not DeepStone.is_geode(s)).size()
+	var geodes: int = haul.filter(func(s: Dictionary) -> bool: return DeepStone.is_geode(s)).size()
+	var read: int = haul.size() - raw - geodes
+	if not phone:
+		if raw > 0:
+			DeepUi.pill(head, "loupe", "%d raw" % raw, DeepUi.MUTED, 12)
+		if geodes > 0:
+			DeepUi.pill(head, "geode", DeepUi.plural(geodes, "Geode"), DeepUi.ACCENT, 12)
+		if read > 0:
+			DeepUi.pill(head, "eye", "%d read" % read, DeepUi.INFO, 12)
+	if not lost.is_empty():
+		var shattered := DeepUi.pill(head, "split_shield", ("%d" if phone else "%d shattered") % lost.size(), DeepUi.BAD, 11 if phone else 12,
+			"Fragile gems never leave the mine: %s." % ", ".join(lost.map(func(s: Dictionary) -> String: return DeepUi.stone_name(s))))
+		shattered.name = "Shattered"
+	## The stones as the table will lay them: read ones first, raw by size, the Geodes last.
+	var shown: Array = haul.duplicate()
+	shown.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var ra: int = 0 if bool(a.get("appraised", false)) else (2 if DeepStone.is_geode(a) else 1)
+		var rb: int = 0 if bool(b.get("appraised", false)) else (2 if DeepStone.is_geode(b) else 1)
+		return ra < rb if ra != rb else int(a.get("carat", 1)) > int(b.get("carat", 1)))
+	var room: int = 6 if phone else 16
+	var row := DeepUi.hbox(lines if not phone else head, int(DeepUi.pt(2)) if phone else 4)
+	var edge: float = DeepUi.pt(24) if phone else 40.0
+	for index in range(mini(shown.size(), room)):
+		## A stone in its rock is mostly rock round a small stone: drawn a size up.
+		var raw_rock: bool = not bool(shown[index].get("appraised", false)) and not DeepStone.is_geode(shown[index])
+		var thumb := Thumbs.GemThumb.new(shown[index], edge * (1.35 if raw_rock else 1.0))
+		thumb.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(thumb)
+		if _fresh and not _headless:
+			DeepUi.pop_in(thumb, 0.5 + 0.04 * float(index), 0.6, 0.3)
+	if shown.size() > room:
+		DeepUi.label(row, "+%d" % (shown.size() - room), 11 if phone else 14, DeepUi.MUTED)
+
+func _go_home(parent: HBoxContainer) -> void:
+	## The way out of the run's end: straight onto the haul's table at home, or to the workshop
+	## when nothing came up (or the day's seam, which keeps nothing).
+	var unit: Dictionary = me()
+	var count: int = DeepDescent.coming_home(run, unit).filter(func(s: Dictionary) -> bool: return not DeepStone.known_fragile(s)).size()
 	var daily: bool = not run.get("daily", {}).is_empty()
-	if daily:
-		haul = haul.filter(func(s: Dictionary) -> bool: return not DeepStone.is_fragile(s) and not bool(s.get("lent", false)))
-	var tally: Dictionary = unit.get("stats", {})
-	for entry in [["stairs", "Depth", str(int(run.depth))], ["bag", "Stones up" if daily else "Stones home", str(haul.size())], ["sword", "Fights", str(int(tally.get("fights", 0)))],
-			["ore", "Pyrite dug", str(int(tally.get("ore", 0)))], ["shield_burst", "Damage", str(int(tally.get("damage", 0)))]]:
-		var tile := DeepUi.card(stats, DeepUi.LINE, 10, Color(0.05, 0.06, 0.085, 0.9))
-		tile.custom_minimum_size = Vector2(118, 0)
-		var inner := DeepUi.vbox(tile, 2)
-		var mark := DeepUi.icon(inner, str(entry[0]), 22, DeepUi.ACCENT)
-		mark.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		DeepUi.title(inner, str(entry[2]), 24, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER).add_theme_font_override("font", DeepUi.bold_font())
-		DeepUi.label(inner, str(entry[1]), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
-	if daily:
-		_daily_strip(box)
-	## On the phone what comes home and what shattered stand side by side.
-	var home_box: VBoxContainer = box
-	var loss_box: Container = box
-	if DeepUi.phone:
-		var split := DeepUi.hbox(box, int(DeepUi.pt(14)))
-		home_box = DeepUi.vbox(split, int(DeepUi.pt(4)))
-		home_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		loss_box = split
-	if not haul.is_empty():
-		var home_head := DeepUi.hbox(home_box, 8)
-		DeepUi.section(home_head, "bag", "Brought up, scored and not kept" if daily else "Coming home").size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var tiles := HFlowContainer.new()
-		tiles.add_theme_constant_override("h_separation", 10)
-		tiles.add_theme_constant_override("v_separation", 10)
-		home_box.add_child(tiles)
-		var index: int = 0
-		for stone in _paged(home_head, "home", haul, HOME_PAGE):
-			var tile := StoneCard.tile(tiles, stone, 84 if DeepUi.phone else 64, true, true)
-			_enter(tile, 0.4 + 0.06 * index)
-			index += 1
-	var shattered: Array = unit.get("shattered", [])
-	if not shattered.is_empty():
-		## Centred under the tiles like everything else on the card, and wide enough that its
-		## one line of explanation is not folded into a narrow column beside the shards.
-		var losses := DeepUi.hbox(loss_box, 12)
-		losses.alignment = BoxContainer.ALIGNMENT_CENTER
-		var shards: Control = load("res://view/gems/shatter.gd").new(shattered[0], 64.0, 0.45, _fresh)
-		losses.add_child(shards)
-		var note := DeepUi.vbox(losses, 4)
-		note.custom_minimum_size.x = DeepUi.pt(260) if DeepUi.phone else 440.0
-		note.alignment = BoxContainer.ALIGNMENT_CENTER
-		DeepUi.section(note, "split_shield", "%s shattered" % DeepUi.plural(shattered.size(), "fragile gem"), DeepUi.BAD)
-		DeepUi.wrap(note, "Fragile gems never leave the mine: Void gems and fragile finds shatter when a run ends. Nothing was kept or sold.", 13, DeepUi.MUTED)
-		losses.tooltip_text = "\n".join(shattered.map(func(s: Dictionary) -> String: return DeepUi.stone_name(s)))
-	var go := _main(DeepUi.primary(box, "anvil", "Back to the workshop", func() -> void: home_requested.emit(), 18))
-	go.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	_enter(card)
+	var words: String = "Back to the workshop"
+	var glyph: String = "anvil"
+	if count > 0 and not daily:
+		words = ("Open the haul · %d" if DeepUi.phone else "Open the haul · %s") % ([count] if DeepUi.phone else [DeepUi.plural(count, "stone")])
+		glyph = "bag"
+	var go := _main(DeepUi.primary(parent, glyph, words, func() -> void: home_requested.emit(), 16 if DeepUi.phone else 18))
+	go.name = "OpenHaul"
+	go.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	if not DeepUi.phone:
+		go.custom_minimum_size = Vector2(300, 54)

@@ -520,7 +520,8 @@ static func _roll_geode_stone(rng: RandomNumberGenerator, geode: Dictionary, roc
 		stone = DeepForge.roll_stone(rng, mine, 20, geode_luck(), provenance, stone_id, pool)
 		if not DeepStone.is_fragile(stone):
 			break
-	stone.inclusions = _sound(stone.get("inclusions", []))
+	## Void never forms outside a run: it grows into another inclusion (DeepForge.unvoid).
+	DeepForge.unvoid(stone)
 	stone.carat = roll_geode_carat(rng, rock.band)
 	if bool(geode.get("weekly", false)):
 		stone.cut = maxi(int(stone.get("cut", 0)), int(DeepContent.constant("geode_week_min_cut", 3)))
@@ -735,7 +736,7 @@ static func _roll_case(profile: Dictionary, date: String, salt: int) -> Array:
 				{"source": "market", "mine": key}, "%s_%s" % [str(profile.get("id", "")).right(4), id], pool)
 			if not DeepStone.is_fragile(stone):
 				break
-		stone.inclusions = _sound(stone.get("inclusions", []))
+		DeepForge.unvoid(stone)
 		stone.appraised = true
 		stone.inclusions_revealed = true
 		taken.append(str(stone.get("skill", "")))
@@ -850,7 +851,7 @@ static func rework(profile: Dictionary, skill: String, kind: String, rng: Random
 		DeepForge.reroll_cut(rng, stone, ground[0], int(ground[1]))
 	else:
 		DeepForge.reroll_clarity(rng, stone, ground[0], int(ground[1]))
-		stone.inclusions = _sound(stone.get("inclusions", []))
+		DeepForge.unvoid(stone)
 	if not stone.get("provenance", null) is Dictionary:
 		stone.provenance = {}
 	stone.provenance.reworked = int(stone.provenance.get("reworked", 0)) + 1
@@ -1103,7 +1104,8 @@ static func roll_contract_stone(rng: RandomNumberGenerator, preview: Dictionary,
 		var q: float = DeepForge.luck(mine, 20, float(attempt) * 2.5)
 		var clarity: int = DeepForge.roll_clarity(rng, q)
 		var stone: Dictionary = DeepStone.make(skill, carat, DeepForge.roll_cut(rng, q), clarity,
-			_sound(DeepForge.roll_inclusions(rng, DeepStone.inclusion_slots(clarity), mine, "", color)), provenance, stone_id)
+			DeepForge.roll_inclusions(rng, DeepStone.inclusion_slots(clarity), mine, "", color), provenance, stone_id)
+		DeepForge.unvoid(stone)
 		var score: int = int(DeepStone.grade(stone).score)
 		if score >= lower and score < upper:
 			return _read(stone)

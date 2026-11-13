@@ -27,7 +27,7 @@ function modifierWords(m) {
 		case 'cut_override': return `Cut counts as ${C.cuts()[m.value]?.name || m.value}`;
 		case 'locked': return 'cannot leave its socket during a run';
 		case 'slotless': return 'takes no socket; rides one';
-		case 'fragile': return 'cannot be sold or vaulted; shatters when the run ends';
+		case 'fragile': return 'cannot be sold or vaulted; shatters when the run ends; only forms down the mine';
 		case 'lens': return `lens: ${String(m.mode).replace(/_/g, ' ')}`;
 		case 'color_also': return `counts as ${C.colorName(m.color)} too`;
 		case 'next_cut_step': return `next gem judged ${m.amount} Cut step better`;

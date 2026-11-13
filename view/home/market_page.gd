@@ -256,18 +256,24 @@ static func crack_geode(home: Control, geode: Dictionary) -> void:
 		return
 	var made: Dictionary = opened.stone
 	home.touch()
-	Geode.open(opened.geode, made, {"actions": found_actions(home, made), "owned": DeepProfile.owned(home.profile, str(made.get("skill", "")))}, func() -> void: home.profile_changed.emit())
+	Geode.open(opened.geode, made, {"spotlight": true, "actions": found_actions(home, made), "owned": DeepProfile.owned(home.profile, str(made.get("skill", ""))), "slot": slot_of(home, made)}, func() -> void: home.profile_changed.emit())
 	if DeepUi.headless():
 		home.profile_changed.emit()
 
 static func found_actions(home: Control, made: Dictionary) -> Array:
-	## What can be done the moment a Geode's or a contract's stone is read: the tray's own
-	## choices, and a way out that leaves it waiting in the vault's Unappraised view.
+	## What can be done the moment a Geode's or a contract's stone is read, as the spotlight's
+	## buttons: the stone's fates (Homecoming.single_actions), and a way out that leaves it
+	## waiting in the vault's Unappraised view.
 	var Homecoming: Script = load("res://view/home/homecoming.gd")
-	var out: Array = Homecoming.actions(home, made)
-	out.append({"label": "Decide later", "glyph": "chest", "primary": false, "dismiss": true, "caption": "It waits in the vault, unappraised",
-		"call": func() -> void: home.profile_changed.emit()})
+	var out: Array = Homecoming.single_actions(home, made)
+	out.append({"label": "Decide later", "glyph": "chest", "dismiss": true, "tone": DeepUi.MUTED, "caption": "It waits in the vault, unappraised", "call": func() -> void: pass})
 	return out
+
+static func slot_of(home: Control, made: Dictionary) -> Dictionary:
+	## The place a stone of a skill not kept yet takes in the vault, for the spotlight's side.
+	if not DeepProfile.owned(home.profile, str(made.get("skill", ""))).is_empty():
+		return {}
+	return {"color": DeepProfile._owned_of_color(home.profile, DeepStone.color(made)), "vault": [home.profile.get("vault", {}).size(), DeepProfile.known_skills(home.profile).size()]}
 
 static func _case(home: Control, middle: VBoxContainer) -> void:
 	var panel := DeepUi.card(middle, DeepUi.LINE, 12)
@@ -1183,6 +1189,6 @@ static func _sign_contract(home: Control) -> void:
 	home._market_view = "main"
 	var made: Dictionary = signed.stone
 	home.touch()
-	Geode.fuse(signed.given, made, {"actions": found_actions(home, made), "owned": DeepProfile.owned(home.profile, str(made.get("skill", "")))}, func() -> void: home.profile_changed.emit())
+	Geode.fuse(signed.given, made, {"spotlight": true, "actions": found_actions(home, made), "owned": DeepProfile.owned(home.profile, str(made.get("skill", ""))), "slot": slot_of(home, made)}, func() -> void: home.profile_changed.emit())
 	if DeepUi.headless():
 		home.profile_changed.emit()

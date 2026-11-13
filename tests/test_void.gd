@@ -168,10 +168,15 @@ func _workshop() -> void:
 		var raw: Dictionary = gem(key, "home_raw", true, false)
 		profile.tray.append(raw)
 		var fee: int = DeepProfile.appraisal_fee(raw)
-		check(DeepProfile.appraise(profile, raw), "fragile raw %s can be appraised" % key)
-		check(profile.tray.is_empty() and profile.gold == 1000 - fee and profile.seen.has(key), "appraisal pays its fee and immediately removes the fragile gem")
-		check(profile.vault == vault and DeepProfile.clear_shattered(profile).is_empty(), "neither a first skill nor a rival displaces a vault stone")
-		check(not DeepProfile.decide_tray(profile, raw.id, true).ok, "a skipped ceremony cannot rescue its shattered gem")
+		## Void only forms down the mine (November 13, 2026): read at home, it has grown into
+		## another inclusion, and the stone is an ordinary one.
+		check(DeepProfile.appraise(profile, raw), "a raw %s with Void in it can be appraised" % key)
+		check(profile.tray.size() == 1 and profile.gold == 1000 - fee and profile.seen.has(key), "appraisal pays its fee and leaves the stone on the tray")
+		check(not DeepStone.is_fragile(raw) and not raw.inclusions.has("VOID") and raw.inclusions.size() == 1, "read at home, its Void has grown into another inclusion: %s" % str(raw.inclusions))
+		check(profile.vault == vault and DeepProfile.clear_shattered(profile).is_empty(), "nothing on the tray shatters")
+		profile.tray.clear()
+		## A stone still carrying Void on the tray (staked, or made fragile down the mine) still
+		## cannot be kept or sold.
 		for keep_it in [true, false]:
 			profile.tray.append(gem(key, "forced", true, false))
 			var money: int = profile.gold

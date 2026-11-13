@@ -169,7 +169,7 @@ func _workshop(app: Control) -> void:
 	home.open("market", true)
 	await _fits(screen, "the Market with commissions ready and filled")
 	## The tray stone a commission wants: Turn it in beside keeping either stone.
-	check(Homecoming.actions(home, wanted).any(func(a: Dictionary) -> bool: return str(a.label) == "Turn it in"), "a stone a commission wants can be turned in")
+	check(Homecoming.single_actions(home, wanted).any(func(a: Dictionary) -> bool: return str(a.fate) == "turnin"), "a stone a commission wants can be turned in")
 	home._vault_view = "unappraised"
 	home._appraise_pick = str(wanted.id)
 	home.open("vault", true)
@@ -177,7 +177,7 @@ func _workshop(app: Control) -> void:
 	## And the first stone of its skill, wanted by a commission: keep it, or turn it in.
 	var rival: Dictionary = app.profile.vault.get(str(wanted.skill), {})
 	app.profile.vault.erase(str(wanted.skill))
-	check(not Homecoming.actions(home, wanted).any(func(a: Dictionary) -> bool: return str(a.label).begins_with("Keep it, replace")), "a first stone of its skill is never offered for sale")
+	check(not Homecoming.single_actions(home, wanted).any(func(a: Dictionary) -> bool: return str(a.fate) == "sell"), "a first stone of its skill is never offered for sale")
 	home.open("vault", true)
 	await _fits(screen, "the Unappraised view on a new skill a commission wants")
 	app.profile.vault[str(wanted.skill)] = rival
@@ -203,14 +203,20 @@ func _workshop(app: Control) -> void:
 		app.profile.homecoming = coming_home
 		home._vault_view = "unappraised"
 		for stone in app.profile.tray:
-			home._appraise_pick = str(stone.id)
 			home.open("descend" if coming_home else "vault", true)
+			var on_table: Control = home.find_child("HaulTable", true, false)
+			if on_table != null:
+				on_table.focus_on(str(stone.id))
 			await _fits(screen, "%s on %s" % ["coming home" if coming_home else "the Unappraised view", DeepUi.stone_name(stone)])
-		for page in range(3):
-			home._pages["tray"] = page
-			home.open("descend" if coming_home else "vault", true)
-			await _fits(screen, "page %d of the tray%s" % [page, ", coming home" if coming_home else ""])
-		home._pages["tray"] = 0
+		## Every page of a big table.
+		var table: Control = home.find_child("HaulTable", true, false)
+		if table != null:
+			for page in range(table.pages()):
+				table.turn_page(page)
+				await _fits(screen, "page %d of the haul%s" % [page, ", coming home" if coming_home else ""])
+			table.turn_page(0)
+		home.let_go_kept("haul_")
+	await _haul_phases(app, screen)
 	app.profile.tray = app.profile.tray.filter(func(s: Dictionary) -> bool: return not DeepStone.is_geode(s))
 	app.profile.homecoming = false
 	## A known stone whose skill is not kept yet: keep or sell, nothing to weigh it against.
@@ -233,10 +239,18 @@ func _workshop(app: Control) -> void:
 	var came: Array = []
 	for stone in app.profile.vault.values().slice(0, 6):
 		came.append({"stone": stone, "was": {} if came.size() % 2 == 0 else stone})
-	home.set_meta("came_kept", came)
+	home.let_go_kept("haul_")
+	var sold: Array = []
+	for stone in app.profile.vault.values().slice(6, 9):
+		sold.append({"stone": stone, "paid": 1234, "rough": false})
+	app.profile.haul_report = {"kept": came.map(func(e: Dictionary) -> Dictionary: return {"stone": e.stone, "was": e.was, "fresh": e.was.is_empty()}),
+		"sold": sold, "turned": [{"stone": came[0].stone, "paid": 99999}], "gold": 123456, "worth": 1234567, "best": came[0].stone,
+		"records": [["crown", "New best grade · 99 (was 98)", "best"], ["star", "First Peerless", "PEERLESS"], ["rainbow_star", "First opal", "OPAL"], ["gem", "Every Violet skill owned", "VIOLET"], ["chest", "Vault milestone · 100", "milestone"], ["coins", "Most valuable haul · 1,234,567", "haul"]],
+		"fees": 99999, "purse_from": 123456, "purse_to": 1234567, "vault_from": 60, "vault_to": 66, "crown": true, "stones": 99}
 	home.open("descend", true)
-	await _fits(screen, "the tray's last card, coming home with six stones kept")
-	home.remove_meta("came_kept")
+	await _fits(screen, "the haul's report, coming home with six stones kept and every record")
+	app.profile.erase("haul_report")
+	home.let_go_kept("haul_")
 	app.profile.homecoming = false
 	app.profile.tray = waiting
 
@@ -692,7 +706,7 @@ func _appraisals(app: Control) -> void:
 	var kept: Dictionary = riddled.duplicate(true)
 	kept.appraised = true
 	kept.id = "fit_kept"
-	var home_actions: Array = Homecoming.actions(app.home, kept)
+	var home_actions: Array = Homecoming.single_actions(app.home, kept)
 	var run_actions: Array = [ {"label": "Set in socket 6", "glyph": "gem", "caption": "Into the rail for the next fight"},
 		{"label": "Into the bag", "glyph": "bag", "caption": "Set it from the bench any time", "dismiss": true},
 		{"label": "Sell for 9999 pyrite", "glyph": "scales", "caption": "Half its worth, on the scales"}]
@@ -1551,3 +1565,29 @@ func check(condition: bool, message: String) -> void:
 	checks += 1
 	if not condition:
 		failures.append(message)
+
+func _haul_phases(app: Control, view: Node) -> void:
+	## The haul's table coming home, through every phase: laid out, cracked with every fate on,
+	## settled, and its report. The profile is put back as it was after.
+	var home: Control = app.home
+	var keep: Dictionary = {"tray": app.profile.tray.duplicate(true), "vault": app.profile.vault.duplicate(true), "gold": app.profile.gold, "records": app.profile.records.duplicate(true)}
+	app.profile.gold = 999999
+	app.profile.homecoming = true
+	home.let_go_kept("haul_")
+	home.open("descend", true)
+	await _fits(view, "the haul's table coming home")
+	var table: Control = home.find_child("HaulTable", true, false)
+	if table != null:
+		table.crack_all()
+		await _fits(view, "the haul's table after the crack, every fate on")
+		table.focus_on(str(table.order[table.order.size() - 1]))
+		await _fits(view, "the haul's pane on its last stone")
+		table.settle()
+		await _fits(view, "the haul's report")
+	app.profile.erase("haul")
+	app.profile.erase("haul_report")
+	app.profile.erase("homecoming")
+	app.profile.erase("brought")
+	for key in keep:
+		app.profile[key] = keep[key]
+	home.let_go_kept("haul_")

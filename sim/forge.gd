@@ -318,6 +318,50 @@ static func roll_inclusions(rng: RandomNumberGenerator, count: int, mine: Dictio
 		out.append(picked)
 	return out
 
+static func fragile_inclusion(key: String) -> bool:
+	## Whether an inclusion makes its stone too fragile to leave the mine (Void).
+	return DeepContent.inclusion(key).get("modifiers", []).any(func(m: Variant) -> bool: return m is Dictionary and str(m.get("kind", "")) == "fragile")
+
+static func unvoid(stone: Dictionary) -> Array:
+	## Void only forms down the mine (the owner's call, November 13, 2026): a stone read, bought,
+	## cracked out of a Geode or made anywhere outside a run grows another inclusion in its place.
+	## Rolled from the stone's own id, so the same stone always grows the same thing whenever it
+	## is read, and the run's or the shelf's own draws are left exactly as they were. Returns the
+	## swaps made, [[from, to], ...].
+	var inside: Array = stone.get("inclusions", [])
+	var swaps: Array = []
+	if not inside.any(func(k: Variant) -> bool: return fragile_inclusion(str(k))):
+		return swaps
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash("unvoid:" + str(stone.get("id", "")) + ":" + str(stone.get("skill", "")))
+	var mine_key: String = str(stone.get("provenance", {}).get("mine", "")) if stone.get("provenance", {}) is Dictionary else ""
+	var mine: Dictionary = DeepContent.mine(mine_key).duplicate()
+	if mine.is_empty():
+		mine = DeepContent.mine(DeepContent.starter_mine()).duplicate()
+	var own_color: String = DeepStone.color(stone)
+	var out: Array = inside.duplicate()
+	for index in range(out.size()):
+		var key: String = str(out[index])
+		if not fragile_inclusion(key):
+			continue
+		var table: Dictionary = {}
+		for candidate in inclusion_pool(mine):
+			var name: String = str(candidate)
+			var def: Dictionary = DeepContent.inclusion(name)
+			if def.is_empty() or fragile_inclusion(name) or out.has(name):
+				continue
+			if not own_color.is_empty() and zoning_color(def) == own_color:
+				continue
+			table[name] = float(def.get("weight", DEFAULT_CLASS_WEIGHTS.get(str(def.get("class", "PINPOINT")), 1.0))) * float(mine.get("inclusion_bias", {}).get(name, 1.0))
+		var picked: String = DeepRng.weighted_key(rng, table)
+		if picked.is_empty():
+			continue
+		out[index] = picked
+		swaps.append([key, picked])
+	## Anything that could not be swapped (an empty pool) goes, rather than leave the stone fragile.
+	stone.inclusions = out.filter(func(k: Variant) -> bool: return not fragile_inclusion(str(k)))
+	return swaps
+
 static func roll_stone(rng: RandomNumberGenerator, mine: Dictionary, depth: int, bonus: float = 0.0, provenance: Dictionary = {}, id: String = "", pool: Array = []) -> Dictionary:
 	## `pool` narrows which skills may come out of the rock. Everything else about the
 	## stone — its carat, its cut, its clarity, what is frozen inside it — is rolled the
