@@ -158,10 +158,13 @@ function bandAt(key, depth, endless) {
 	const carat = Forge.caratBand(mine, depth);
 	const scale = Forge.creatureScale(mine, depth);
 	const hp = (1 + Number(C.constant('depth_hp_scale', 0.05)) * Math.max(0, depth - 1)) * scale.hp;
+	// The mob is a hallway fight's (W5): harder blows, less health; the boss is not.
+	const hall = Forge.creatureScale(mine, depth, true);
+	const mobHp = (1 + Number(C.constant('depth_hp_scale', 0.05)) * Math.max(0, depth - 1)) * hall.hp;
 	const bossKey = String(mine.boss || mine.unmade || '');
 	const boss = C.creature(bossKey);
 	return { key: endless ? `${key}@${depth}` : key, mine: key, name: endless ? `${mine.name || C.title(key)}, depth ${depth}` : mine.name || C.title(key), depth,
-		carat: carat ? carat.cap : 8, hp, damage: scale.damage, boss: bossKey, bossName: boss.name || C.title(bossKey), bossHp: Math.round(Number(boss.hp || 400) * hp),
+		carat: carat ? carat.cap : 8, hp, damage: scale.damage, mobHp, mobDamage: hall.damage, boss: bossKey, bossName: boss.name || C.title(bossKey), bossHp: Math.round(Number(boss.hp || 400) * hp),
 		bossDice: (boss.dice || []).length ? boss.dice.slice() : null };
 }
 
@@ -179,7 +182,7 @@ export function fightsFor(s, band) {
 	const hit = band ? band.damage : 1;
 	const wall = band ? band.bossHp : s.bossHp;
 	return {
-		mob: { count: s.dummies, dice: s.dummyDice, guard: s.guard, hp: s.dummyHp > 0 ? Math.min(2e9, Math.round(s.dummyHp * (band ? band.hp : 1))) : 0, hit },
+		mob: { count: s.dummies, dice: s.dummyDice, guard: s.guard, hp: s.dummyHp > 0 ? Math.min(2e9, Math.round(s.dummyHp * (band ? band.mobHp ?? band.hp : 1))) : 0, hit: band ? band.mobDamage ?? hit : hit },
 		// It never falls: its health is far past the line, so the turn that crosses it is counted whole.
 		boss: { count: 1, dice: band && band.bossDice ? band.bossDice : s.bossDice, guard: s.bossGuard, hp: Math.min(2e9, Math.max(1e6, Math.ceil(wall * 4))), hit },
 		wall,

@@ -646,6 +646,8 @@ func resume_run(saved_run: Dictionary, saved_lobby: Dictionary) -> void:
 	run = saved_run
 	lobby = saved_lobby
 	lobby.host = local_id
+	## A room picked up again was saved as it was walked into: it is not saved again mid-way.
+	_room_saved = _room_key()
 	## Nobody else is on the line yet. Everyone but the host is away until they say hello, so
 	## a vote or a stake the checkpoint was waiting on them for goes ahead without them.
 	for id in lobby.get("members", {}).keys():
@@ -737,6 +739,20 @@ func _after_change() -> void:
 		run_ended.emit(results)
 	elif str(run.get("phase", "")) in ["landing", "tunnels"]:
 		_checkpoint()
+	elif str(run.get("phase", "")) == "chamber" and _room_key() != _room_saved:
+		## A room is saved once, as the party walks into it (review card M4, November 2026): a
+		## run picked up again walks back into the same room, the same creatures and the same
+		## dice, rather than to the crossroads with every way open again.
+		_room_saved = _room_key()
+		_checkpoint()
+
+## The room last saved as it was walked into (see `_after_change`).
+var _room_saved: String = ""
+
+func _room_key() -> String:
+	## One room of one run: its mine, its depth and how many fights the run has begun, which
+	## tells a Warden's hall from the landing above it.
+	return "%s|%s|%d|%d" % [str(run.get("run_id", "")), str(run.get("mine", "")), int(run.get("depth", 0)), int(run.get("records", {}).get("fights", 0))]
 
 func _hold_for_absent(results: Dictionary) -> void:
 	## Whoever dropped out and was not back for the end still went through the run with the
@@ -812,7 +828,9 @@ func tick(delta: float) -> void:
 	if event.is_empty():
 		return
 	var duration: float = float(event.get("battle", {}).get("duration", 0.4))
-	_wait = maxf(STEP_FLOOR, duration)
+	## A step the rules marked quiet (a fizzle on a rail where nothing fires, a gem with nothing
+	## left to hit) is not given a beat of its own: the next step follows at once (P3, Nov 13).
+	_wait = 0.0 if bool(event.get("battle", {}).get("quiet", false)) else maxf(STEP_FLOOR, duration)
 	_publish(before, event)
 
 func effective_speed() -> float:

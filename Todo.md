@@ -211,6 +211,9 @@ Every mine's creatures, Wardens and final boss, and sixteen new mechanics, from 
 ## Future work — not implemented
 
 - [ ] **Balance playtesting:** compare paid Gold builds, poison conversion, Lifeline stacking, and repeating fight/run upgrades with Echo, Seams, Prelude and Encore.
+- [ ] **Tutorial / onboarding: fight speed.** When onboarding is written, it should point players to the Fight speed setting (1x/2x/4x in Settings). Owner, Nov 13 2026 playtest (P1).
+- [ ] **Trade-up contracts: rework.** Rethink the contracts (the vault keeps one stone per skill, so every input is a last copy and "Fill from cheapest" empties loadouts), and change commissions so they no longer seek stones from your vault. Owner, Nov 13 2026 playtest (K2, K6).
+- [ ] **Daily dig: Steam leaderboard.** A per-seam leaderboard ("#312 of 2,140, top 15%") once Steam is ready; local par lines and a streak come first. Owner, Nov 13 2026 playtest (K4).
 
 **Not selected:** Poultice, Undertow, Silence and Level are excluded from the content pack and active implementation plan. Siphon is the selected name for Mycelium. Additional status ideas remain in [Buffs.md](Buffs.md).
 

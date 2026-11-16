@@ -95,15 +95,15 @@ extends RefCounted
 ##     lands on its target) graft_pairs(the lower pair takes the higher pair's number, this hand)
 ##     restart_rail(with that many gems dark, the dice are thrown again and the rail starts over)
 ##     enrich_forever(its neighbours gain carats for good and it is destroyed)
-##   Opal-only. Opals touch each other like any other gem (October 29, 2026); what keeps
-##   two of them from calling each other for ever is that a replay only ever reaches gems
-##   earlier on the rail than the gem replaying, so a replayed Seam plays exactly what it
-##   played the first time, and that an Echo never copies an Echo:
-##     replay_color(color: every gem of that color earlier on the rail that has already fired plays again)
-##     replay_fizzled(every gem earlier on the rail that stayed dark this turn fires anyway)
+##   Opal-only. Opals never copy or replay another opal (owner, November 13, 2026): a Doublet
+##   wears the nearest gem behind it that is no opal, a Seam or Matrix leaves the opals before
+##   it, an Echo never copies one (`DeepBattle.repeatable`, `opal_blocks` for the marks). A
+##   replay still only reaches gems earlier on the rail than the gem replaying:
+##     replay_color(color: every gem of that color earlier on the rail that has already fired plays again, opals left out)
+##     replay_fizzled(every gem earlier on the rail that stayed dark this turn fires anyway, opals left out)
 ##     rank_buff(rank: carat or cut, added to every gem in the rail for the rest of the fight)
 ##     repeat_next(the next gem to resolve, the Birthstone included, fires that many times more)
-##     void_copy(a Void copy of the last gem that fired, never an Echo, joins the rail for the rest of the fight)
+##     void_copy(a Void copy of the last gem that fired, never an opal, joins the rail for the rest of the fight)
 ##     absorbed(a Black Opal: every skill it has absorbed this run fires from its socket)
 ##   Transcendent: fire_neighbours(the gems either side of it fire, that many times each)
 ##     force_after(every gem after it fires this turn whatever the dice show, that many times)

@@ -25,6 +25,7 @@ export function analyze(hand, colors = []) {
 	const crownIds = [];
 	let crownTotal = 0;
 	const crownValues = new Set();
+	let numbed = 0;
 	for (let index = 0; index < hand.length; index += 1) {
 		const roll = hand[index];
 		const kind = roll.kind || 'plain';
@@ -38,6 +39,8 @@ export function analyze(hand, colors = []) {
 		// Higher wants it more; the bench order breaks a tie, so a hand reads the same twice.
 		rank.set(id, preference(roll, colors) * 1000 - index);
 		sizes.set(id, faces);
+		// A die a Warden has numbed this turn counts for nothing, as a blank does (sim/hand.gd).
+		if ('numb' in roll) { numbed += 1; continue; }
 		maxTotal += top;
 		if (roll.phantom) phantoms += 1;
 		if (heldForPatterns(roll)) held += 1;
@@ -109,7 +112,7 @@ export function analyze(hand, colors = []) {
 	return {
 		values, wilds, wild_tops: wildTops, wild_total: wildTotal, rank, total, max_total: Math.max(1, maxTotal),
 		high: Math.max(high, wildTop), low: low > 0 ? low : wildTop, high_pct: highPct,
-		held, rerolled, phantoms, dice_count: hand.length,
+		held, rerolled, phantoms, dice_count: hand.length - numbed,
 		groups, plain_groups: plainGroups, best_set: groups.length ? groups[0] : { value: 0, count: 0, dice: [] },
 		pairs, straight: straightOf(counts, wilds, idsByValue, hand.length, wildTop),
 		odd: odd + wilds.length, even: even + wilds.length, distinct: counts.size + wilds.length,

@@ -276,12 +276,12 @@ export function railContext(state, unit, socket, opts = {}) {
 		run_kills: I((unit.run_counts || {})[`${stone.id || ''}:kills`]), run_breaks: I((unit.run_counts || {})[`${stone.id || ''}:breaks`]) };
 }
 
-// What a Doublet at this socket wears: the nearest gem behind it, opals included, that is not
-// itself a Doublet (sim/battle.gd worn_socket).
+// What a Doublet at this socket wears: the nearest gem behind it that is not itself an opal
+// (owner, November 13, 2026: opals never copy opals; sim/battle.gd worn_socket).
 export function wornSocket(unit, socket) {
 	const stone = unit.rail[socket];
 	if (!stone || String(Stone.skillOf(stone).wears || '') !== 'prev') return -1;
-	for (let behind = socket - 1; behind >= 0; behind--) if (unit.rail[behind] && String(Stone.skillOf(unit.rail[behind]).wears || '') !== 'prev') return behind;
+	for (let behind = socket - 1; behind >= 0; behind--) if (unit.rail[behind] && !Stone.isOpal(unit.rail[behind])) return behind;
 	return -1;
 }
 
@@ -292,14 +292,19 @@ export function stoneAt(unit, socket) {
 	return Stone.fingerprinted(unit.rail, socket, stone);
 }
 
-// Whether a replay may touch this socket: a gem stands there. Opals play again like anything
-// else (October 29, 2026); a replay only reaches gems earlier on the rail than the gem
-// replaying, and an Echo never copies an Echo, so no two replays can point at each other.
-export function repeatable(unit, socket) {
+// Whether a replay may touch this socket: a gem stands there, and it is no opal when the gem
+// replaying is one (owner, November 13, 2026: a Seam, Matrix or Echo never touches another
+// opal). A Doublet wearing a gem plays again like anything else; the Birthstone (`byOpal`
+// false) reaches every gem. Replays still only reach gems earlier on the rail.
+export function repeatable(unit, socket, byOpal = true) {
 	if (socket < 0 || socket >= unit.rail.length || !unit.rail[socket]) return false;
-	// Opals apart (a rule tried here, not the game's): no opal reaches another.
-	if (unit.opals_apart && Stone.isOpal(unit.rail[socket])) return wornSocket(unit, socket) >= 0;
-	return true;
+	if (!byOpal || !Stone.isOpal(unit.rail[socket])) return true;
+	return wornSocket(unit, socket) >= 0;
+}
+
+// Whether the gem in this socket is an opal (the Birthstone, socket -1, is not).
+export function opalAt(unit, socket) {
+	return socket >= 0 && socket < unit.rail.length && Boolean(unit.rail[socket]) && Stone.isOpal(unit.rail[socket]);
 }
 
 // A gem whose skill lays Void copies: an Echo, or a Doublet wearing one.
@@ -307,11 +312,11 @@ export function isEcho(stone) {
 	return (Stone.skillOf(stone || {}).effects || []).some((e) => e && e.kind === 'void_copy');
 }
 
-// Opals apart, the rule the balance page can try (`spec.opalsApart`): no opal reaches another.
-// A Seam, Echo or Matrix never touches a Doublet, whatever it wears (see `repeatable`); a
-// Prelude's extra goes pass over an opal to the next gem that is not one; a Fire Opal's carats
-// go to no opal. Pinfire's Resonance is every opal's fuel and stays shared. The game itself
-// lets all of these through today.
+// Opals apart, the wider rule the balance page can try (`spec.opalsApart`). The game's own rule
+// (November 13, 2026) already keeps a Seam, Echo, Matrix or Doublet off another opal (see
+// `repeatable`, `wornSocket`); opals apart adds that a Prelude's extra goes pass over an opal
+// to the next gem that is not one, and a Fire Opal's carats go to no opal. Pinfire's
+// Resonance is every opal's fuel and stays shared.
 
 function resetRail(unit) {
 	unit.resonance = I(unit.initial_resonance);
@@ -1202,12 +1207,13 @@ export function selfEffect(state, unit, effect, socket, previousSocket, dry, rng
 			break;
 		}
 		case 'replay_color': {
-			// A Seam: every gem of one color earlier on the rail that has already fired this turn plays again.
+			// A Seam: every gem of one color earlier on the rail that has already fired this turn plays
+			// again, never another opal.
 			const want = String(effect.color || '');
 			const encore = [];
 			const touched = [];
 			for (const at of unit.fired_sockets.slice().sort((x, y) => x - y)) {
-				if (at >= socket || !repeatable(unit, at)) continue;
+				if (at >= socket || !repeatable(unit, at, opalAt(unit, socket))) continue;
 				if (want !== 'ANY' && !Stone.colors(stoneAt(unit, at), String(unit.sockets[at])).includes(want)) continue;
 				touched.push(at);
 				// A Flawless Seam's second instance rides on the replay (seamEach).
@@ -1218,14 +1224,15 @@ export function selfEffect(state, unit, effect, socket, previousSocket, dry, rng
 			break;
 		}
 		case 'replay_fizzled': {
-			// A Matrix: gems earlier on the rail that stayed dark this turn fire anyway, earliest first.
+			// A Matrix: gems earlier on the rail that stayed dark this turn fire anyway, earliest first,
+			// never another opal (a Birthstone tier is no opal and wakes opals too).
 			// The Birthstone (socket -1) comes after the whole rail, so it reaches every socket; a
 			// Small Hours wakes each of them `repeat` times over.
 			const woken = [];
 			const darkSockets = [];
 			for (const at of unit.fizzled_sockets.slice().sort((x, y) => x - y)) {
 				if (darkSockets.length >= Math.max(1, amount)) break;
-				if ((socket >= 0 && at >= socket) || !repeatable(unit, at)) continue;
+				if ((socket >= 0 && at >= socket) || !repeatable(unit, at, opalAt(unit, socket))) continue;
 				darkSockets.push(at);
 				for (let again = 0; again < Math.max(1, I(effect.repeat ?? 1)); again++) woken.push({ kind: 'gem', unit: unit.id, socket: at, retrigger: true, force: true });
 			}
@@ -1242,7 +1249,7 @@ export function selfEffect(state, unit, effect, socket, previousSocket, dry, rng
 			if (!dry) unit.repeat_next = (I(unit.repeat_next)) + Math.max(0, amount);
 			break;
 		case 'void_copy': {
-			// An Echo: a Void copy of the last gem that fired, never another Echo, joins the rail behind this one.
+			// An Echo: a Void copy of the last gem that fired, never an opal, joins the rail behind this one.
 			const source = previousSocket;
 			const copyable = socket >= 0 && source >= 0 && source < unit.rail.length && unit.rail[source] && repeatable(unit, source) && !isEcho(stoneAt(unit, source));
 			if (dry || !copyable) { out.nothing = true; break; }
@@ -2002,10 +2009,11 @@ function damage(state, source, target, amount, rng, reactions = {}, reactive = f
 			target.hurt_by[source.id] = satAdd(I(target.hurt_by[source.id]), loss);
 			if (loss > (I(target.biggest_hit))) target.biggest_hit = loss;
 		}
-		// Riposte: every hit the Rogue lands raises block worth her Resonance.
+		// Riposte: every hit the Rogue lands raises block worth half her Resonance, at least 1
+		// (owner, November 13, 2026: it was the whole Resonance).
 		if (source.side === 'player' && (source.passive || {}).kind === 'block_per_hit' && raw > 0 && !pure) {
-			const parry = I(source.resonance);
-			if (parry > 0) { source.block = satAdd(I(source.block), parry); state.ledger.blockGained += parry; }
+			const parry = Math.max(1, Math.trunc(I(source.resonance) / 2));
+			source.block = satAdd(I(source.block), parry); state.ledger.blockGained += parry;
 		}
 		if ((I(target.hp)) <= 0) {
 			out.killed = true;

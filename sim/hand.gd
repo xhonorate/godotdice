@@ -3,7 +3,7 @@ extends RefCounted
 ## What a hand of rolls contains, worked out once and read by every trigger and term.
 ##
 ## Wild dice join the largest set (ties go to the higher value) and fill the gaps in the
-## longest straight. Blank dice are not there. A Twin face counts twice for sets. The
+## longest straight. Blank dice are not there, nor dice a Warden has numbed (`numb`). A Twin face counts twice for sets. The
 ## analysis is a plain dictionary so the rules, the forecast and the tests all read the
 ## same fields.
 ##
@@ -66,6 +66,7 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 	var sizes: Dictionary = {}
 	var one_ids: Array = []
 	var notes: Array = []
+	var numbed: int = 0
 	for index in range(hand.size()):
 		var roll: Dictionary = hand[index]
 		var kind: String = str(roll.get("kind", "plain"))
@@ -80,6 +81,11 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 		## Higher wants it more; the bench order breaks a tie, so a hand reads the same twice.
 		rank[id] = DeepDice.preference(roll, colors) * 1000 - index
 		sizes[id] = faces
+		## A die a Warden has numbed this turn (`numb`, DeepBattle.numb_hand) counts for nothing,
+		## the way a blank does, and is not even held or thrown again as far as a gem can tell.
+		if roll.has("numb"):
+			numbed += 1
+			continue
 		max_total += top
 		if bool(roll.get("phantom", false)):
 			phantoms += 1
@@ -184,7 +190,7 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 			even_values += 1
 	return {"values": values, "wilds": wilds, "wild_tops": wild_tops, "wild_total": wild_total, "rank": rank, "total": total, "max_total": maxi(1, max_total),
 		"high": maxi(high, wild_top), "low": low if low > 0 else wild_top, "high_pct": high_pct,
-		"held": held, "rerolled": rerolled, "phantoms": phantoms, "dice_count": hand.size(),
+		"held": held, "rerolled": rerolled, "phantoms": phantoms, "dice_count": hand.size() - numbed,
 		"groups": groups, "plain_groups": plain_groups, "best_set": groups[0] if groups.size() > 0 else {"value": 0, "count": 0, "dice": []},
 		"pairs": pairs, "straight": _straight(counts.keys(), wilds, ids_by_value, hand.size(), wild_top),
 		"odd": odd + wilds.size(), "even": even + wilds.size(), "distinct": counts.size() + wilds.size(),

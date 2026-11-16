@@ -561,6 +561,19 @@ func _test_well(rng: RandomNumberGenerator, ctx: Dictionary) -> void:
 	check(poor < 60, "ten pyrite comes back as nothing under one time in thirty (%d of 2000)" % poor)
 	check(something > 1600, "and usually as a stone or more pyrite than went in (%d of 2000)" % something)
 	check(rich_top > 300, "a thousand of it reaches the top of the ladder often (%d of 2000)" % rich_top)
+	## At full health the heal rung is never drawn (X4, November 13, 2026); wounded, it is.
+	var heal_rung: int = -1
+	for index in range(DeepOddities.WELL_PRIZES.size()):
+		if str(DeepOddities.WELL_PRIZES[index].kind) == "heal":
+			heal_rung = index
+	var healed_full: int = 0
+	var healed_hurt: int = 0
+	for _i in range(3000):
+		if DeepOddities.well_rung(rng, 120.0, false) == heal_rung:
+			healed_full += 1
+		if DeepOddities.well_rung(rng, 120.0, true) == heal_rung:
+			healed_hurt += 1
+	check(heal_rung >= 0 and healed_full == 0 and healed_hurt > 0, "the well never draws its heal at full health, and does when wounded (%d, %d of 3000)" % [healed_full, healed_hurt])
 	## A read stone is worth three times what the same stone in its rock is worth.
 	var raw: Dictionary = stone("STRIKE", 10, 3, 3)
 	var known: Dictionary = read(stone("STRIKE", 10, 3, 3))

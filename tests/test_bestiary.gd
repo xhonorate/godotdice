@@ -374,7 +374,8 @@ func refract_mirror_and_absorb() -> void:
 			unit.block = 0
 		var before: Array = w.state.players.map(func(u: Dictionary) -> int: return int(u.hp))
 		var back: Dictionary = hit(w, 20)
-		check(back.get("reflections", []).size() == 1 and int(w.state.players[0].hp) == int(before[0]) - 10 and int(w.state.players[1].hp) == int(before[1]),
+		## A Jagged wyrm's hide takes its point from the thrower as well (W4, November 13, 2026).
+		check(back.get("reflections", []).size() == 1 and int(w.state.players[0].hp) == int(before[0]) - 10 - DeepCreatures.trait_value(w.foe, "jagged", 0) and int(w.state.players[1].hp) == int(before[1]),
 			"%s's Mirror sends ten back at the thrower alone" % key)
 	## An Echo Sprite's mirror sends the whole of the next blow back at whoever threw it.
 	var e: Dictionary = setup(["ECHO_SPRITE"])
@@ -1012,7 +1013,7 @@ func echoes_and_the_remembered() -> void:
 	check(str(r.foe.name) == "The Remembered The Drill" and DeepCreatures.trait_value(r.foe, "sturdy", 0) == 25 and str(r.foe.remembered) == "sturdy", "a Rift Warden is a boss remembered with one trait more")
 	var s: Dictionary = setup(["THE_HOLLOW_CROWN"], 1, {"remembered": true, "extra_trait": "steadfast", "warden": true})
 	check(DeepCreatures.has_trait(s.foe, "steadfast") and DeepCreatures.trait_value(s.foe, "sturdy", 0) == 15, "a remembered trait sits beside its own")
-	check(DeepContent.REMEMBERED_TRAITS == ["steadfast", "sturdy", "split_on_big_hit"], "the Remembered are Steadfast, Sturdy or Splitting")
+	check(DeepContent.REMEMBERED_TRAITS == ["steadfast", "sturdy", "split_on_big_hit", "jagged"], "the Remembered are Steadfast, Sturdy, Splitting or Jagged")
 	var split: Dictionary = setup(["THE_DRILL"], 1, {"remembered": true, "extra_trait": "split_on_big_hit", "warden": true})
 	split.foe.block = 0
 	var halved: Dictionary = hit(split, 450)
@@ -1184,14 +1185,15 @@ func every_creature_has_a_tip() -> void:
 func the_identity_pass() -> void:
 	## The creatures as the owner reviewed them (October 2026), face by face.
 	## The Mirror Regent: Reflection throws back what it took since it last acted, Mirror
-	## Image the best die any player shows, Splinter curses.
+	## Image the best die any player shows, Hall of Mirrors (W3, November 13, 2026: it was
+	## Splinter's Curse) makes every matching die cost its thrower health on their next turn.
 	var r: Dictionary = setup(["THE_REGENT"])
 	r.foe.statuses.ward = 0
 	r.foe.block = 0
 	r.player.block = 0
 	r.foe.hp_at_turn = int(r.foe.hp)
 	hit(r, 30)
-	land(r.foe, ["Reflection", "Mirror Image", "Splinter"])
+	land(r.foe, ["Reflection", "Mirror Image", "Hall of Mirrors"])
 	for i in range(r.player.hand.size()):
 		r.player.hand[i].value = [2, 6, 5, 1, 6][i]
 	var mirrored: Array = turn(r)
@@ -1199,7 +1201,7 @@ func the_identity_pass() -> void:
 	var image: Array = moves_named(mirrored, "Mirror Image").map(func(e: Dictionary) -> int: return int(e.effects[0].raw))
 	check(thrown == [30], "Reflection throws back the 30 it took since its last action: %s" % str(thrown))
 	check(image == [6], "Mirror Image throws the best die back: %s" % str(image))
-	check(moves_named(mirrored, "Splinter").size() == 1 and int(r.player.statuses.get("curse", 0)) == amount_of("THE_REGENT", "Splinter"), "Splinter curses")
+	check(moves_named(mirrored, "Hall of Mirrors").size() == 1 and DeepCreatures.trait_value(r.foe, "set_toll", 0) == 1, "Hall of Mirrors holds its toll through the party's turn")
 	land(r.foe, ["Reflection"])
 	var quiet: Array = moves_named(turn(r), "Reflection")
 	check(not quiet.is_empty() and int(quiet[0].effects[0].raw) == 0, "untouched since, it has nothing to throw back")

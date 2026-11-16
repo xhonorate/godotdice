@@ -938,6 +938,21 @@ static func apply_result(profile: Dictionary, result: Dictionary, player_id: Str
 		"depth": int(result.get("depth", 0)), "stones": brought.size(), "date": Time.get_date_string_from_system(), "gold": int(dug.get("paid", 0))}
 	if tier > 0:
 		entry.hazard = tier
+	## Who dug it, the seed, how it ended and the gems taken down: a past run reopens from the
+	## ledger with its seed to dig again (K5).
+	var dug_as: Dictionary = result.get("players", {}).get(player_id, {})
+	if not str(dug_as.get("character", "")).is_empty():
+		entry.character = str(dug_as.character)
+	if int(result.get("seed", 0)) != 0:
+		entry.seed = int(result.seed)
+	if not str(result.get("cause", "")).is_empty():
+		entry.cause = str(result.cause)
+	var taken: Array = []
+	for stone in dug_as.get("rail", []):
+		if stone is Dictionary and not str(stone.get("skill", "")).is_empty():
+			taken.append(str(stone.skill))
+	if not taken.is_empty():
+		entry.rail = taken
 	## The variant Birthstone worn, where one was: the ledger names it beside the delver.
 	if not str(mine_result.get("birthstone", "")).is_empty() and daily.is_empty():
 		entry.birthstone = str(mine_result.birthstone)
@@ -1372,6 +1387,15 @@ static func settle_tray(profile: Dictionary, fates: Dictionary) -> Dictionary:
 				var paid: int = int(profile.get("gold", 0)) - gold_before
 				out.sold.append({"stone": stone.duplicate(true), "paid": paid, "rough": not bool(stone.get("appraised", false))})
 				out.gold = int(out.gold) + paid
+	## What the haul came to, settled (November 16, 2026): the stones kept at their worth and
+	## the gold the rest were paid, a commission at its fee rather than the stone's worth, so
+	## the report's gold card adds up to its own total ("kept, worth" + sold + commissions) and
+	## its header says the same. Read in advance (`haul_worth`) it was 673 where the card's
+	## lines came to 716 (a 27-gold stone a commission paid 70 for).
+	worth = int(out.gold)
+	for entry in out.kept:
+		worth += DeepStone.value(entry.stone)
+	out.worth = worth
 	out.records = haul_records(profile, before, out.kept, worth)
 	if not best.is_empty():
 		var history: Array = profile.get("history", [])

@@ -204,7 +204,7 @@ func guards() -> void:
 	rolls(f, [1, 2, 3, 4, 5])
 	f.player.firing_target = f.player.target
 	var hardening: Dictionary = DeepBattle.resolve_gem(f.state, f.player, 0, {}, f.rng.dice)
-	check(total_of(hardening, "block") == int(float(4 + 0 + 4) * 1.5), "and it reads 2 a break: %d" % total_of(hardening, "block"))
+	check(total_of(hardening, "block") == int(float(3 + 0 + 4) * 1.5), "and it reads 2 a break: %d" % total_of(hardening, "block"))
 	equip(f, "HARDENING", false, 4, 0)
 	f.player.block = 1
 	f.player.run_counts["gem0:breaks"] = 0

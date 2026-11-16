@@ -376,6 +376,22 @@ func _test_coming_home() -> void:
 	check(profile.warden_paid == ["QUARRY:0", "QUARRY:1"], "the Wardens are written down as paid")
 	check(profile.tray.size() == 1 and not profile.vault.has("VENOM") and applied.kept.is_empty(), "the first stone of its skill waits on the tray to be kept or turned in")
 	check(int(profile.history.back().gold) == 0, "and the ledger records no gold for the run's pyrite")
+	## A past run reopens from the ledger (K5): who dug it, its seed, how it ended, the gems taken.
+	var told: Dictionary = result.duplicate(true)
+	told.run_id = "h1b"
+	told.seed = 4418
+	told.cause = "Conquered The Quarry"
+	told.players.a.character = "ARDOR"
+	told.players.a.rail = [stone("STRIKE", 3, 2, 3, "k5_strike"), null]
+	var ledger: Dictionary = DeepProfile.new_profile("Ledger")
+	DeepProfile.apply_result(ledger, told, "a")
+	var kept_run: Dictionary = ledger.history.back()
+	check(int(kept_run.get("seed", 0)) == 4418 and str(kept_run.get("cause", "")) == "Conquered The Quarry" and str(kept_run.get("character", "")) == "ARDOR" and kept_run.get("rail", []) == ["STRIKE"],
+		"the ledger keeps a run's seed, how it ended, its delver and the gems taken down: %s" % str(kept_run))
+	var run_state: Dictionary = {"outcome": "fallen", "depth": 9, "mine": "QUARRY", "chamber": {"battle": {"turn": 15, "enemies": [{"name": "The Foreman", "hp": 40}, {"name": "Gloomcap", "hp": 0}]}}}
+	check(DeepDescent.run_cause(run_state) == "Fell to The Foreman, turn 15", "a fall names what still stood and the turn: %s" % DeepDescent.run_cause(run_state))
+	run_state.abandoned = true
+	check(DeepDescent.run_cause(run_state) == "Gave up the dig at depth 9", "and a dig given up says so")
 	var again: Dictionary = DeepProfile.apply_result(profile, result, "a")
 	check(again.purses.is_empty() and profile.conquest_paid == ["QUARRY"], "the purse is paid once")
 	var lost: Dictionary = result.duplicate(true)
@@ -732,11 +748,59 @@ func _test_market() -> void:
 		check(not worker.vault.has("STRIKE") and not worker.characters.ARDOR.rail.has("STRIKE"), "a stone broken on the Wheel is gone from the vault and the loadout")
 	else:
 		check(int(worker.vault.STRIKE.cut) != strike_cut and int(spun.now) == int(worker.vault.STRIKE.cut), "the Wheel always changes the Cut (%d to %d)" % [strike_cut, int(spun.now)])
-	check(not DeepEconomy.rework(worker, "GUARD", "cut").ok, "one turn of the Wheel a day")
+	## The day's go spent, the Wheel shuts until the Market is restocked; the restock opens the
+	## Wheel and the Oven again at their own price, and the Geode of the day is a new one (K8,
+	## November 16, 2026: no dearer second goes).
+	var guard_price: int = DeepEconomy.rework_price(worker.vault.GUARD) if worker.vault.has("GUARD") else 0
+	check(DeepEconomy.rework_used(worker, "cut") and not DeepEconomy.rework(worker, "GUARD", "cut").ok, "the day's go spent, the Wheel is shut")
+	check(DeepEconomy.rework_refusal(worker, "GUARD", "cut").contains("restock"), "and it says a restock opens it again: %s" % DeepEconomy.rework_refusal(worker, "GUARD", "cut"))
 	var guard_clarity: int = int(worker.vault.GUARD.clarity)
 	var fired: Dictionary = DeepEconomy.rework(worker, "GUARD", "clarity")
 	check(fired.ok and (bool(fired.broke) or int(worker.vault.GUARD.clarity) != guard_clarity), "the Oven always changes the Clarity")
-	check(not DeepEconomy.rework(worker, "MEND", "clarity").ok, "one firing a day")
+	check(DeepEconomy.rework_used(worker, "clarity") and not DeepEconomy.rework(worker, "MEND", "clarity").ok, "and shuts for the day after its go")
+	var day_geode: String = str(DeepEconomy.shelf(worker)[0].id)
+	check(bool(DeepEconomy.open_geode(worker, day_geode).ok), "today's Geode opens")
+	worker.daily.contract = true
+	check(DeepEconomy.restock(worker).ok, "the Market restocks")
+	check(not DeepEconomy.rework_used(worker, "cut") and not DeepEconomy.rework_used(worker, "clarity"), "and the restock opens the Wheel and the Oven again")
+	check(not bool(DeepEconomy.shelf(worker)[0].bought) and str(DeepEconomy.shelf(worker)[0].id) != day_geode, "with a new Geode of the day, unopened")
+	check(DeepEconomy.contract_signed_today(worker), "but the contract bench stays signed for the day")
+	worker.daily.erase("contract")
+	if worker.vault.has("GUARD"):
+		guard_price = DeepEconomy.rework_price(worker.vault.GUARD)
+		var gold_second: int = int(worker.gold)
+		check(DeepEconomy.rework(worker, "GUARD", "cut").ok and int(worker.gold) == gold_second - guard_price, "a second turn after the restock costs its own price (%d)" % guard_price)
+		check(DeepEconomy.rework_refusal(worker, "GUARD", "cut").contains("tomorrow"), "spent again after a restock, it opens tomorrow")
+	var poor: Dictionary = worker.duplicate(true)
+	poor.daily.erase("rework_clarity")
+	poor.gold = DeepEconomy.rework_price(poor.vault.MEND) - 1
+	check(not DeepEconomy.rework(poor, "MEND", "clarity").ok, "a firing needs its price")
+	## A save from round 2 that counted the goes reads as used.
+	var counted: Dictionary = {"daily": {"rework_cut_goes": 2}}
+	check(DeepEconomy.rework_used(counted, "cut") and not DeepEconomy.rework_used(counted, "clarity"), "an old count of goes reads as the day's go spent")
+	## Fired Flawless, a stone never loses grade or worth: what the heat took still counts (K7).
+	var flawless_at: int = DeepContent.clarities().size() - 1
+	var frozen: Array = DeepContent.section("inclusions").keys().slice(0, 3)
+	for start in range(DeepContent.clear_index()):
+		var held: Array = frozen.slice(0, DeepStone.inclusion_slots(start))
+		var before_fire: Dictionary = stone("MEND", 9, 2, start, "k7_%d" % start, held)
+		var after_fire: Dictionary = before_fire.duplicate(true)
+		after_fire.clarity = flawless_at
+		after_fire.inclusions = []
+		after_fire.burnt = held.duplicate()
+		check(int(DeepStone.grade(after_fire).score) >= int(DeepStone.grade(before_fire).score), "fired %s to Flawless, its grade does not fall (%d to %d)" % [DeepContent.clarity_name(start), int(DeepStone.grade(before_fire).score), int(DeepStone.grade(after_fire).score)])
+		check(DeepStone.value(after_fire) >= DeepStone.value(before_fire), "nor its worth (%d to %d)" % [DeepStone.value(before_fire), DeepStone.value(after_fire)])
+	var kiln := RandomNumberGenerator.new()
+	kiln.seed = 13
+	var burnt_seen: bool = false
+	for i in range(2000):
+		var lump: Dictionary = stone("MEND", 9, 2, 1, "kiln%d" % i, frozen.slice(0, 2))
+		DeepForge.reroll_clarity(kiln, lump, DeepContent.mine("QUARRY"), 16, 40.0)
+		if DeepStone.is_flawless(lump):
+			burnt_seen = lump.get("burnt", []) == frozen.slice(0, 2)
+			break
+		check(not lump.has("burnt"), "only a stone fired Flawless keeps what the heat took")
+	check(burnt_seen, "a stone fired Flawless keeps the names of what the heat burnt out of it")
 	## Over many tries the break comes about one time in twenty-five.
 	var broke: int = 0
 	var tries: int = 4000
@@ -1222,14 +1286,16 @@ func _test_daily_run() -> void:
 	var game_run: Dictionary = daily_with(["BIG_GAME"], "LENT_RAIL", 73)
 	fight_of(game_run, "", true)
 	var game: Dictionary = DeepDescent._settle_fight(game_run, "victory")
-	check(game.rewards.a.stones.all(func(s: Dictionary) -> bool: return bool(s.appraised)), "Big Game: what an elite drops comes out read")
-	## The first mine reads its elites' drops without the card; the next mine does not.
-	for entry in [["QUARRY", true], ["SEEPS", false]]:
-		var elite_run: Dictionary = DeepDescent.new_run(config(75, str(entry[0]), true))
+	var game_card: Dictionary = game.rewards.a.get("spoils", {}).get("cards", [{}])[0]
+	check(str(game_card.get("kind", "")) == "stone" and bool(game_card.stone.appraised), "Big Game: what an elite gives comes out read")
+	## Every elite's stone is a card of its spoils, read, in the first mine and the next alike
+	## (review cards R1 and R2, November 2026).
+	for entry in ["QUARRY", "SEEPS"]:
+		var elite_run: Dictionary = DeepDescent.new_run(config(75, str(entry), true))
 		fight_of(elite_run, "", true)
-		var dropped: Array = DeepDescent._settle_fight(elite_run, "victory").rewards.a.stones
-		check(not dropped.is_empty() and bool(dropped[0].get("appraised", false)) == bool(entry[1]),
-			"%s: an elite's stone comes out %s" % [str(entry[0]), "read" if bool(entry[1]) else "raw"])
+		var cards: Array = DeepDescent._settle_fight(elite_run, "victory").rewards.a.get("spoils", {}).get("cards", [])
+		check(not cards.is_empty() and str(cards[0].kind) == "stone" and bool(cards[0].stone.get("appraised", false)),
+			"%s: an elite's spoils hold a read stone" % str(entry))
 	var midas_run: Dictionary = daily_with(["MIDAS"], "LENT_RAIL", 74)
 	var usual_run: Dictionary = daily_with([], "LENT_RAIL", 74)
 	fight_of(midas_run)
@@ -1368,7 +1434,12 @@ func _test_daily_rewards() -> void:
 	var gold_before: int = int(profile.gold)
 	var applied: Dictionary = DeepProfile.apply_result(profile, result, "a")
 	var worth: int = DeepEconomy.daily_payout(int(scored.score))
-	check(int(applied.daily.paid) == worth and int(profile.gold) == gold_before + worth, "the first dig is paid its score's worth: %d gold" % worth)
+	## The par lines it reached pay their gold on top, once each (K4).
+	var par_gold: int = 0
+	for line in DeepEconomy.daily_par("2026-10-10"):
+		if int(scored.score) >= int(line.score):
+			par_gold += int(line.gold)
+	check(int(applied.daily.paid) == worth and int(applied.daily.medal_gold) == par_gold and int(profile.gold) == gold_before + worth + par_gold, "the first dig is paid its score's worth: %d gold, and %d for its par lines" % [worth, par_gold])
 	check(profile.tray.is_empty() and profile.bowl.size() == DeepProfile.new_profile("x").bowl.size(), "and nothing it found comes home")
 	check(JSON.stringify(profile.mines) == mines_before and int(profile.records.runs) == runs_before and int(profile.records.dailies) == 1, "it opens no mine and writes no mine's records")
 	check(bool(profile.history.back().daily) and int(profile.history.back().score) == int(scored.score), "the ledger keeps its score")
@@ -1393,7 +1464,16 @@ func _test_daily_rewards() -> void:
 	var better_score: int = DeepStone.value(found) + 2400
 	gold_then = int(profile.gold)
 	var better_paid: Dictionary = DeepProfile.apply_result(profile, better, "a")
-	check(int(better_paid.daily.paid) == DeepEconomy.daily_payout(better_score) - worth and int(profile.gold) == gold_then + int(better_paid.daily.paid), "a higher one pays the difference")
+	check(int(better_paid.daily.paid) == DeepEconomy.daily_payout(better_score) - worth and int(profile.gold) == gold_then + int(better_paid.daily.paid) + int(better_paid.daily.medal_gold), "a higher one pays the difference")
+	## Par lines (K4): three a day, rising, each paid once; a streak of days dug; the last days kept.
+	var par: Array = DeepEconomy.daily_par("2026-10-10")
+	check(par.size() == 3 and int(par[0].score) < int(par[1].score) and int(par[1].score) < int(par[2].score) and int(par[0].gold) < int(par[2].gold), "a seam has bronze, silver and gold par lines, rising: %s" % str(par))
+	check(par == DeepEconomy.daily_par("2026-10-10") and DeepEconomy.daily_medal("2026-10-10", int(par[1].score)) == "SILVER" and DeepEconomy.daily_medal("2026-10-10", 0) == "", "the same for everyone that day, and a score reads as the best line it reaches")
+	check(int(better_paid.daily.medal_gold) + int(applied.daily.medal_gold) <= int(par[0].gold) + int(par[1].gold) + int(par[2].gold) and profile.dig.medals.size() == DeepEconomy.DAILY_MEDALS.filter(func(m: String) -> bool: return better_score >= int(par[DeepEconomy.DAILY_MEDALS.find(m)].score)).size(), "each par line pays once a day")
+	var streaker: Dictionary = DeepProfile.new_profile("Streak")
+	streaker.records.daily_bests = [{"date": "2026-10-07", "score": 50, "gold": 25}, {"date": "2026-10-08", "score": 90, "gold": 45}, {"date": "2026-10-09", "score": 300, "gold": 150}]
+	check(DeepEconomy.daily_streak(streaker, "2026-10-09") == 3 and DeepEconomy.daily_streak(streaker, "2026-10-10") == 3 and DeepEconomy.daily_streak(streaker, "2026-10-11") == 0, "the streak counts days in a row, today still open")
+	check(DeepEconomy.daily_recent(streaker, 2).map(func(e: Dictionary) -> String: return str(e.date)) == ["2026-10-09", "2026-10-08"], "the last days dug, newest first")
 	check(int(profile.dig.best_score) == better_score, "and becomes the best")
 	check(int(profile.records.best_daily) == better_score and profile.records.daily_bests.size() == 1 and int(profile.records.daily_bests[0].score) == better_score, "the Ledger keeps the day's best, one entry a day")
 	var newcomer: Dictionary = DeepProfile.new_profile("Newcomer")

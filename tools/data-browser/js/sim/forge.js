@@ -418,9 +418,14 @@ export function encounter(rng, mine, depth, party, elite = false) {
 }
 
 // How much tougher a mine breeds its creatures than the Quarry (sim/descent.gd creature_scale).
-export function creatureScale(mine, depth) {
+// A hallway fight (no elite, Warden or boss) hits harder and falls sooner (W5, November 13, 2026).
+export function creatureScale(mine, depth, hallway = false) {
 	let hp = Number(mine?.hp_mult ?? 1);
 	let damage = Number(mine?.damage_mult ?? 1);
+	if (hallway) {
+		hp *= Number(C.constant('hallway_hp', 1));
+		damage *= Number(C.constant('hallway_damage', 1));
+	}
 	if (mine?.endless) {
 		const spans = Math.max(0, depth - 1) / Math.max(1, Number(mine.warden_every ?? 8));
 		hp *= Math.pow(Number(mine.growth?.hp ?? 1), spans);

@@ -74,6 +74,7 @@ const KEYWORDS = {
 	Break: "Takes a die out of your bowl. Broken for the fight, it is back as it was once the fight ends. Granite can't break.",
 	Stun: 'Skips the next action.',
 	'Acid Armour': 'Whoever hits it takes that much Poison.',
+	Jagged: 'Every blow it takes costs whoever threw it health. No block stops it, and it never takes the last point.',
 	Sturdy: 'No single hit takes more than that share of its health.',
 	Steadfast: 'Stun, Bound and Clouded last half as long on it, and it cannot be stunned two actions in a row.',
 	Waterlogged: 'The first time it dies, it gets back up at half its health.',
@@ -146,6 +147,13 @@ const TRAIT_WORDS = {
 	mirror_last_gem: () => ['Mirrors your last gem', 'Hits harder for half of what the party dealt last turn, up to 6'],
 	roll_for_you: () => ['Rolls your dice for you', 'On odd turns'],
 	regrow: () => ['Regrows', 'Heals at turn end'],
+	acid_armour: (v) => [`Acid Armour ${v}`, 'Whoever hits it takes that much Poison for every hit'],
+	// Jagged (W4) and the Wardens' dice rules, pinned by a face until its next action (W3, November 13, 2026).
+	jagged: (v) => [`Jagged ${v}`, 'Every blow it takes costs whoever threw it that much health; no block stops it, never the last point'],
+	numb_low: (v) => [`Dice ${v} or less count for nothing`, 'Until its next action'],
+	numb_high: (v) => [`Dice ${v} or more count for nothing`, 'Until its next action'],
+	numb_small: () => ['Smallest dice count for nothing', 'Until its next action; a bowl all of one size keeps its last die'],
+	set_toll: (v) => [`Matching dice cost ${v} health a throw`, 'Until its next action'],
 };
 
 export function traitChips(traits) {

@@ -625,3 +625,109 @@ points of the party's health and win as often; most Wardens lose 0-10 points of 
 Geode's deep bands, already close, lose more (51 → 38-42% for the bot). The three Wardens tuned
 afterwards, at 400 fights (bot win rate before → after): the Anvil Knight 61.5 → 55.5%, the
 Heartrot 23.5 → 18%, the Spore Mother 75.5 → 62%.
+
+## 14. Wardens push back (November 13, 2026)
+
+The owner's playtest review (page TYY5iCgqbrNzKS8cqSv9qV, items W3 and W4) found one-trick
+builds flattening the Wardens: Graft's Flawless rewrite feeding Ardor's Rally (the Foreman dead on
+turn 2, the Drill taking 365 in one turn) and Vesper's Thousand Cuts with Riposte (the Seeps'
+Lock-Keeper dead in 4 turns for 0 damage). The owner asked for nothing so direct as reading the
+dice "as rolled", but for Wardens and bosses that lock or disable dice, and for strong creatures
+that make many small hits pay. Built in lane `creatures` (build/pt_nov13/impl/creatures.md).
+
+### Dice rules (W3)
+
+Each is one face on a Warden's or boss's action die, a `pin_trait` move like the Hush or the
+Roller: the rule is pinned on the creature until its next action opens, so it covers the party's
+whole next turn, and it lifts the moment the creature falls (gems after the killing blow read
+the dice whole again). Each replaced a face of about the same weight, so the creature keeps its
+count of abilities and plain rails win about as often as before.
+
+| Creature | Face | Replaced | Rule |
+| -------- | ---- | -------- | ---- |
+| The Foreman | Low Ceiling (lamp die) | Collapse | Your dice showing 6 or more count for nothing on your next turn. |
+| The Mirror Regent | Hall of Mirrors (two faces) | Splinter | On your next turn every throw (the opening throw and each reroll) costs 1 health for each die that matches another (a pair 2, a full house 5). Health lost: no block stops it, never the last point. |
+| The Drill | Jam (treads) | one of three Roller faces | Your smallest dice count for nothing on your next turn. A bowl all of one size keeps its last die. |
+| The Lock-Keeper | High Water (wheel die) | one of two Brace faces | Your dice showing 2 or less count for nothing on your next turn. |
+
+- A die that counts for nothing carries `numb` (low, high or small) and `numb_by` on its roll
+  (`DeepBattle.numb_hand`, run after the throw, a reroll and a flip, at rail_begin, before every
+  gem and the Birthstone, and on the forecast's copy). `DeepHand.analyze` reads it as a blank: no
+  value, no set, not held, not counted in `dice_count`. A wild is no number, so only a size numbs
+  it. A gem that changes a face (Graft, a Raise) is read again: a 1 raised to a 4 counts.
+- The smallest dice are the smallest size thrown from the bowl (phantoms are not the bowl's).
+- What it does to the builds: one numbed die is enough to stop five-of-a-kind and five
+  different values for that turn (Rally's Legion, Thousand Cuts); a Jam on Vesper's four d4s or
+  Ardor's three d6s leaves only the big dice; High Water takes Vesper's 1s and 2s; the Hall of
+  Mirrors makes chasing a set cost health on every throw.
+- Words: the move text; `DeepCreatures.effect_words` for pin_trait names each rule.
+
+### The same rules deeper (November 16, 2026)
+
+The owner approved W3 with a note: "Similar moves can be re-used on a few other bosses as well,
+for some of the deeper mines." Three of the rules went to one Warden or boss past the Quarry
+each, whose theme fits it (never two on a creature), each on one face where that creature's own
+face of about the same weight was, so every creature keeps its count of moves. Same rules and
+numbers; Low Ceiling's carries a new name on the Anvil Knight, whose theme called for one. Built
+in lane `creatures`, round 3 (build/pt_nov13/impl/r3_creatures.md, with the bench).
+
+| Creature | Face | Replaced | Rule |
+| -------- | ---- | -------- | ---- |
+| The Undertow (the Seeps' boss) | High Water (tail die, 1 of 12) | Drag Down (takes a die for a turn) | Your dice showing 2 or less count for nothing on your next turn. |
+| The Kaleidoscope (Glass Veins Warden) | Hall of Mirrors (1 of 8 on each of its twin dice) | Blind (1 Dulled) | Each throw on your next turn costs 1 health for every die that matches another. |
+| The Anvil Knight (Furnace Warden) | Flatten, Low Ceiling's rule (hammer die, 1 of 12) | Forge-fire (6 Burn) | Your dice showing 6 or more count for nothing on your next turn. |
+
+- Why these three: the Undertow is the water boss; a kaleidoscope is a ring of mirrors
+  repeating one picture, as matching dice repeat a face; the Anvil Knight's hammer flattens what
+  stands tall. Plain rails win about as often as before against all three (Ardor, 3 and 4
+  sockets: within ±3 points).
+- Jam's rule stays on the Drill alone (which the Rift also remembers): no Warden or boss past the
+  Quarry is a machine. It was built and benched on the Gardener as Thin Out (a gardener thinning
+  its smallest seedlings, on its shell die where Thorns was), and held back: Ardor's rails lost
+  2-4 points, but Vesper's four d4s are her smallest dice, so a Gardener fight (8-10 turns) left
+  her one d12 on the turns it landed, and she lost about 16 points at mid carats (61% → 44%,
+  96% → 80%) whichever of its faces it took (Thorns, Ram, Sow, Tend, Feed the Soil, Prune). On
+  the Drill the same rule costs her 2-3 points: its fights are 5 turns and Jam took a Roller,
+  which already cost her her rerolls. Its animation stays in the Gardener's rig, ready.
+- The Kaleidoscope's two dice stay twins (its Deep Drink needs both on Drink), so its face is on
+  both, where Blind was on both: about as often as the Regent's two faces on one die.
+- Each keeps the move's face mark (low, pair with a drop, high), so a rule wears one picture
+  wherever it is met.
+- New animations: High Water (the Undertow draws itself up and slaps the water flat with its
+  fluke, a swell rolling out at the party), Hall of Mirrors (the Kaleidoscope's wheel fans
+  open and turns twice, each petal throwing back a glint, then one pale flash), Flatten (the
+  Anvil Knight brings its hammer down flat, crouching into it, its fire squashed flat, a flat
+  ring of heat and grit skidding along the floor).
+
+### Jagged (W4)
+
+A new visible trait, `jagged` n: every blow the creature takes costs whoever threw it n health.
+Health lost, as Backlash is: no block stops it (so Riposte's block does not answer it), and it
+never takes the last point. A rail of one big hit pays 1; a Thousand Cuts of 12 cuts pays 12.
+On three strong ordinary creatures, 1 each: the Glass Wyrm (the Quarry from depth 13), the Cave
+Crayfish (the Seeps from depth 7) and the Shard Wyrm (the Glass Veins from depth 17); and one of
+the Rift Remembered's traits (`DeepContent.REMEMBERED_TRAITS`) and of the Champions'
+(docs/HAZARDS.md, tier 5). It was tried on the Glazier too and taken off again: a Warden fight is
+long enough that Vesper's many-hit rail fell from 64% to 21% against it, a wall; in an elite
+fight the same rail pays about five times what a plain rail pays (Seeps elites: 11% of her health
+against 2% without it, Ardor's plain rail 5% against 4%) and wins as often.
+
+Not used: Acid Armour (Poison for every hit) stays on the Spore Slime alone, because a
+creature's Poison carries its mine's damage weight (§9, G2) and a Thousand Cuts turn would lay
+12-24 stacks in a long Warden fight; Burn for every hit was left out because block soaks Burn,
+which Riposte would answer.
+
+### On screen
+
+- A numbed die is dimmed with a "×0" pill at its foot (the face it shows stays in sight, for the
+  reroll) and a badge wearing the move's face mark; its plate names the move and says when the
+  rule lifts (`_sync_die_marks`, `Marks.numb_pill`). Under a Hall of Mirrors the dice that match
+  another wear its badge, and each throw's price floats off the health bar as the matched dice
+  catch the light (`_toll_paid`).
+- The player's chips name each rule in force (`EffectChips.dice_rules`); the creature wears the
+  pinned rule as a trait chip ("High dice out ≥6", "Small dice out", "Low dice out ≤2",
+  "Mirrored dice −1") and Jagged as one ("Jagged 1").
+- A Jagged blow throws a glint of glass off the creature, and the gem's or Birthstone's total
+  floats off the health bar once ("−12 Jagged", `_jagged_paid`).
+- New animations: Low Ceiling (the hook drags the roof down), Hall of Mirrors (was Splinter's
+  flick), Jam (the treads catch, smoke), High Water (the wheel turned back, water over the gate).

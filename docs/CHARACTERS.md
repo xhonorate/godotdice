@@ -69,7 +69,7 @@ _The wall. Locks in early, heals for patience, and turns a lucky triple into a h
 _The assassin's gamble. Four tiny knives and one enormous die._
 
 - **HP** 65. **Dice** d4 d4 d4 d4 d12. **Sockets** Red, Red, Red, Violet, White, Rainbow.
-- **Passive: Riposte.** Gain Res block for every hit one of your gems lands. Block falls off at the end
+- **Passive: Riposte.** Gain block equal to half your Resonance (at least 1; the whole Resonance until November 13, 2026) for every hit one of your gems lands. Block falls off at the end
   of the turn, so a big Birthstone turn is a wall for that turn only.
 - **Birthstone: Thousand Cuts.** Five different values: deal Res damage once for every point on your
   highest die (a d12 showing 7 is seven cuts). _Clean Kill_: a crown on that die as well lands

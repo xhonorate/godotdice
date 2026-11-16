@@ -292,7 +292,7 @@ func status_gems() -> void:
 	check(f.state.enemies.all(func(e: Dictionary) -> bool: return int(e.statuses.poison) == 3), "Miasma gives one Poison per even die to every enemy")
 	f.player.hp = 800
 	cast(f, "SIPHON")
-	check(int(f.player.hp) == 805, "Siphon heals 60% of the nine enemy Poison, floored")
+	check(int(f.player.hp) == 804, "Siphon heals 48% of the nine enemy Poison, floored (60% before November 13, 2026)")
 	f = setup()
 	cast(f, "CURSE", [1, 1, 2, 3, 4], true)
 	check(int(f.foe.statuses.curse) == 2 and int(f.foe.max_hp) == 988 and int(f.foe.hp) == 985, "Curse stacks per one, lowers max HP per one (8 x 1.5), then deals stack damage (2 x 1.5, +20% from the Curse)")

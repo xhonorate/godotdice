@@ -107,7 +107,7 @@ func blue() -> void:
 	fire(f, "HARDENING", [1, 2, 3, 4, 5])
 	var first: int = int(f.player.block)
 	fire(f, "HARDENING", [1, 2, 3, 4, 5])
-	check(first == 4 and int(f.player.block) == 4 + 5, "Hardening: 4 Block, then a point more for every fire")
+	check(first == 3 and int(f.player.block) == 3 + 4, "Hardening: 3 Block (4 before November 13, 2026), then a point more for every fire")
 	check(int(f.player.run_counts.get("gem0", 0)) == 2, "its fires are counted on the unit for the run")
 
 	f = setup()
@@ -155,11 +155,11 @@ func green() -> void:
 	f = setup()
 	f.player.hp = 500
 	f.player.dealt = 100
-	check(fired(fire(f, "THIRST", [1, 2, 3, 4, 5])) and int(f.player.hp) == 530, "Thirst: 30% of the damage dealt this turn, at Perfect")
+	check(fired(fire(f, "THIRST", [1, 2, 3, 4, 5])) and int(f.player.hp) == 524, "Thirst: 24% of the damage dealt this turn, at Perfect (30% before November 13, 2026)")
 	f = setup()
 	f.player.dealt = 100
 	fire(f, "THIRST", [1, 2, 3, 4, 5], true)
-	check(int(f.foe.hp) == 1000 - 45, "Flawless Thirst: healing past full health is dealt to the target")
+	check(int(f.foe.hp) == 1000 - 36, "Flawless Thirst: healing past full health is dealt to the target: %d" % (1000 - int(f.foe.hp)))
 
 	f = setup()
 	check(fired(fire(f, "HEARTWOOD", [5, 5, 5, 5, 1])) and int(f.player.max_hp) == 1003 and int(f.player.hp) == 1003, "Heartwood: 3 max HP, and healed as much")

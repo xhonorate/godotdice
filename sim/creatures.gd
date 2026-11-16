@@ -1067,7 +1067,9 @@ static func effect_words(effect: Dictionary) -> String:
 		"grow_die": return "Grows another head: +1 %s (%s at most)" % [str(effect.get("shape", "D6")).to_lower(), str(effect.get("cap", 5))]
 		"swell": return "Swells by %s · its burst grows" % n
 		"hold_gem": return "Takes %s off a rail until it dies" % {"hardest": "the gem that hit it hardest this turn", "usable": "the finest gem it can fire itself"}.get(str(effect.get("pick", "hardest")), "the party's highest-grade gem")
-		"bury_socket": return "Buries the socket holding your heaviest gem · all players"
+		"bury_socket":
+			var buried_for: int = int(effect.get("turns", 0))
+			return "Buries the socket holding your heaviest gem" + (" for %d %s" % [buried_for, "turn" if buried_for == 1 else "turns"] if buried_for > 0 else (" for the fight" if bool(effect.get("for_fight", false)) else "")) + " · all players"
 		"charge":
 			var turns: int = int(effect.get("turns", 2))
 			var words: String = "Charges for %d %s, then: " % [turns, "action" if turns == 1 else "actions"]
@@ -1133,8 +1135,18 @@ static func effect_words(effect: Dictionary) -> String:
 				how_many = "With none left, " + how_many.to_lower()
 			return "%s becomes %s" % [how_many, str(effect.get("to", ""))]
 		"grow_faces": return "Its die grows a size, its new faces %s" % " and ".join(effect.get("faces", []).map(func(f: Variant) -> String: return str(f)))
-		"pin_trait": return "Until its next action: %s" % str(effect.get("trait", "")).replace("_", " ")
-		"fog": return "Clouds a socket on your rail until you hit it"
+		"pin_trait":
+			## The Wardens' dice rules (W3, November 13, 2026), in the words the dock uses.
+			var held: int = int(effect.get("value", 1)) if effect.get("value", true) is int or effect.get("value", true) is float else 1
+			match str(effect.get("trait", "")):
+				"numb_low": return "Until its next action: your dice showing %d or less count for nothing · all players" % held
+				"numb_high": return "Until its next action: your dice showing %d or more count for nothing · all players" % held
+				"numb_small": return "Until its next action: your smallest dice count for nothing (never every die) · all players"
+				"set_toll": return "Until its next action: every throw costs %d health for each die that matches another · all players" % held
+			return "Until its next action: %s" % str(effect.get("trait", "")).replace("_", " ")
+		"fog":
+			var fogged_for: int = int(effect.get("turns", 0))
+			return ("Clouds a socket on your rail for %d %s, or until you hit it" % [fogged_for, "turn" if fogged_for == 1 else "turns"]) if fogged_for > 0 else "Clouds a socket on your rail until you hit it"
 		"flee": return "Leaves the fight with everything it took"
 		"morph": return "Becomes another creature, at full health"
 		"cling": return "Clings to your finest gem: it fires at you until you hit this creature"

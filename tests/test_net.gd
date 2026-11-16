@@ -126,6 +126,7 @@ func _init() -> void:
 	_test_versions()
 	_test_lan_timeout()
 	_test_steam()
+	_test_room_checkpoint()
 	print("Session: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
 		printerr("FAIL: " + str(failure))
@@ -788,3 +789,44 @@ func _test_steam() -> void:
 	for session in [host, guest, third]:
 		session.queue_free()
 	net.clients.clear()
+
+func _test_room_checkpoint() -> void:
+	## A run quit in the middle of a room is picked up at that room's door (review card M4,
+	## November 2026): the checkpoint is written as the party walks in, not again mid-fight,
+	## and a resume brings back the same creatures and the same throw of the dice.
+	var store := DeepSaveStore.new()
+	store.remove("run.json")
+	var host := DeepSession.new()
+	root.add_child(host)
+	host.saves = store
+	host.start_local(member("Ada", "ARDOR"))
+	check(host.start_run(4242).ok, "a run sets out")
+	stake(host)
+	for guard in range(20):
+		if str(host.run.phase) == "tunnels":
+			break
+		stake(host)
+	check(str(host.run.phase) == "tunnels", "the party stands at the first ways down (%s)" % str(host.run.phase))
+	var way: Dictionary = host.run.offers[0]
+	way.kind = "fight"
+	host.send({"kind": "vote_tunnel", "offer": str(way.id)})
+	check(DeepDescent.in_battle(host.run), "the party walks into a fight")
+	var door: Dictionary = JSON.parse_string(JSON.stringify(host.run))
+	var saved: Dictionary = store.load_checkpoint()
+	check(bool(saved.get("ok", false)) and str(saved.run.phase) == "chamber" and saved.run.chamber.has("battle"), "the room is saved as the party walks in")
+	host.send({"kind": "lock"})
+	drive(host, 6.0)
+	var later: Dictionary = store.load_checkpoint()
+	check(bool(later.get("ok", false)) and same(later.run.chamber.get("battle", {}).get("turn", -1), door.chamber.battle.get("turn", -2)) and same(later.run.get("seq", -1), door.get("seq", -2)),
+		"and not again while the fight goes on")
+	var back := DeepSession.new()
+	root.add_child(back)
+	back.saves = store
+	back.start_local(member("Ada", "ARDOR"))
+	back.resume_run(later.run, later.lobby)
+	var names := func(state: Dictionary) -> Array: return DeepDescent.battle(state).get("enemies", []).map(func(e: Dictionary) -> String: return str(e.get("name", "")))
+	check(DeepDescent.in_battle(back.run) and same(names.call(back.run), names.call(door)), "picked up again, it is the same fight: %s" % str(names.call(back.run)))
+	check(same(DeepBattle.player(DeepDescent.battle(back.run), back.local_id).get("hand", []), DeepBattle.player(DeepDescent.battle(door), "p0").get("hand", [])), "with the same dice thrown")
+	store.remove("run.json")
+	for session in [host, back]:
+		session.queue_free()

@@ -72,7 +72,8 @@ them from the review data and is kept only as a record.
   - `pin_trait` `{trait, value}`: a trait held until its next action opens (the lanterns'
     `gift_rerolls`, the Paradox Moth's `reroll_all`, Static's `backlash`, Hush and Dampen's
     `resonance_damp`, the Drill's `roll_for_you`, the Collapsar's `taunt`). Result `pinned`; the
-    `enemy_begin` event lists `unpinned`.
+    `enemy_begin` event lists `unpinned`. Since November 13, 2026 four Warden faces pin dice
+    rules this way (`numb_low`, `numb_high`, `numb_small`, `set_toll`): see docs/BESTIARY.md §14.
   - `fog`: a socket clouded until someone hits the creature (or it dies); `player.fog`.
   - `flee`: it leaves with what it stole. Result `fled`, `stolen`, `returned`.
   - `morph`: a Void Echo becomes another creature at full health (`DeepCreatures.become_echo`).

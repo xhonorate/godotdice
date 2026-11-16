@@ -50,6 +50,11 @@
     "appraise_gold_min": 12,
     "appraise_gold_mult": 2.0,
     "appraise_cost_step": 50,
+    "restock_base": 15,
+    "restock_step": 15,
+    "stall_lucky_pct": 8,
+    "stall_lucky_luck": 12,
+    "stall_lucky_carats": 2,
     "rest_pct": 35,
     "opal_hoard_pct": 50,
     "hoard_luck": 5,
@@ -72,6 +77,8 @@
     },
     "depth_hp_scale": 0.05,
     "depth_damage_every": 4,
+    "hallway_hp": 0.8,
+    "hallway_damage": 1.5,
     "stone_drop_pct": {
       "fight": 55,
       "elite": 100,
@@ -80,6 +87,9 @@
     },
     "ore_per_fight": 20,
     "elite_stone_luck": 3,
+    "spoils_pyrite_pct": 150,
+    "spoils_pity": 2,
+    "spoils_temper": 2,
     "motherlode_rich": [3, 5],
     "rich_seam_luck": 6,
     "chain_heat": 2,
@@ -1008,7 +1018,7 @@
       "text": "Block to every ally worth {share}% of the top of the straight.",
       "numbers": {
         "share": {
-          "ladder": [100, 200, 300, 400, 500]
+          "ladder": [80, 160, 240, 320, 400]
         }
       },
       "trigger": {
@@ -1026,7 +1036,7 @@
                 "term": "value"
               },
               {
-                "ladder": [100, 200, 300, 400, 500]
+                "ladder": [80, 160, 240, 320, 400]
               }
             ]
           }
@@ -1372,7 +1382,7 @@
       "color": "BLUE",
       "rarity": "UNCOMMON",
       "tags": ["distinct", "guard", "growth"],
-      "text": "Gain 4 Block, plus 1 for every time it has fired this run.",
+      "text": "Gain 3 Block, plus 1 for every time it has fired this run.",
       "trigger": {
         "kind": "distinct",
         "ladder": [5, 4, 3, 2, 1]
@@ -1383,7 +1393,7 @@
           "amount": {
             "op": "+",
             "args": [
-              4,
+              3,
               {
                 "term": "run_fires"
               }
@@ -1401,7 +1411,7 @@
             "amount": {
               "op": "+",
               "args": [
-                4,
+                3,
                 {
                   "term": "run_fires"
                 },
@@ -1833,7 +1843,7 @@
                 "term": "enemy_poison"
               },
               {
-                "ladder": [20, 30, 40, 50, 60]
+                "ladder": [16, 24, 32, 40, 48]
               }
             ]
           },
@@ -1853,7 +1863,7 @@
       },
       "numbers": {
         "share": {
-          "ladder": [20, 30, 40, 50, 60]
+          "ladder": [16, 24, 32, 40, 48]
         }
       }
     },
@@ -1927,7 +1937,7 @@
       "text": "Heal {share}% of the damage you have dealt this turn.",
       "numbers": {
         "share": {
-          "ladder": [10, 15, 20, 25, 30]
+          "ladder": [8, 12, 16, 20, 24]
         }
       },
       "trigger": {
@@ -1944,7 +1954,7 @@
                 "term": "dealt"
               },
               {
-                "ladder": [10, 15, 20, 25, 30]
+                "ladder": [8, 12, 16, 20, 24]
               }
             ]
           }
@@ -3785,7 +3795,7 @@
       "color": "OPAL",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "Copies the skill of the previous gem, opals included.",
+      "text": "Copies the skill of the previous gem, skipping opals.",
       "wears": "prev",
       "trigger": {
         "kind": "resonance",
@@ -3807,7 +3817,7 @@
       "color": "OPAL",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "Activate the first two gems before it that fizzled this turn.",
+      "text": "Activate the first two gems before it that fizzled this turn, skipping opals.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -3820,7 +3830,7 @@
         }
       ],
       "flawless": {
-        "text": "Activate every gem before it that fizzled.",
+        "text": "Activate every gem before it that fizzled, except opals.",
         "modify": [
           {
             "effect": 0,
@@ -3834,7 +3844,7 @@
       "color": "OPAL",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "Create a Void copy of the last gem that fired. It lasts until the end of the turn.",
+      "text": "Create a Void copy of the last gem that fired, unless it is an opal. It lasts until the end of the turn.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -3990,7 +4000,7 @@
       "hue": "f2e9f7",
       "rarity": "TRANSCENDENT",
       "tags": ["opal", "resonance", "transcendent"],
-      "text": "Every gem before it that has already fired this turn fires again.",
+      "text": "Every gem before it that has already fired this turn fires again, except opals.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -5464,7 +5474,7 @@
       "passive": {
         "kind": "block_per_hit",
         "name": "Riposte",
-        "text": "Gain Resonance block for every hit one of your gems lands."
+        "text": "Gain block equal to half your Resonance for every hit one of your gems lands."
       },
       "birthstone": {
         "name": "Thousand Cuts",
@@ -7355,9 +7365,9 @@
           "kind": "meddle",
           "mark": "cloud",
           "anim": "cast",
-          "text": "Clouds a socket on your rail: the gem there does nothing until you hit the Clouder",
+          "text": "Clouds a socket on your rail for 3 turns: the gem there does nothing until then, or until you hit the Clouder",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "fog", "target": "heroes", "amount": 1 }]
+          "effects": [{ "kind": "fog", "target": "heroes", "amount": 1, "turns": 3 }]
         },
         {
           "name": "Gather",
@@ -7557,7 +7567,8 @@
       "hp": 40,
       "block": 5,
       "threat": 5,
-      "text": "A wyrm of glass coiled on the floor. It sharpens itself, breathes three hits of shattered glass, and holds up a mirror that sends half of every blow back at whoever threw it.",
+      "traits": { "jagged": 1 },
+      "text": "A wyrm of glass coiled on the floor. It sharpens itself, breathes three hits of shattered glass, and holds up a mirror that sends half of every blow back at whoever threw it. Its scales cut: every blow you land on it costs you 1 health.",
       "tip": "Hold your big hits while its mirror is up.",
       "dice": [
         {
@@ -7632,7 +7643,7 @@
       "block": 10,
       "threat": 20,
       "warden": true,
-      "text": "Warden of the Quarry: a rock-crab in a miner's hard hat. Its pick die hits; its lamp die shores up, buries your sockets in rubble for the fight, takes a die, and reinforces a pick face into a triple Blast.",
+      "text": "Warden of the Quarry: a rock-crab in a miner's hard hat. Its pick die hits; its lamp die shores up, buries a socket in rubble for 3 turns, brings the roof down low so your high dice count for nothing, and reinforces a pick face into a triple Blast.",
       "tip": "The longer it lives, the more of your rail is buried.",
       "dice": [
         {
@@ -7640,7 +7651,7 @@
           "faces": [
             "Shore Up",
             "Bury",
-            "Collapse",
+            "Low Ceiling",
             "Reinforce",
             "Shore Up",
             "Bury"
@@ -7685,25 +7696,33 @@
           "kind": "meddle",
           "mark": "gem_d",
           "anim": "cast",
-          "text": "Buries a socket on your rail in rubble for the fight",
+          "text": "Buries the socket holding your heaviest gem in rubble for 3 turns",
           "trigger": { "kind": "face" },
           "effects": [
             {
               "kind": "bury_socket",
               "target": "heroes",
               "amount": 1,
-              "for_fight": true
+              "turns": 3
             }
           ]
         },
         {
-          "name": "Collapse",
+          "name": "Low Ceiling",
           "kind": "meddle",
-          "mark": "snare_d",
+          "mark": "high",
           "anim": "cast",
-          "text": "Takes a die",
+          "text": "Your dice showing 6 or more count for nothing on your next turn",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "die_steal", "target": "heroes", "amount": 1 }]
+          "effects": [
+            {
+              "kind": "pin_trait",
+              "target": "self",
+              "amount": 1,
+              "trait": "numb_high",
+              "value": 6
+            }
+          ]
         },
         {
           "name": "Reinforce",
@@ -7760,7 +7779,7 @@
       "block": 13,
       "threat": 30,
       "warden": true,
-      "text": "Warden of the Quarry: a queen of cut glass. Hit it hard and its Reflection throws the damage back; its Mirror sends half of every blow back at the thrower; Mirror Image throws your best die back at you.",
+      "text": "Warden of the Quarry: a queen of cut glass. Hit it hard and its Reflection throws the damage back; its Mirror sends half of every blow back at the thrower; Mirror Image throws your best die back at you; in its Hall of Mirrors every die that matches another costs you health.",
       "tip": "Every blow you land comes back when its Reflection lands.",
       "dice": [
         {
@@ -7768,11 +7787,11 @@
           "faces": [
             "Reflection",
             "Mirror",
-            "Splinter",
+            "Hall of Mirrors",
             "Mirror Image",
             "Reflection",
             "Mirror",
-            "Splinter",
+            "Hall of Mirrors",
             "Reflection"
           ]
         }
@@ -7810,13 +7829,21 @@
           ]
         },
         {
-          "name": "Splinter",
+          "name": "Hall of Mirrors",
           "kind": "meddle",
-          "mark": "hex",
-          "anim": "cast",
-          "text": "{0} Curse",
+          "mark": "pair__m_drop",
+          "anim": "mirror",
+          "text": "On your next turn, each throw costs 1 health for every die that matches another",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "curse", "target": "heroes", "amount": 1 }]
+          "effects": [
+            {
+              "kind": "pin_trait",
+              "target": "self",
+              "amount": 1,
+              "trait": "set_toll",
+              "value": 1
+            }
+          ]
         },
         {
           "name": "Mirror Image",
@@ -7841,7 +7868,7 @@
       "block": 15,
       "threat": 40,
       "warden": true,
-      "text": "The Quarry's final boss: a drilling machine of iron drums. Its treads roll your dice for you, grind your gems dull, rev an Overdrive onto its drill and call rail rats; its drill bores.",
+      "text": "The Quarry's final boss: a drilling machine of iron drums. Its treads roll your dice for you, jam your smallest dice, grind your gems dull, rev an Overdrive onto its drill and call rail rats; its drill bores.",
       "tip": "Each Rev puts another Overdrive on its drill.",
       "dice": [
         {
@@ -7854,7 +7881,7 @@
             "Roller",
             "Grind",
             "Rev",
-            "Roller"
+            "Jam"
           ],
           "label": "treads"
         },
@@ -7891,6 +7918,22 @@
               "target": "self",
               "amount": 1,
               "trait": "roll_for_you"
+            }
+          ]
+        },
+        {
+          "name": "Jam",
+          "kind": "meddle",
+          "mark": "chain",
+          "anim": "cast",
+          "text": "Your smallest dice count for nothing on your next turn",
+          "trigger": { "kind": "face" },
+          "effects": [
+            {
+              "kind": "pin_trait",
+              "target": "self",
+              "amount": 1,
+              "trait": "numb_small"
             }
           ]
         },
@@ -8003,7 +8046,8 @@
       "hp": 32,
       "block": 0,
       "threat": 3,
-      "text": "A pale crayfish that grips your best die in its claw. The die sits out every throw until the crayfish is hurt.",
+      "traits": { "jagged": 1 },
+      "text": "A pale crayfish that grips your best die in its claw. The die sits out every throw until the crayfish is hurt, and its spiny shell costs you 1 health for every blow you land on it.",
       "tip": "Hit it to make it let go of your die.",
       "dice": [
         {
@@ -8178,7 +8222,7 @@
       "block": 8,
       "threat": 22,
       "warden": true,
-      "text": "Warden of the Seeps: a sluice-snail with a valve wheel. Its wheel die locks your best die in the gate and turns the wheel, which etches another Sluice onto its gate die; Flood is its worst.",
+      "text": "Warden of the Seeps: a sluice-snail with a valve wheel. Its wheel die locks your best die in the gate, raises the water over your low dice and turns the wheel, which etches another Sluice onto its gate die; Flood is its worst.",
       "tip": "Every Turn of the Wheel puts another Sluice on its gate.",
       "dice": [
         {
@@ -8189,7 +8233,7 @@
             "Brace",
             "Turn the Wheel",
             "Lock",
-            "Brace"
+            "High Water"
           ],
           "label": "wheel"
         },
@@ -8251,6 +8295,23 @@
               "target": "self",
               "amount": 1,
               "keep_all": true
+            }
+          ]
+        },
+        {
+          "name": "High Water",
+          "kind": "meddle",
+          "mark": "low",
+          "anim": "cast",
+          "text": "Your dice showing 2 or less count for nothing on your next turn",
+          "trigger": { "kind": "face" },
+          "effects": [
+            {
+              "kind": "pin_trait",
+              "target": "self",
+              "amount": 1,
+              "trait": "numb_low",
+              "value": 2
             }
           ]
         },
@@ -8423,7 +8484,7 @@
       "block": 13,
       "threat": 45,
       "warden": true,
-      "text": "The Seeps' final boss: a serpent of cut boulders. Its jaws bite and drag the whole party under; its tail thrashes, dives and surfaces hard, and calls seep eels.",
+      "text": "The Seeps' final boss: a serpent of cut boulders. Its jaws bite and drag the whole party under; its tail thrashes, dives and surfaces hard, calls seep eels and raises the water over your low dice.",
       "tip": "Drag Under stuns the whole party at once.",
       "dice": [
         {
@@ -8447,7 +8508,7 @@
             "Slam",
             "Dive",
             "Call the Eels",
-            "Drag Down",
+            "High Water",
             "Thrash",
             "Slam",
             "Dive",
@@ -8549,13 +8610,21 @@
           ]
         },
         {
-          "name": "Drag Down",
+          "name": "High Water",
           "kind": "meddle",
-          "mark": "snare_d",
+          "mark": "low",
           "anim": "cast",
-          "text": "Takes a die",
+          "text": "Your dice showing 2 or less count for nothing on your next turn",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "die_steal", "target": "heroes", "amount": 1 }]
+          "effects": [
+            {
+              "kind": "pin_trait",
+              "target": "self",
+              "amount": 1,
+              "trait": "numb_low",
+              "value": 2
+            }
+          ]
         }
       ],
       "traits": { "steadfast": true }
@@ -8834,7 +8903,8 @@
       "hp": 42,
       "block": 5,
       "threat": 5,
-      "text": "A pink glass wyrm. Its breath is one great blow through block.",
+      "traits": { "jagged": 1 },
+      "text": "A pink glass wyrm. Its breath is one great blow through block, and its scales cut: every blow you land on it costs you 1 health.",
       "tip": "Its breath ignores block.",
       "dice": [
         {
@@ -9029,7 +9099,7 @@
       "block": 10,
       "threat": 34,
       "warden": true,
-      "text": "Warden of the Glass Veins: a great eye of coloured glass, two dice. Drink drinks a colour for a turn and steals what those gems do; both dice on Drink and it drinks the party's favourite too.",
+      "text": "Warden of the Glass Veins: a great eye of coloured glass, two dice. Drink drinks a colour for a turn and steals what those gems do; both dice on Drink and it drinks the party's favourite too. In its Hall of Mirrors every die that matches another costs you health.",
       "tip": "The colour it drinks does it no harm, and feeds it.",
       "dice": [
         {
@@ -9037,7 +9107,7 @@
           "faces": [
             "Glare",
             "Drink",
-            "Blind",
+            "Hall of Mirrors",
             "Glare",
             "Drink",
             "Glare",
@@ -9050,7 +9120,7 @@
           "faces": [
             "Glare",
             "Drink",
-            "Blind",
+            "Hall of Mirrors",
             "Glare",
             "Drink",
             "Glare",
@@ -9086,13 +9156,21 @@
           ]
         },
         {
-          "name": "Blind",
+          "name": "Hall of Mirrors",
           "kind": "meddle",
-          "mark": "cut",
-          "anim": "cast",
-          "text": "{0} Dulled",
+          "mark": "pair__m_drop",
+          "anim": "mirror",
+          "text": "On your next turn, each throw costs 1 health for every die that matches another",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "dulled", "target": "heroes", "amount": 1 }]
+          "effects": [
+            {
+              "kind": "pin_trait",
+              "target": "self",
+              "amount": 1,
+              "trait": "set_toll",
+              "value": 1
+            }
+          ]
         },
         {
           "name": "Deep Drink",
@@ -10350,7 +10428,7 @@
       "block": 18,
       "threat": 38,
       "warden": true,
-      "text": "Warden of the Furnace: an empty suit of armour with fire for a head. Its anvil builds (thorny block it keeps, Strength, tempering Hammers into Smites); its hammer spends it.",
+      "text": "Warden of the Furnace: an empty suit of armour with fire for a head. Its anvil builds (thorny block it keeps, Strength, tempering Hammers into Smites); its hammer spends it, and flattens your high dice.",
       "tip": "Every Temper turns a Hammer into a Smite. End it quickly.",
       "dice": [
         {
@@ -10372,7 +10450,7 @@
           "faces": [
             "Hammer",
             "Smite",
-            "Forge-fire",
+            "Flatten",
             "Shatter",
             "Hammer",
             "Smite",
@@ -10457,13 +10535,21 @@
           "effects": [{ "kind": "damage", "target": "heroes", "amount": 12 }]
         },
         {
-          "name": "Forge-fire",
+          "name": "Flatten",
           "kind": "meddle",
-          "mark": "flame",
-          "anim": "breath",
-          "text": "{0} Burn",
+          "mark": "high",
+          "anim": "cast",
+          "text": "Your dice showing 6 or more count for nothing on your next turn",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "burn", "target": "heroes", "amount": 6 }]
+          "effects": [
+            {
+              "kind": "pin_trait",
+              "target": "self",
+              "amount": 1,
+              "trait": "numb_high",
+              "value": 6
+            }
+          ]
         },
         {
           "name": "Shatter",
@@ -13210,7 +13296,7 @@
     "FIELD_MEDIC": {
       "name": "Rest Stop",
       "room": "rest_stop",
-      "text": "A nook in the wall with a bench and a supply box someone left behind.",
+      "text": "A nook in the wall with a bench, a stove and a polishing cloth someone left behind.",
       "choices": [
         {
           "id": "heal",
@@ -13222,14 +13308,14 @@
           }
         },
         {
-          "id": "ore",
-          "label": "Resupply",
+          "id": "polish",
+          "label": "Polish a gem",
+          "text": "One gem in a socket gains 1 carat until the run ends.",
+          "needs": "rail_gem",
           "action": {
-            "kind": "ore",
-            "base": 6,
-            "per_depth": 1
-          },
-          "text": "Gain {ore} pyrite."
+            "kind": "polish",
+            "carats": 1
+          }
         }
       ]
     },
@@ -13240,7 +13326,7 @@
         {
           "id": "tumble",
           "label": "Tumble a stone",
-          "text": "Rerolls its skill among the skills of its color. Carats, Cut, Clarity and inclusions stay the same.",
+          "text": "Rerolls its skill among the skills of its color. Carats, Cut, Clarity and inclusions stay the same, Void included: a Void gem still rides a socket.",
           "needs": "stone",
           "action": {
             "kind": "tumble"
@@ -13354,37 +13440,20 @@
       "text": "Chisels and etching needles laid out under a lamp. Dice faces can be raised, lowered or etched here.",
       "choices": [
         {
-          "id": "raise",
-          "label": "Raise a face",
-          "text": "Pick a die face and raise it by 1. Any etching on it stays.",
-          "needs": "die_face",
+          "id": "chisel",
+          "label": "Take up the chisel",
+          "text": "Raise or lower die faces by 1, one cut at a time. The chisel may break after any cut: it lasts 1 to 5. Etchings stay.",
+          "needs": "chisel",
           "action": {
-            "kind": "raise_face",
-            "amount": 1
+            "kind": "chisel",
+            "amount": 1,
+            "breaks": [30, 40, 50, 60, 100]
           },
           "improved": {
-            "label": "Raise **three** faces",
-            "text": "Pick up to **three** die faces and raise each by 1. Etchings stay.",
-            "needs": "die_faces",
-            "most": 3,
-            "action": { "kind": "raise_face", "amount": 1, "faces": 3 }
-          }
-        },
-        {
-          "id": "lower",
-          "label": "Lower a face",
-          "text": "Pick a die face and lower it by 1. Any etching on it stays.",
-          "needs": "die_face",
-          "action": {
-            "kind": "lower_face",
-            "amount": 1
-          },
-          "improved": {
-            "label": "Lower **three** faces",
-            "text": "Pick up to **three** die faces and lower each by 1. Etchings stay.",
-            "needs": "die_faces",
-            "most": 3,
-            "action": { "kind": "lower_face", "amount": 1, "faces": 3 }
+            "label": "Take up the **steel** chisel",
+            "text": "Raise or lower die faces by 1, one cut at a time. It **never breaks in its first 3 cuts** and lasts up to 6. Etchings stay.",
+            "needs": "chisel",
+            "action": { "kind": "chisel", "amount": 1, "breaks": [0, 0, 0, 30, 50, 100] }
           }
         },
         {
@@ -13460,7 +13529,7 @@
           "id": "reroll",
           "label": "Fire a stone",
           "needs": "stone",
-          "text": "Rerolls its Clarity. 4% chance it cracks.",
+          "text": "Rerolls its Clarity and what is frozen inside. 4% chance it cracks.",
           "action": {
             "kind": "reroll_clarity",
             "shatter": 4,

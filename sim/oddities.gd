@@ -13,7 +13,11 @@ extends RefCounted
 
 const ACTIONS: Array = ["none", "reroll_cut", "reroll_clarity", "push_clarity", "remove_inclusion", "fuse", "geode_buy", "etch", "pattern", "material", "reset",
 	"trade_up", "shrine", "idol", "echo_stone", "collector_sell", "collector_buy", "heal", "ore",
-	"appraise", "acid_appraise", "tumble", "upsize", "downsize", "temper", "raise_face", "lower_face", "pry", "chips", "wishing_well", "hollow"]
+	"appraise", "acid_appraise", "tumble", "upsize", "downsize", "temper", "raise_face", "lower_face", "pry", "chips", "wishing_well", "hollow",
+	"polish", "chisel"]
+## The carver's chisel (review card M3): the chance in a hundred that it breaks on each cut,
+## first cut first, when the card does not say. Past the list's end it always breaks.
+const CHISEL_BREAKS: Array = [30, 40, 50, 60, 100]
 const SIZES: Array = DeepDice.TIERS
 ## The fewest dice the Hollow leaves anybody with, unless its card says otherwise.
 const HOLLOW_LEAST_DICE: int = 3
@@ -175,9 +179,12 @@ static func work_refusal(action: Dictionary, item: Dictionary, player: Dictionar
 			return resize_refusal(item, 1)
 		"downsize":
 			return resize_refusal(item, -1)
-		"raise_face":
+		"raise_face", "chisel":
 			## The chisel has no ceiling, and neither does a face: any die with a face takes it.
 			return "" if not item.get("faces", []).is_empty() else "it has no faces to raise"
+		"polish":
+			## Only a gem set in a socket takes the cloth, and not one as heavy as stones come.
+			return DeepDescent.polish_refusal(player, item) if not player.is_empty() else ""
 		"lower_face":
 			for f in item.get("faces", []):
 				if str(f.get("kind", "plain")) != "blank" and int(f.get("value", 0)) > 1:
@@ -228,7 +235,11 @@ static func nothing_to_work(needs: String, action: Dictionary, player: Dictionar
 	## Whether a piece of work that `needs` something has nothing of the player's it could be
 	## done to at all.
 	match needs:
-		"die", "die_face", "die_faces":
+		"rail_gem":
+			## A gem set in a socket that the work would take (a Polish: not one as heavy as they come).
+			var set: Array = player.get("rail", []).filter(func(s: Variant) -> bool: return s is Dictionary)
+			return not set.any(func(s: Dictionary) -> bool: return work_refusal(action, s, player, offer).is_empty())
+		"die", "die_face", "die_faces", "chisel":
 			var dice: Array = player.get("dice", [])
 			## A die the work would refuse (a plain one in the vat, a d2 at the file) is not one it could be done to.
 			return dice.is_empty() or (not action.is_empty() and not dice.any(func(d: Dictionary) -> bool: return work_refusal(action, d, player, offer).is_empty()))
@@ -745,7 +756,9 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			if not refusal.is_empty():
 				return _refuse(refusal)
 			out.dice.append(die.duplicate(true))
-			out.message = "Your die is now a %s." % DeepDice.describe(die)
+			## Its material goes with it; a plain die wears its new size's own color (X17: a plain
+			## teal d8 came out a blue d10, and read as if its crystal had been lost).
+			out.message = "Your die is now a %s.%s" % [DeepDice.describe(die), " Its material comes with it." if not str(die.get("material", "")).is_empty() else " A plain die takes its new size's color."]
 		"temper":
 			## The lowest face comes up, never past what the die can show; a blank face
 			## becomes a number.
@@ -844,6 +857,58 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			out.dice.append(die.duplicate(true))
 			out.faces = {str(die.id): face}
 			out.message = "The %s is now a %s." % [_face_words(DeepDice.face(before, kind_was)), _face_words(die.faces[face])]
+		"chisel":
+			## The carver's chisel (review card M3): one cut a call, a chosen face raised or
+			## lowered by `amount` (payload `way`: 1 up, -1 down) on the same rules as the old
+			## raise and lower. After every cut it may break, more likely with each (`breaks`, in a
+			## hundred, first cut first). While it holds, the card stays open (`again`) and the cuts
+			## are kept in `tries`; broken, or put down (payload `done`), the work ends with them all.
+			var tries: Dictionary = ctx.get("tries", {})
+			var cuts: Array = (tries.get("cuts", []) as Array).duplicate(true) if tries.get("cuts", []) is Array else []
+			if bool(payload.get("done", false)):
+				if cuts.is_empty():
+					return _refuse("make a cut first, or leave the chisel where it lies")
+				_chisel_done(out, player, cuts, false)
+				return out
+			var die: Dictionary = find_die(player, str(payload.get("die_id", "")))
+			var face: int = int(payload.get("face", -1))
+			var way: int = 1 if int(payload.get("way", 1)) >= 0 else -1
+			if die.is_empty() or face < 0 or face >= die.get("faces", []).size():
+				return _refuse("choose a die and a face to cut")
+			var kind_was: String = str(die.faces[face].get("kind", "plain"))
+			var before: int = _shown(die.faces[face])
+			var step: int = maxi(1, int(action.get("amount", 1)))
+			if way < 0:
+				if kind_was == "blank":
+					return _refuse("a blank face has no number to lower")
+				if before <= 1:
+					return _refuse("that face is already a 1")
+				die.faces[face] = DeepDice.face(maxi(1, before - step), kind_was)
+			else:
+				die.faces[face] = DeepDice.face(before + step, "plain" if kind_was == "blank" else kind_was)
+			cuts.append({"die_id": str(die.id), "face": face, "way": way, "from": DeepDice.face(before, kind_was), "to": (die.faces[face] as Dictionary).duplicate()})
+			var broke: bool = DeepRng.chance(rng, chisel_odds(action, cuts.size() - 1))
+			if broke:
+				_chisel_done(out, player, cuts, true)
+				return out
+			out.again = true
+			out.tries = {"chisel": true, "cuts": cuts}
+			out.dice.append(die.duplicate(true))
+			out.faces = {str(die.id): face}
+			out.chisel = {"cuts": cuts.size(), "broke": false, "next": chisel_odds(action, cuts.size())}
+			out.message = "The %s is now a %s. The chisel holds." % [_face_words(DeepDice.face(before, kind_was)), _face_words(die.faces[face])]
+		"polish":
+			## A gem in a socket polished for the rest of the run (a rest stop's cloth, review card
+			## B1): its carats come off again as it goes home (DeepStone.unpolish).
+			var stone: Dictionary = find_stone(player, str(payload.get("stone_id", "")))
+			var refusal: String = DeepDescent.polish_refusal(player, stone)
+			if not refusal.is_empty():
+				return _refuse(refusal)
+			var was: int = int(stone.get("carat", 1))
+			DeepStone.polish(stone, maxi(1, int(action.get("carats", 1))))
+			out.changed.append(stone.duplicate(true))
+			out.polished = {"stone_id": str(stone.id), "from": was, "to": int(stone.carat), "socket": player.get("rail", []).find(stone)}
+			out.message = "You polish your %s: %d carats now, until the run ends." % [str(DeepStone.skill_of(stone).get("name", stone.get("skill", ""))), int(stone.carat)]
 		"pry":
 			var stone: Dictionary = DeepForge.roll_stone(rng, mine, depth, int(action.get("bonus", 4)), {"run": ctx.get("run", ""), "source": "seam"})
 			## The big one is never smaller than its `min_size` class, however poor the rock's luck.
@@ -900,7 +965,7 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 				said = "%s goes down into the water." % (DeepStone.name(offered) if bool(offered.get("appraised", false)) else DeepStone.raw_name(offered))
 				remove_stone(player, str(offered.id))
 				out.lost.append(str(offered.id))
-			var rung: int = well_rung(rng, thrown)
+			var rung: int = well_rung(rng, thrown, int(player.get("hp", 0)) < int(player.get("max_hp", 0)))
 			var prize: Dictionary = well_prize(rng, rung, player, mine, depth, str(ctx.get("run", "")))
 			out.made.append_array(prize.get("made", []))
 			out.well = well_summary(rung, thrown, prize, spent)
@@ -1016,6 +1081,60 @@ static func at_pull(choice: Dictionary, done: int) -> Dictionary:
 static func idol_price(action: Dictionary, done: int) -> int:
 	## What the Idol's next pull costs in health after `done` pulls: each dearer than the last.
 	return maxi(0, int(action.get("hp", 3)) + int(action.get("hp_step", 2)) * done)
+
+# --- the chisel -----------------------------------------------------------------------------------
+##
+## The carver's chisel (review card M3, the owner's idea): faces raised or lowered one cut at a
+## time, and after any cut it may break. The plain chisel always makes one cut and never more
+## than five (`breaks` 30/40/50/60/100); a lucky bench or a Smith's Voucher hands over the steel
+## one, which never breaks in its first three cuts and can last six (0/0/0/30/50/100), so the
+## better work is never less than the three faces it used to raise.
+
+static func chisel_breaks(action: Dictionary) -> Array:
+	var breaks: Variant = action.get("breaks", CHISEL_BREAKS)
+	return breaks if breaks is Array and not (breaks as Array).is_empty() else CHISEL_BREAKS
+
+static func chisel_odds(action: Dictionary, cut: int) -> float:
+	## The chance in a hundred that the chisel breaks on cut number `cut` (0 for the first).
+	var breaks: Array = chisel_breaks(action)
+	return 100.0 if cut >= breaks.size() else clampf(float(breaks[cut]), 0.0, 100.0)
+
+static func chisel_most(action: Dictionary) -> int:
+	## The most cuts the chisel can make: its last rung always breaks it.
+	var breaks: Array = chisel_breaks(action)
+	for index in range(breaks.size()):
+		if float(breaks[index]) >= 100.0:
+			return index + 1
+	return breaks.size() + 1
+
+static func chisel_sure(action: Dictionary) -> int:
+	## The cuts the chisel makes before it can break at all (the steel chisel's first three).
+	var sure: int = 0
+	for odds in chisel_breaks(action):
+		if float(odds) > 0.0:
+			break
+		sure += 1
+	return sure
+
+static func _chisel_done(out: Dictionary, player: Dictionary, cuts: Array, broke: bool) -> void:
+	## The chisel's work as one result: every die it touched, the last face cut on each, and a
+	## line for every cut.
+	var said: Array = []
+	out.faces = {}
+	for cut in cuts:
+		out.faces[str(cut.get("die_id", ""))] = int(cut.get("face", 0))
+		said.append("the %s is now a %s" % [_face_words(cut.get("from", {})), _face_words(cut.get("to", {}))])
+	for die_id in out.faces:
+		var die: Dictionary = find_die(player, str(die_id))
+		if not die.is_empty():
+			out.dice.append(die.duplicate(true))
+	out.chisel = {"cuts": cuts.size(), "broke": broke, "log": cuts.duplicate(true)}
+	var line: String = "; ".join(said)
+	var head: String = ("The chisel breaks on its %s cut." % _nth(cuts.size())) if broke else ("You put the chisel down after %s." % ("one cut" if cuts.size() == 1 else "%d cuts" % cuts.size()))
+	out.message = "%s %s." % [head, line.left(1).to_upper() + line.substr(1)]
+
+static func _nth(count: int) -> String:
+	return ["first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth"][clampi(count - 1, 0, 7)]
 
 # --- the crucible -------------------------------------------------------------------------------
 
@@ -1134,12 +1253,14 @@ static func well_worth(stone: Dictionary, raw_mult: float, read_mult: float) -> 
 	## three times as much to the well as dropping it rough.
 	return float(DeepStone.value(stone)) * (read_mult if bool(stone.get("appraised", false)) else raw_mult)
 
-static func well_rung(rng: RandomNumberGenerator, worth: float) -> int:
+static func well_rung(rng: RandomNumberGenerator, worth: float, wounded: bool = true) -> int:
 	## Which rung of the ladder a draw of this size lands on. The draw is a bell centred where
 	## the offering puts it and as wide as the offering is generous. The bell never sits on
 	## "Nothing" (a pittance centres between a poor stone and fifty pyrite, and lands on
 	## Nothing about once in a hundred), and it climbs fastest for the first coins thrown in,
 	## so a modest offering is a real chance; a thousand is a broad reach across the top.
+	## At full health (`wounded` false) the heal rung is not drawn at all: warm water over no
+	## wounds was a dead result (X4, November 13, 2026).
 	var share: float = pow(clampf(worth / WELL_MOST, 0.0, 1.0), WELL_CLIMB)
 	var top: float = float(WELL_PRIZES.size() - 1)
 	var centre: float = WELL_FLOOR + (top - WELL_FLOOR) * share
@@ -1147,7 +1268,8 @@ static func well_rung(rng: RandomNumberGenerator, worth: float) -> int:
 	var weights: Array = []
 	for index in range(WELL_PRIZES.size()):
 		var off: float = float(index) - centre
-		weights.append(exp(-(off * off) / (2.0 * spread * spread)))
+		var dead: bool = not wounded and str(WELL_PRIZES[index].get("kind", "")) == "heal"
+		weights.append(0.0 if dead else exp(-(off * off) / (2.0 * spread * spread)))
 	return maxi(0, DeepRng.weighted_index(rng, weights))
 
 static func well_prize(rng: RandomNumberGenerator, rung: int, player: Dictionary, mine: Dictionary, depth: int, run: String) -> Dictionary:

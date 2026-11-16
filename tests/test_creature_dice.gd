@@ -22,6 +22,10 @@ func _init() -> void:
 	mirrors()
 	gathered_light()
 	called_moves()
+	dice_denial()
+	hall_of_mirrors()
+	deeper_dice_rules()
+	jagged()
 	print("Creature dice: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
 		printerr("FAIL: " + str(failure))
@@ -320,13 +324,39 @@ func fog_and_rubble() -> void:
 	check(unit.get("fog", []).size() == 1 and unit.clouded.size() == 1, "Fog clouds a socket on the rail, and it is there as the next turn opens")
 	DeepBattle._damage(f.state, unit, f.foe, 5, f.rng.dice)
 	check(unit.get("fog", []).is_empty(), "hitting the Clouder lifts its fog")
+	## Fog also lifts on its own after 3 turns (November 13, 2026). Guards never hit the Clouder.
+	f = setup(["CLOUDER"], 1)
+	unit = f.state.players[0]
+	for at in range(unit.rail.size()):
+		unit.rail[at] = stone("GUARD", "p0_g%d" % at)
+	for d in range(f.foe.dice.size()):
+		force(f.foe, d, "Gather")
+	force(f.foe, 0, "Fog")
+	turn(f)
+	var lefts: Array = [DeepBattle.hold_left(DeepBattle.hold_at(unit, "fog", int(unit.clouded[0]) if not unit.clouded.is_empty() else -1), int(f.state.turn))]
+	force(f.foe, 0, "Gather")
+	for _turn in range(2):
+		turn(f)
+		lefts.append(DeepBattle.hold_left(DeepBattle.hold_at(unit, "fog", int(unit.clouded[0]) if not unit.clouded.is_empty() else -1), int(f.state.turn)))
+	check(lefts == [3, 2, 1] and unit.clouded.size() == 1, "fog counts down 3, 2, 1 over the turns it holds: %s" % str(lefts))
+	turn(f)
+	check(unit.get("fog", []).is_empty() and unit.clouded.is_empty(), "and lifts on its own after 3 turns")
+	## The Foreman's rubble holds the heaviest gem's socket for 3 turns, then digs itself out.
 	var g: Dictionary = setup(["THE_FOREMAN"], 1)
+	for d in range(g.foe.dice.size()):
+		force(g.foe, d, "Shore Up")
 	force(g.foe, 0, "Bury")
 	turn(g)
-	check(g.state.players[0].get("rubble", []).size() == 1, "Bury leaves rubble for the fight")
+	var hero: Dictionary = g.state.players[0]
+	check(hero.get("rubble", []).size() == 1 and hero.buried.size() == 1, "Bury leaves rubble, and it is there as the next turn opens")
+	var left: Array = [DeepBattle.hold_left(DeepBattle.hold_at(hero, "rubble", int(hero.buried[0])), int(g.state.turn))]
 	force(g.foe, 0, "Shore Up")
+	for _turn in range(2):
+		turn(g)
+		left.append(DeepBattle.hold_left(DeepBattle.hold_at(hero, "rubble", int(hero.buried[0]) if not hero.buried.is_empty() else -1), int(g.state.turn)))
+	check(left == [3, 2, 1] and hero.buried.size() == 1, "the rubble counts down 3, 2, 1: %s" % str(left))
 	turn(g)
-	check(g.state.players[0].buried.size() >= 1, "the rubble is still there the turn after")
+	check(hero.get("rubble", []).is_empty() and hero.buried.is_empty(), "and the socket digs itself out after 3 turns")
 
 func growing_dice() -> void:
 	var f: Dictionary = setup(["CRYSTAL_HYDRA"])
@@ -458,3 +488,192 @@ func called_moves() -> void:
 	check(swell >= 4, "Swell swells it")
 	var hit: Dictionary = DeepBattle._damage(g.state, g.state.players[0], g.foe, 99999, g.rng.dice)
 	check(bool(hit.get("killed", false)), "a Puffball can be killed")
+
+# --- W3 and W4 (November 13, 2026): dice a Warden denies, and blows that cost the thrower ----
+
+func _hand(unit: Dictionary, shapes: Array, values: Array) -> void:
+	## Sets a player's hand by hand: these shapes, showing these faces.
+	var hand: Array = []
+	for i in range(values.size()):
+		hand.append({"die_id": "%s_h%d" % [str(unit.id), i], "shape": str(shapes[i]), "value": int(values[i]), "top": int(DeepDice.SHAPES[str(shapes[i])]), "kind": "plain"})
+	unit.hand = hand
+
+func _numbed(unit: Dictionary) -> Array:
+	return unit.hand.filter(func(r: Dictionary) -> bool: return r.has("numb")).map(func(r: Dictionary) -> int: return int(r.value))
+
+func dice_denial() -> void:
+	## The Drill's Jam: each player's smallest dice count for nothing on their next turn.
+	var f: Dictionary = setup(["THE_DRILL"], 1)
+	for d in range(f.foe.dice.size()):
+		force(f.foe, d, "Bore")
+	force(f.foe, 0, "Jam")
+	turn(f)
+	var unit: Dictionary = f.state.players[0]
+	check(DeepCreatures.trait_value(f.foe, "numb_small", 0) == 1, "Jam holds its rule through the party's turn")
+	## A bowl all of one size (setup's five d6s): every die but one is numbed, never all of them.
+	check(unit.hand.filter(func(r: Dictionary) -> bool: return r.has("numb")).size() == unit.hand.size() - 1 and not unit.hand.back().has("numb"),
+		"a bowl of one size keeps its last die counting: %s" % str(unit.hand.map(func(r: Dictionary) -> String: return str(r.get("numb", "-")))))
+	check(int(DeepHand.analyze(unit.hand).dice_count) == 1, "and the hand reads as that one die")
+	_hand(unit, ["D4", "D4", "D6", "D8", "D12"], [4, 4, 4, 4, 4])
+	DeepBattle.numb_hand(f.state, unit)
+	check(_numbed(unit) == [4, 4] and unit.hand[0].numb == "small" and str(unit.hand[0].numb_by) == str(f.foe.id), "a mixed bowl loses only its d4s")
+	var crush: Dictionary = DeepStone.make("CRUSH", 1, 4, 3, [], {}, "c")
+	check(DeepStone.evaluate(crush, unit.hand).active, "the d6, d8 and d12 still make a triple of 4s")
+	_hand(unit, ["D4", "D4", "D4", "D6", "D12"], [4, 4, 4, 2, 9])
+	DeepBattle.numb_hand(f.state, unit)
+	check(not DeepStone.evaluate(crush, unit.hand).active, "but three 4s on numbed d4s are no triple")
+	force(f.foe, 0, "Bore")
+	turn(f)
+	check(not DeepCreatures.has_trait(f.foe, "numb_small") and _numbed(unit).is_empty(), "the rule lifts as its next action opens")
+	## The Lock-Keeper's High Water: dice showing 2 or less count for nothing; a reroll is read again.
+	var g: Dictionary = setup(["THE_LOCKKEEPER"], 1)
+	for d in range(g.foe.dice.size()):
+		force(g.foe, d, "Wrench")
+	force(g.foe, 0, "High Water")
+	turn(g)
+	var hero: Dictionary = g.state.players[0]
+	_hand(hero, ["D6", "D6", "D6", "D6", "D6"], [1, 2, 2, 3, 6])
+	DeepBattle.numb_hand(g.state, hero)
+	check(_numbed(hero) == [1, 2, 2] and hero.hand[1].numb == "low", "High Water numbs every die showing 2 or less")
+	check(DeepHand.analyze(hero.hand).pairs.is_empty(), "so the 2s make no pair")
+	hero.hand[1].value = 5
+	DeepBattle.numb_hand(g.state, hero)
+	check(_numbed(hero) == [1, 2], "a face changed to 5 counts again")
+	## A wild is no number: no line numbs it.
+	hero.hand[0].kind = "wild"
+	DeepBattle.numb_hand(g.state, hero)
+	check(not hero.hand[0].has("numb"), "a wild is never under the water")
+	## Killing it lifts the rule at once, mid-rail.
+	g.foe.hp = 0
+	DeepBattle.numb_hand(g.state, hero)
+	check(_numbed(hero).is_empty(), "the rule lifts the moment the Lock-Keeper falls")
+	## The Foreman's Low Ceiling: dice showing 6 or more count for nothing.
+	var h: Dictionary = setup(["THE_FOREMAN"], 1)
+	for d in range(h.foe.dice.size()):
+		force(h.foe, d, "Pick")
+	force(h.foe, 0, "Low Ceiling")
+	turn(h)
+	var p: Dictionary = h.state.players[0]
+	_hand(p, ["D6", "D8", "D8", "D12", "D4"], [6, 5, 8, 11, 4])
+	DeepBattle.numb_hand(h.state, p)
+	check(_numbed(p) == [6, 8, 11] and p.hand[0].numb == "high", "Low Ceiling numbs every die showing 6 or more")
+	check(int(DeepHand.analyze(p.hand).high) == 5, "so the hand's high die is the 5")
+	## A reroll is read against the rule again.
+	var out: Dictionary = DeepBattle.command(h.state, "p0", {"kind": "reroll", "dice": [str(p.hand[4].die_id)]}, h.rng.dice)
+	check(bool(out.get("ok", false)) and p.hand.filter(func(r: Dictionary) -> bool: return r.has("numb")).all(func(r: Dictionary) -> bool: return int(r.value) >= 6), "a reroll is read against the rule again")
+	## The rail reads it: a Strike fired under it reads only the dice that count.
+	_hand(p, ["D6", "D6", "D6", "D6", "D6"], [6, 6, 6, 6, 2])
+	DeepBattle.numb_hand(h.state, p)
+	var strike: Dictionary = DeepStone.make("STRIKE", 1, 4, 3, [], {}, "s")
+	var read: Dictionary = DeepStone.evaluate(strike, p.hand)
+	check(read.active and read.get("dice", []).size() == 1, "a Strike under a Low Ceiling reads the one die that counts: %s" % str(read.get("dice", [])))
+
+func hall_of_mirrors() -> void:
+	## The Mirror Regent's Hall of Mirrors: every throw costs 1 health a die that matches another.
+	var f: Dictionary = setup(["THE_REGENT"], 1)
+	for d in range(f.foe.dice.size()):
+		force(f.foe, d, "Mirror")
+	force(f.foe, 0, "Hall of Mirrors")
+	var all: Array = turn(f)
+	var unit: Dictionary = f.state.players[0]
+	check(DeepCreatures.trait_value(f.foe, "set_toll", 0) == 1, "Hall of Mirrors holds through the party's turn")
+	## The throw that opened the turn paid for its matches.
+	var opened: Array = all.filter(func(e: Dictionary) -> bool: return str(e.get("kind", "")) == "turn_begin")
+	var matched: int = int(DeepRules.amount({"term": "matched"}, {"a": DeepHand.analyze(unit.hand)}))
+	var tolled: Array = opened.back().get("tolled", []) if not opened.is_empty() else []
+	check((matched == 0 and tolled.is_empty()) or (tolled.size() == 1 and int(tolled[0].amount) == matched), "the opening throw paid 1 a matching die (%d matched, %s)" % [matched, str(tolled)])
+	_hand(unit, ["D6", "D6", "D6", "D6", "D6"], [3, 3, 3, 5, 5])
+	var hp: int = int(unit.hp)
+	var toll: Dictionary = DeepBattle.set_toll(f.state, unit)
+	check(int(toll.get("amount", 0)) == 5 and int(unit.hp) == hp - 5 and toll.dice.size() == 5, "a full house costs 5")
+	_hand(unit, ["D6", "D6", "D6", "D6", "D6"], [1, 2, 3, 4, 6])
+	check(DeepBattle.set_toll(f.state, unit).is_empty(), "five different values cost nothing")
+	unit.hp = 2
+	_hand(unit, ["D6", "D6", "D6", "D6", "D6"], [4, 4, 4, 4, 4])
+	check(int(DeepBattle.set_toll(f.state, unit).get("amount", 0)) == 1 and int(unit.hp) == 1, "it never takes the last point")
+	unit.hp = 500
+	var out: Dictionary = DeepBattle.command(f.state, "p0", {"kind": "reroll", "dice": unit.hand.map(func(r: Dictionary) -> String: return str(r.die_id))}, f.rng.dice)
+	var now: int = int(DeepRules.amount({"term": "matched"}, {"a": DeepHand.analyze(unit.hand)}))
+	check(bool(out.get("ok", false)) and int(out.event.get("toll", {}).get("amount", 0)) == now, "a reroll pays for the matches it lands (%d)" % now)
+
+func deeper_dice_rules() -> void:
+	## W3 round 3 (November 16, 2026): three of the four dice rules on a Warden or boss of the
+	## deeper mines, one each, each on one face where the creature's own face of about that
+	## weight was. (Jam's rule stays on the Drill alone: on the Gardener, as Thin Out, it cost
+	## Vesper's d4s about 16 points whichever face it took, so it was held back.)
+	## [creature, move, rule, value, die label, faces of it on each die, the face it replaced,
+	##  a plain move to fill its other dice, a bowl, its values, the values that count for nothing]
+	var specs: Array = [
+		["THE_UNDERTOW", "High Water", "numb_low", 2, "tail", [0, 1], "Drag Down", "Bite", ["D6", "D8", "D8", "D12", "D4"], [2, 1, 5, 9, 3], [2, 1]],
+		["THE_KALEIDOSCOPE", "Hall of Mirrors", "set_toll", 1, "", [1, 1], "Blind", "Glare", ["D6", "D6", "D6", "D6", "D6"], [4, 4, 2, 5, 5], []],
+		["THE_ANVIL_KNIGHT", "Flatten", "numb_high", 6, "hammer", [0, 1], "Forge-fire", "Hammer", ["D6", "D8", "D8", "D12", "D4"], [6, 5, 8, 11, 4], [6, 8, 11]]]
+	var rules: Array = ["numb_low", "numb_high", "numb_small", "set_toll"]
+	for spec in specs:
+		var key: String = str(spec[0])
+		var def: Dictionary = DeepContent.creature(key)
+		## Its one rule, and only one of the four.
+		var pinned: Array = []
+		for move in def.get("moves", []):
+			for effect in move.get("effects", []):
+				if str(effect.get("kind", "")) == "pin_trait" and rules.has(str(effect.get("trait", ""))):
+					pinned.append([str(move.name), str(effect.trait), effect.get("value", true)])
+		check(pinned.size() == 1 and str(pinned[0][0]) == str(spec[1]) and str(pinned[0][1]) == str(spec[2]) and pinned[0][2] == spec[3],
+			"%s holds one dice rule, %s (%s %s): %s" % [key, spec[1], spec[2], str(spec[3]), str(pinned)])
+		var counts: Array = def.dice.map(func(die: Dictionary) -> int: return die.faces.count(str(spec[1])))
+		check(counts == spec[5], "%s: %s on its dice %s (want %s)" % [key, spec[1], str(counts), str(spec[5])])
+		if not str(spec[4]).is_empty():
+			var at: int = counts.find(1)
+			check(at >= 0 and str(def.dice[at].get("label", "")) == str(spec[4]), "%s: on its %s die" % [key, spec[4]])
+		check(def.dice.all(func(die: Dictionary) -> bool: return not die.faces.has(str(spec[6]))) and DeepCreatures.move_in(def.moves, str(spec[6])).is_empty(),
+			"%s: %s is gone, the face it took" % [key, spec[6]])
+		## It lands, holds through the party's turn and reads the dice.
+		var f: Dictionary = setup([key], 1)
+		for d in range(f.foe.dice.size()):
+			force(f.foe, d, str(spec[7]))
+		force(f.foe, 0, str(spec[1]))
+		var all: Array = turn(f)
+		check(moves_named(all, str(spec[1])).size() == 1 and DeepCreatures.has_trait(f.foe, str(spec[2])), "%s's %s lands and holds its rule through the turn" % [key, spec[1]])
+		var unit: Dictionary = f.state.players[0]
+		_hand(unit, spec[8], spec[9])
+		DeepBattle.numb_hand(f.state, unit)
+		if str(spec[2]) == "set_toll":
+			unit.hp = 500
+			var toll: Dictionary = DeepBattle.set_toll(f.state, unit)
+			check(int(toll.get("amount", 0)) == 4 and int(unit.hp) == 496, "%s: two pairs cost 4 under its Hall of Mirrors: %s" % [key, str(toll)])
+		else:
+			check(_numbed(unit) == spec[10], "%s's %s numbs %s: %s" % [key, spec[1], str(spec[10]), str(_numbed(unit))])
+		## Its next action lifts it.
+		force(f.foe, 0, str(spec[7]))
+		turn(f)
+		DeepBattle.numb_hand(f.state, unit)
+		check(not DeepCreatures.has_trait(f.foe, str(spec[2])) and _numbed(unit).is_empty(), "%s: the rule lifts as its next action opens" % key)
+	## Never two of the four on one creature, anywhere in the pack.
+	for key in DeepContent.section("creatures"):
+		var traits: Dictionary = {}
+		for move in DeepContent.creature(str(key)).get("moves", []):
+			for effect in move.get("effects", []):
+				if str(effect.get("kind", "")) == "pin_trait" and rules.has(str(effect.get("trait", ""))):
+					traits[str(effect.trait)] = true
+		check(traits.size() <= 1, "%s carries one dice rule at most: %s" % [str(key), str(traits.keys())])
+
+func jagged() -> void:
+	## Jagged: every blow on it costs whoever threw it 1 health, through block, never the last.
+	var f: Dictionary = setup(["GLASS_WYRM"], 1)
+	var unit: Dictionary = f.state.players[0]
+	unit.block = 50
+	var hp: int = int(unit.hp)
+	var hit: Dictionary = DeepBattle._damage(f.state, unit, f.foe, 4, f.rng.dice)
+	check(int(unit.hp) == hp - 1 and int(hit.get("jagged", {}).get("amount", 0)) == 1 and int(unit.block) == 50, "a blow on a Glass Wyrm costs its thrower 1 health, and no block stops it")
+	for _i in range(5):
+		DeepBattle._damage(f.state, unit, f.foe, 2, f.rng.dice)
+	check(int(unit.hp) == hp - 6, "every blow pays: six blows, six health")
+	DeepBattle._damage(f.state, unit, f.foe, 3, f.rng.dice, true, {}, false, true, true)
+	check(int(unit.hp) == hp - 6, "health lost (`pure`) is no blow")
+	unit.hp = 1
+	DeepBattle._damage(f.state, unit, f.foe, 3, f.rng.dice)
+	check(int(unit.hp) == 1, "and it never takes the last point")
+	for key in ["SHARD_WYRM", "CAVE_CRAYFISH"]:
+		## Strong ordinary creatures, never a Warden: a long fight against it walls a many-hit rail.
+		check(DeepCreatures.trait_value(setup([key], 1).foe, "jagged", 0) == 1, "%s is Jagged" % key)
+	check(DeepCreatures.trait_value(setup(["THE_GLAZIER"], 1).foe, "jagged", 0) == 0, "the Glazier is not Jagged")
+	check(DeepContent.REMEMBERED_TRAITS.has("jagged") and DeepDescent.CHAMPION_TRAITS.has("jagged"), "a Remembered boss or a Champion may be Jagged")

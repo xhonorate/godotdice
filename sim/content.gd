@@ -47,11 +47,12 @@ const GIMMICKS: Array = ["", "steal_high_die", "block_from_high", "reflect_zero_
 const TRAITS: Array = GIMMICKS + ["steadfast", "sturdy", "backlash", "flee", "rising", "escalate", "aura", "spikes",
 	"regen_with_escorts", "shielded_by_escorts", "regrow_escorts", "reroll_drain", "reroll_scorch", "punish_straight", "drops_stone",
 	"carat_cap", "resonance_damp", "color_strength", "regenerating", "waterlogged", "hydra", "countdown_reset", "taunt",
-	"acid_armour", "reroll_all"]
+	"acid_armour", "reroll_all", "numb_low", "numb_high", "numb_small", "set_toll", "jagged"]
 ## The traits a Rift Warden may be remembered with, one of them, picked by the seed.
-const REMEMBERED_TRAITS: Array = ["steadfast", "sturdy", "split_on_big_hit"]
+## Jagged joined them on November 13, 2026 (W4): a boss that makes many small hits pay.
+const REMEMBERED_TRAITS: Array = ["steadfast", "sturdy", "split_on_big_hit", "jagged"]
 ## What each of those is called where a player reads it.
-const REMEMBERED_NAMES: Dictionary = {"steadfast": "Steadfast", "sturdy": "Sturdy", "split_on_big_hit": "Splits"}
+const REMEMBERED_NAMES: Dictionary = {"steadfast": "Steadfast", "sturdy": "Sturdy", "split_on_big_hit": "Splits", "jagged": "Jagged"}
 
 static var _pack: Dictionary = {}
 static var _path: String = PATH

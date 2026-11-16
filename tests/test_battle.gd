@@ -23,6 +23,7 @@ func _init() -> void:
 	_test_tally()
 	_test_tally_pace_and_creatures()
 	_test_tally_stats()
+	_test_settled_pace()
 	print("Battle: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
 		printerr("FAIL: " + str(failure))
@@ -273,7 +274,12 @@ func _test_birthstones() -> void:
 	var cuts: Dictionary = birthstones(run_turn(state3b, r3b))[0]
 	var hits: Array = effects_of(cuts, "damage")
 	check(bool(cuts.fired) and hits.size() == 11 and int(hits[0].amount) == 1, "an 11 on the d12 is eleven hits of Resonance (%d hits)" % hits.size())
-	check(int(hits[hits.size() - 1].get("riposte", 0)) == 1, "Riposte: every hit raises block worth Resonance")
+	check(int(hits[hits.size() - 1].get("riposte", 0)) == 1, "Riposte: every hit raises block worth half the Resonance, and at least 1")
+	## Half, rounded down: a Rogue at Resonance 9 parries 4 a hit (November 13, 2026).
+	var rogue: Dictionary = DeepBattle.player(state3b, "a")
+	rogue.resonance = 9
+	var parried: Dictionary = DeepBattle._damage(state3b, rogue, DeepBattle.enemy(state3b, "e0"), 3, r3b.dice)
+	check(int(parried.get("riposte", 0)) == 4, "Riposte at Resonance 9 is 4 block a hit: %s" % str(parried.get("riposte", 0)))
 	var cuts_count: Dictionary = tier(cuts, "Thousand Cuts").count
 	var d12: String = str(DeepBattle.player(state3b, "a").hand[4].die_id)
 	check(int(cuts_count.get("repeat", 0)) == 11 and str(cuts_count.get("repeat_die", "")) == d12 and int(cuts_count.get("coef", 0)) == 1,
@@ -465,6 +471,15 @@ func _test_passives() -> void:
 	check(int(wind.get("coef", 0)) == 2 and int(wind.get("res", 0)) == int(closes.resonance) and int(wind.get("amount", 0)) == 2 * int(closes.resonance) and str(wind.get("kind", "")) == "heal",
 		"Second Wind is counted out: the rerolls left, times the Resonance (%s)" % str(wind))
 	check(float(closes.duration) >= DeepBattle.BASE_DURATION.rail_end + DeepBattle.birth_span(wind), "and the rail's close waits for it to be counted")
+	check(not wind.has("nothing"), "a Second Wind that heals is counted out in full")
+	## At full health it heals nothing: no count, only a grey pill for a glance (F1, Nov 13).
+	var r_full: Dictionary = rngs(91)
+	var full_state: Dictionary = DeepBattle.begin([player("a", [stone("GUARD", 20)])], ["QUARTZ_GOLEM"], {"depth": 1}, r_full.dice, r_full.creatures)
+	hand(DeepBattle.player(full_state, "a"), [6, 6, 1, 2, 3])
+	var full_close: Dictionary = run_turn(full_state, r_full).filter(func(e: Dictionary) -> bool: return str(e.kind) == "rail_end")[0]
+	var idle: Dictionary = full_close.get("count", {})
+	check(int(full_close.healed) == 0 and str(idle.get("nothing", "")) == "nothing to heal" and is_equal_approx(DeepBattle.birth_span(idle), DeepBattle.BIRTH_GLANCE),
+		"at full health Second Wind is a glance that says there is nothing to heal (%s)" % str(idle))
 	var opens: Dictionary = events.filter(func(e: Dictionary) -> bool: return str(e.kind) == "rail_begin")[0]
 	check(int(opens.healed) == 0, "nothing is healed as the rail opens, when there is no Resonance to heal on")
 	## Sleight: Puck shifts one die to the opposite parity before locking.
@@ -674,53 +689,67 @@ func _test_opals() -> void:
 	_test_lit_sockets(r)
 
 func _test_opals_together(r: Dictionary) -> void:
-	## Opals touch each other (October 29, 2026). What keeps two of them from calling each
-	## other for ever: a replay only reaches gems earlier on the rail than the gem replaying,
-	## so a replayed Seam plays exactly what it played the first time, and an Echo never
-	## copies an Echo.
-	## A Rainbow Seam replays the Red Seam before it, and the replayed Red Seam plays the
-	## Strike again, and that is the end of it.
+	## Opals never copy or replay opals (owner, November 13, 2026, back to the rule before
+	## October 29): a Doublet wears the nearest gem behind it that is no opal, a Seam or Matrix
+	## leaves the opals before it, an Echo never copies one. Replays still only reach gems
+	## earlier on the rail than the gem replaying.
+	## A Rainbow Seam replays the Strike and the Guard, never the Red Seam before it.
 	var state: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE", 4, 4, 3, [], "s1"), stone("GUARD", 4, 4, 3, [], "g1"),
 		stone("SEAM_RED", 1, 4, 3, [], "h1"), stone("RAINBOW_SEAM", 1, 4, 3, [], "h2")])],
 		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	hand(state.players[0], [4, 4, 5, 5, 5])
 	var events: Array = run_turn(state, r)
-	check(at_socket(events, 2).size() == 2 and bool(at_socket(events, 2)[1].get("retrigger", false)), "a Rainbow Seam plays the Red Seam before it again")
-	check(at_socket(events, 0).size() == 4 and at_socket(events, 1).size() == 2 and at_socket(events, 3).size() == 1,
-		"the replayed Red Seam plays the Strike once more, and nothing reaches the Rainbow Seam: %d, %d, %d" % [at_socket(events, 0).size(), at_socket(events, 1).size(), at_socket(events, 3).size()])
-	## A Seam after a Rainbow Seam never reaches back to it: replays point backward only.
+	check(at_socket(events, 2).size() == 1, "a Rainbow Seam leaves the Red Seam before it: opals never replay opals")
+	check(at_socket(events, 0).size() == 3 and at_socket(events, 1).size() == 2 and at_socket(events, 3).size() == 1,
+		"the Strike plays three times (its own, the Red Seam's, the Rainbow Seam's), the Guard twice: %d, %d, %d" % [at_socket(events, 0).size(), at_socket(events, 1).size(), at_socket(events, 3).size()])
+	## A Seam after a Rainbow Seam never reaches back to it.
 	state = DeepBattle.begin([player("a", [stone("STRIKE", 4, 4, 3, [], "s1"), stone("RAINBOW_SEAM", 1, 4, 3, [], "h2"), stone("SEAM_RED", 1, 4, 3, [], "h1")])],
 		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	hand(state.players[0], [4, 4, 5, 5, 5])
 	events = run_turn(state, r)
 	check(at_socket(events, 1).size() == 1 and at_socket(events, 0).size() == 3, "a Red Seam after a Rainbow Seam plays the Strike, never the Rainbow Seam")
-	## A Doublet wears an opal like any other gem: as a Red Seam it plays the Strike again.
+	## A Doublet passes over the Red Seam behind it and wears the Strike.
 	state = DeepBattle.begin([player("a", [stone("STRIKE", 4, 4, 3, [], "s1"), stone("SEAM_RED", 1, 4, 3, [], "h1"), stone("DOUBLET", 1, 4, 3, [], "d1")])],
 		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	hand(state.players[0], [4, 4, 5, 5, 5])
 	events = run_turn(state, r)
-	check(str(at_socket(events, 2)[0].worn) == "h1" and at_socket(events, 0).size() == 3, "a Doublet wears the Red Seam before it and plays the Strike a third time")
-	## A Matrix wakes only gems before it: a Seam it wakes cannot reach it back.
+	check(not at_socket(events, 2).is_empty() and str(at_socket(events, 2)[0].worn) == "s1" and at_socket(events, 0).size() == 2,
+		"a Doublet passes over the Red Seam behind it and wears the Strike: %s" % str(at_socket(events, 2).map(func(e: Dictionary) -> String: return str(e.get("worn", "")))))
+	## A Matrix wakes only gems before it that are not opals.
 	state = DeepBattle.begin([player("a", [stone("STRIKE", 4, 4, 3, [], "s1"), stone("SEAM_RED", 1, 4, 3, [], "h1"), stone("MATRIX", 1, 4, 3, [], "x1")])],
 		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	var fighter: Dictionary = state.players[0]
 	fighter.initial_resonance = 0
 	hand(fighter, [4, 4, 5, 5, 5])
 	events = run_turn(state, r)
-	check(at_socket(events, 1).size() >= 1 and at_socket(events, 2).size() == 1, "a Matrix wakes or plays the Seam before it and is never woken back: %d, %d" % [at_socket(events, 1).size(), at_socket(events, 2).size()])
-	## An Echo never copies an Echo, nor a Doublet wearing one.
+	check(at_socket(events, 2).size() == 1, "a Matrix is never woken back: %d" % at_socket(events, 2).size())
+	var unit: Dictionary = {"rail": [stone("STRIKE", 4, 4, 3, [], "s1"), stone("SEAM_RED", 1, 4, 3, [], "h1"), stone("MATRIX", 1, 4, 3, [], "x1")], "sockets": ["RED", "RAINBOW", "RAINBOW"]}
+	check(DeepBattle.repeatable(unit, 0) and not DeepBattle.repeatable(unit, 1) and DeepBattle.repeatable(unit, 1, false),
+		"an opal is out of an opal's reach, and in the Birthstone's")
+	## An Echo never copies an opal, and a Doublet behind an Echo has nothing to wear.
 	check(DeepBattle.is_echo(stone("ECHO")) and not DeepBattle.is_echo(stone("STRIKE")), "an Echo is known by its skill")
 	var pair: Dictionary = player("a", [stone("ECHO", 1, 4, 3, [], "e1"), stone("DOUBLET", 1, 4, 3, [], "d1")])
 	DeepStone.flatten_rail(pair)
-	check(DeepBattle.is_echo(DeepBattle.stone_at(pair, 1)), "and so is a Doublet wearing one")
+	check(DeepBattle.worn_socket(pair, 1) == -1 and not DeepBattle.is_echo(DeepBattle.stone_at(pair, 1)), "a Doublet never wears the Echo behind it")
 	state = DeepBattle.begin([player("a", [stone("GUARD", 4, 4, 3, [], "g1"), stone("ECHO", 1, 4, 5, [], "e1"), stone("ECHO", 1, 4, 5, [], "e2")])],
 		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	for _turn in range(3):
 		hand(state.players[0], [4, 4, 5, 5, 5])
 		run_turn(state, r)
 	var copies: Array = state.players[0].rail.filter(func(s: Variant) -> bool: return s is Dictionary and str(s.get("id", "")).contains("void"))
-	check(not copies.is_empty() and copies.all(func(s: Dictionary) -> bool: return not DeepBattle.is_echo(s)), "two Echoes lay copies of the Guard, never of each other: %s" % str(copies.map(func(s: Dictionary) -> String: return str(s.skill))))
+	check(not copies.is_empty() and copies.all(func(s: Dictionary) -> bool: return not DeepStone.is_opal(s)), "two Echoes lay copies of the Guard, never of each other: %s" % str(copies.map(func(s: Dictionary) -> String: return str(s.skill))))
 	check(state.players[0].rail.size() <= DeepBattle.MAX_RAIL, "and the rail stays within its cap")
+	## The marks the rail and the loadout show where an opal cannot reach.
+	var blocks: Dictionary = DeepBattle.opal_blocks([stone("STRIKE", 4, 4, 3, [], "s1"), stone("SEAM_BLUE", 1, 4, 3, [], "h1"), stone("DOUBLET", 1, 4, 3, [], "d1"),
+		stone("ECHO", 1, 4, 3, [], "e1"), stone("RAINBOW_SEAM", 1, 4, 3, [], "h2")])
+	check(blocks.has(2) and int(blocks[2][0].at) == 1 and str(blocks[2][0].skill) == "SEAM_BLUE", "the Doublet is marked for the Blue Seam it passes over: %s" % str(blocks))
+	check(not blocks.has(3), "an Echo behind a Doublet that wears the Strike copies it, so it is not marked")
+	check(blocks.has(4) and blocks[4].map(func(m: Dictionary) -> int: return int(m.at)) == [1, 3], "a Rainbow Seam is marked for the Blue Seam and the Echo before it, not the Doublet wearing a gem: %s" % str(blocks.get(4, [])))
+	check(DeepBattle.opal_block_line(stone("DOUBLET", 1, 4, 3, [], "d1"), blocks[2][0]) == "Can't copy Blue Seam: opals never copy opals.", "the plate says why")
+	blocks = DeepBattle.opal_blocks([stone("SEAM_RED", 1, 4, 3, [], "h1"), stone("ECHO", 1, 4, 3, [], "e1"), stone("GEMINI", 4, 4, 3, [], "m1"), stone("PRELUDE", 1, 4, 3, [], "p1")])
+	check(blocks.has(1) and str(blocks[1][0].verb) == "copy", "an Echo right behind a Seam is marked")
+	check(blocks.has(2) and blocks[2].size() == 2 and str(blocks[2][0].verb) == "fire", "a Gemini between two opals is marked for both")
+	check(not blocks.has(0) and not blocks.has(3), "a Seam with nothing before it and a Prelude are not marked")
 
 func _test_lit_sockets(r: Dictionary) -> void:
 	## A socket that shows its gem's color is lit, and adds a point of Resonance when the gem
@@ -1161,3 +1190,45 @@ func _test_tally_stats() -> void:
 			[[3, 3, 5, 5, 1], "two_pair"], [[3, 3, 1, 5, 6], "pair"], [[1, 3, 5, 2, 6], "distinct"]]:
 		hand(a, entry[0])
 		check(DeepBattle.hand_name(DeepHand.analyze(a.hand)) == str(entry[1]), "%s is %s, not %s" % [str(entry[0]), str(entry[1]), DeepBattle.hand_name(DeepHand.analyze(a.hand))])
+
+func _test_settled_pace() -> void:
+	## P3 (November 13, 2026): a rail on which nothing fires is one beat, its fizzles unpaced; once
+	## every creature is down, a gem that only attacks still resolves but is not played, and one
+	## that shields still is.
+	var r: Dictionary = rngs(131)
+	var state: Dictionary = DeepBattle.begin([player("a", [stone("GRAFT", 1, 0, 3, [], "g1"), stone("GRAFT", 1, 0, 3, [], "g2")])], ["QUARTZ_GOLEM"], {"depth": 1}, r.dice, r.creatures)
+	hand(DeepBattle.player(state, "a"), [1, 2, 4, 5, 6])
+	var events: Array = run_turn(state, r)
+	var opens: Array = events.filter(func(e: Dictionary) -> bool: return str(e.kind) == "rail_begin")
+	var fizzles: Array = events.filter(func(e: Dictionary) -> bool: return str(e.kind) == "gem_fizzle")
+	check(not opens.is_empty() and bool(opens[0].get("nothing_fires", false)), "a hand that fires nothing says so as its rail begins")
+	check(fizzles.size() == 2 and fizzles.all(func(e: Dictionary) -> bool: return bool(e.get("quiet", false)) and float(e.duration) == 0.0),
+		"and its fizzles take no beat of their own (%s)" % str(fizzles.map(func(e: Dictionary) -> float: return float(e.duration))))
+	var r2: Dictionary = rngs(132)
+	var state2: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE", 1, 4, 3, [], "s1"), stone("STRIKE", 1, 4, 3, [], "s2"), stone("GUARD", 1, 4, 3, [], "g")])], ["QUARTZ_GOLEM"], {"depth": 1}, r2.dice, r2.creatures)
+	DeepBattle.enemy(state2, "e0").hp = 1
+	hand(DeepBattle.player(state2, "a"), [6, 6, 5, 4, 2])
+	var events2: Array = run_turn(state2, r2)
+	var fired: Array = events2.filter(func(e: Dictionary) -> bool: return str(e.kind) == "gem_fire")
+	var by_socket: Dictionary = {}
+	for e in fired:
+		by_socket[int(e.socket)] = e
+	check(by_socket.has(0) and not bool(by_socket[0].get("unopposed", false)), "the blow that wins the fight is played in full")
+	check(by_socket.has(1) and bool(by_socket[1].get("unopposed", false)) and float(by_socket[1].duration) == 0.0,
+		"a gem that only attacks, with nothing left standing, resolves but is not played")
+	check(by_socket.has(2) and not bool(by_socket[2].get("unopposed", false)) and float(by_socket[2].duration) > 0.0,
+		"a gem that shields still plays once the creatures are down")
+	check(str(state2.get("outcome", "")) == "victory", "and the fight is won")
+	## In a party, the rails fire in seat order: the second seat's rail still plays after the
+	## first seat's won the fight, its attacks unplayed and its guard played.
+	var r3: Dictionary = rngs(133)
+	var state3: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE", 1, 4, 3, [], "a1")]), player("b", [stone("STRIKE", 1, 4, 3, [], "b1"), stone("GUARD", 1, 4, 3, [], "b2")])],
+		["QUARTZ_GOLEM"], {"depth": 1}, r3.dice, r3.creatures)
+	DeepBattle.enemy(state3, "e0").hp = 1
+	hand(DeepBattle.player(state3, "a"), [6, 6, 5, 4, 2])
+	hand(DeepBattle.player(state3, "b"), [6, 6, 5, 4, 2])
+	var fired3: Array = run_turn(state3, r3).filter(func(e: Dictionary) -> bool: return str(e.kind) == "gem_fire")
+	var seat_b: Array = fired3.filter(func(e: Dictionary) -> bool: return str(e.unit) == "b")
+	check(fired3.size() >= 3 and str(fired3[0].unit) == "a" and not bool(fired3[0].get("unopposed", false)), "the first seat's blow wins the fight, played in full")
+	check(seat_b.size() == 2 and bool(seat_b[0].get("unopposed", false)) and not bool(seat_b[1].get("unopposed", false)) and int(DeepBattle.player(state3, "b").block) > 0,
+		"the second seat's rail still resolves: its attack unplayed, its guard played and kept (%s)" % str(seat_b.map(func(e: Dictionary) -> bool: return bool(e.get("unopposed", false)))))

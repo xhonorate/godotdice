@@ -461,6 +461,10 @@ static func command(state: Dictionary, player_id: String, cmd: Dictionary, rng_d
 			unit.rerolled_dice = again
 			tally_add(unit, "rerolls", 1)
 			var loaded: Array = _loaded(unit, chosen, rng_dice)
+			## The new faces against a Warden's rules (W3): what counts for nothing, and what a
+			## Hall of Mirrors takes for every die that now matches another.
+			numb_hand(state, unit)
+			var toll: Dictionary = set_toll(state, unit)
 			var dues: Dictionary = _pay_dues(state, unit, chosen)
 			var crowned: Array = _crowns_rolled(unit, unit.hand.filter(func(r: Dictionary) -> bool: return chosen.has(str(r.get("die_id", "")))), true)
 			## A lantern's price: every creature that gifts rerolls takes blood for each one
@@ -479,7 +483,7 @@ static func command(state: Dictionary, player_id: String, cmd: Dictionary, rng_d
 				for victim in living(state.players):
 					victim.statuses.scorched = int(victim.statuses.get("scorched", 0)) + scorch
 			return {"ok": true, "event": _event(state, "reroll", {"unit": player_id, "dice": chosen, "hand": unit.hand.duplicate(true),
-				"rerolls": unit.rerolls, "drain": drain, "scorch": scorch, "loaded": loaded, "dues": dues, "resonance": int(unit.resonance), "crowned": crowned})}
+				"rerolls": unit.rerolls, "drain": drain, "scorch": scorch, "loaded": loaded, "dues": dues, "resonance": int(unit.resonance), "crowned": crowned, "toll": toll})}
 		"flip":
 			## Sleight turns a die over onto a face of the opposite parity. See `shift_face`.
 			if bool(unit.get("locked", false)):
@@ -501,6 +505,7 @@ static func command(state: Dictionary, player_id: String, cmd: Dictionary, rng_d
 				roll.erase("counted")
 				roll.flipped = true
 				unit.flips = int(unit.flips) - 1
+				numb_hand(state, unit)
 				return {"ok": true, "event": _event(state, "flip", {"unit": player_id, "die": wanted_id, "value": int(roll.value),
 					"hand": unit.hand.duplicate(true), "flips": int(unit.flips)})}
 			return _refuse("no such die")
@@ -698,8 +703,16 @@ static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGen
 				unit.cut_step_bonus = int(unit.passive.get("amount", 1))
 			## Second Wind is paid at rail_end, on the Resonance the rail built; the rerolls it
 			## banks are already counted here, because planning is over.
+			numb_hand(state, unit)
 			tally_kind(unit, "hands", hand_name(DeepHand.analyze(unit.hand)), 1)
-			return _event(state, "rail_begin", {"unit": unit.id, "unused_rerolls": int(unit.get("rerolls", 0)), "healed": 0, "resonance": int(unit.resonance)})
+			## A hand on which nothing of this rail fires plays as one quick beat (P3, November 13,
+			## 2026): its steps are marked quiet, and its fizzles are not paced one by one.
+			var quiet: bool = _rail_quiet(state, unit)
+			if quiet:
+				for q in state.queue:
+					if str(q.get("unit", "")) == str(unit.id) and str(q.get("kind", "")) in ["gem", "birthstone"]:
+						q.quiet = true
+			return _event(state, "rail_begin", {"unit": unit.id, "unused_rerolls": int(unit.get("rerolls", 0)), "healed": 0, "resonance": int(unit.resonance), "nothing_fires": quiet})
 		"gem":
 			var unit: Dictionary = player(state, str(s.unit))
 			if unit.is_empty() or bool(unit.get("downed", false)) or done(state):
@@ -707,7 +720,8 @@ static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGen
 			if _spent(unit):
 				return _spend_rail(state, unit)
 			return resolve_gem(state, unit, int(s.socket), {"retrigger": bool(s.get("retrigger", false)), "scale": int(s.get("scale", 100)),
-				"replay": bool(s.get("replay", false)), "force": bool(s.get("force", false)), "as_skill": str(s.get("as_skill", "")), "each": s.get("each", {})}, rng_dice)
+				"replay": bool(s.get("replay", false)), "force": bool(s.get("force", false)), "as_skill": str(s.get("as_skill", "")), "each": s.get("each", {}),
+				"quiet": bool(s.get("quiet", false))}, rng_dice)
 		"mortar":
 			return _fire_mortars(state, rng_dice)
 		"birthstone":
@@ -716,7 +730,8 @@ static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGen
 				return {}
 			if _spent(unit):
 				return _spend_rail(state, unit)
-			return resolve_birthstone(state, unit, {"replay": bool(s.get("replay", false)), "share": int(s.get("share", 100))}, rng_dice)
+			var stone_step: Dictionary = resolve_birthstone(state, unit, {"replay": bool(s.get("replay", false)), "share": int(s.get("share", 100))}, rng_dice)
+			return _quiet_step(stone_step, bool(s.get("quiet", false)) and not bool(stone_step.get("fired", true)))
 		"rail_end":
 			var unit: Dictionary = player(state, str(s.unit))
 			if unit.is_empty():
@@ -738,6 +753,9 @@ static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGen
 				count = {"name": str(unit.passive.get("name", "Second Wind")), "line": "%d unspent %s" % [unused, "reroll" if unused == 1 else "rerolls"],
 					"pace": count_pace(state), "kind": "heal", "target": str(unit.id), "repeat": 1, "res": resonance, "coef": unused,
 					"coef_what": "rerolls", "amount": DeepRules.sat_mul(resonance, unused), "healed": healed, "adds": [], "also": []}
+				## At full health it heals nothing: a grey pill, not a count (F1, November 13, 2026).
+				if healed <= 0:
+					count.nothing = "nothing to heal"
 			## The last rail of the turn has had its say since the last creature fell: now the
 			## fight is won. An ally's rail still queued after this one fires first.
 			if bool(state.get("cleared", false)) and not _rail_firing(state):
@@ -1099,15 +1117,16 @@ static func rail_context(state: Dictionary, unit: Dictionary, socket: int, opts:
 		"run_breaks": int(unit.get("run_counts", {}).get(str(stone.get("id", "")) + ":breaks", 0))}
 
 static func worn_socket(unit: Dictionary, socket: int) -> int:
-	## What a Doublet at this socket wears: the nearest gem behind it, opals included, that
-	## is not itself a Doublet. Skipping Doublets is what makes a Doublet terminate: it can
-	## never end up wearing a skill that would send it looking again. It looks as far back
-	## along the rail as it must, past empty sockets; with nothing behind it to wear it is a
-	## thin slice and only rings.
+	## What a Doublet at this socket wears: the nearest gem behind it that is not itself an
+	## opal (owner, November 13, 2026: opals never copy opals). Skipping opals is what makes a
+	## Doublet terminate (it can never end up wearing a skill that would send it looking
+	## again), and it lets two Doublets share one gem. It looks as far back along the rail as
+	## it must, past empty sockets and past other opals; with nothing behind it to wear it is
+	## a thin slice and only rings.
 	if not unit.rail[socket] is Dictionary or str(DeepStone.skill_of(unit.rail[socket]).get("wears", "")) != "prev":
 		return -1
 	for behind in range(socket - 1, -1, -1):
-		if unit.rail[behind] is Dictionary and str(DeepStone.skill_of(unit.rail[behind]).get("wears", "")) != "prev":
+		if unit.rail[behind] is Dictionary and not DeepStone.is_opal(unit.rail[behind]):
 			return behind
 	return -1
 
@@ -1120,13 +1139,79 @@ static func stone_at(unit: Dictionary, socket: int) -> Dictionary:
 	## A Fingerprint carries an inclusion of the gem before it for as long as it fights there.
 	return DeepStone.fingerprinted(unit.rail, socket, stone)
 
-static func repeatable(unit: Dictionary, socket: int) -> bool:
-	## Whether a replay may touch this socket: a gem stands there. Opals play again like
-	## anything else (October 29, 2026). What keeps two of them from calling each other for
-	## ever is that a replay only ever reaches gems earlier on the rail than the gem
-	## replaying (`replay_color`, `replay_fizzled`), and that an Echo never copies an Echo
-	## (`void_copy`): every replay points backward, so no two can point at each other.
-	return socket >= 0 and socket < unit.rail.size() and unit.rail[socket] is Dictionary
+static func repeatable(unit: Dictionary, socket: int, by_opal: bool = true) -> bool:
+	## Whether a replay may touch this socket: a gem stands there, and it is no opal when the
+	## gem replaying is one (owner, November 13, 2026: a Seam, Matrix or Echo never touches
+	## another opal). A Doublet wearing a gem is no longer opal work, so it plays again like
+	## anything else. The Birthstone is no opal (`by_opal` false) and reaches every gem.
+	## Replays still only reach gems earlier on the rail than the gem replaying
+	## (`replay_color`, `replay_fizzled`), so no two can point at each other.
+	if socket < 0 or socket >= unit.rail.size() or not unit.rail[socket] is Dictionary:
+		return false
+	if not by_opal or not DeepStone.is_opal(unit.rail[socket]):
+		return true
+	return worn_socket(unit, socket) >= 0
+
+static func opal_at(unit: Dictionary, socket: int) -> bool:
+	## Whether the gem in this socket is an opal (the Birthstone, socket -1, is not).
+	return socket >= 0 and socket < unit.rail.size() and unit.rail[socket] is Dictionary and DeepStone.is_opal(unit.rail[socket])
+
+static func opal_blocks(rail: Array) -> Dictionary:
+	## Where a gem that copies, replays or wakes its neighbours sits next to or behind an opal
+	## it cannot touch (opals never copy opals): socket -> [{"at", "skill", "verb"}], for the
+	## rail and the loadout to mark the way Balatro marks a Blueprint that can't copy. A
+	## Doublet passes over the opals behind it to the gem it wears; an Echo cannot copy an
+	## opal right behind it; a Seam or Matrix leaves the earlier opals it would have played;
+	## a Gemini never fires an opal beside it. Read from the rail as it stands, not a turn.
+	var unit: Dictionary = {"rail": rail}
+	var out: Dictionary = {}
+	for socket in range(rail.size()):
+		if not rail[socket] is Dictionary:
+			continue
+		var skill: Dictionary = DeepStone.skill_of(rail[socket])
+		var kinds: Array = []
+		for effect in skill.get("effects", []):
+			if effect is Dictionary:
+				kinds.append(str(effect.get("kind", "")))
+		var marks: Array = []
+		var opal: bool = DeepStone.is_opal(rail[socket])
+		if str(skill.get("wears", "")) == "prev" or (opal and kinds.has("void_copy")):
+			## The opals between it and the first gem it can wear or copy.
+			for behind in range(socket - 1, -1, -1):
+				if not rail[behind] is Dictionary:
+					continue
+				if not DeepStone.is_opal(rail[behind]) or (kinds.has("void_copy") and repeatable(unit, behind)):
+					break
+				marks.append({"at": behind, "skill": str(rail[behind].get("skill", "")), "verb": "copy"})
+				if kinds.has("void_copy"):
+					break
+		elif opal and (kinds.has("replay_color") or kinds.has("replay_fizzled")):
+			var want: String = ""
+			for effect in skill.get("effects", []):
+				if effect is Dictionary and str(effect.get("kind", "")) == "replay_color":
+					want = str(effect.get("color", ""))
+			for at in range(socket):
+				if not rail[at] is Dictionary or repeatable(unit, at):
+					continue
+				if not want.is_empty() and want != "ANY" and not DeepStone.colors(rail[at]).has(want):
+					continue
+				marks.append({"at": at, "skill": str(rail[at].get("skill", "")), "verb": "replay" if kinds.has("replay_color") else "wake"})
+		elif kinds.has("fire_neighbours"):
+			for at in [socket - 1, socket + 1]:
+				if at >= 0 and at < rail.size() and rail[at] is Dictionary and DeepStone.is_opal(rail[at]):
+					marks.append({"at": at, "skill": str(rail[at].get("skill", "")), "verb": "fire"})
+		if not marks.is_empty():
+			out[socket] = marks
+	return out
+
+static func opal_block_line(stone: Dictionary, mark: Dictionary) -> String:
+	## The plate's one line for a mark from `opal_blocks`: "Can't copy Blue Seam: opals never
+	## copy opals."
+	var name: String = str(DeepContent.skill(str(mark.get("skill", ""))).get("name", mark.get("skill", "")))
+	var verb: String = str(mark.get("verb", "copy"))
+	if verb == "fire":
+		return "Can't fire %s: %s never fires an opal." % [name, str(DeepStone.skill_of(stone).get("name", "it"))]
+	return "Can't %s %s: opals never %s opals." % [verb, name, verb]
 
 static func is_echo(stone: Dictionary) -> bool:
 	## A gem whose skill lays Void copies (an Echo, or a Doublet wearing one): the one gem
@@ -1155,6 +1240,9 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 	var dry: bool = bool(opts.get("dry", false))
 	if socket < 0 or socket >= unit.rail.size() or not unit.rail[socket] is Dictionary:
 		return {}
+	## Every creature already down as this gem comes up: it still resolves (its Resonance, its
+	## heal, its pyrite are the player's), but one that only attacks is not played (P3, Nov 13).
+	var unopposed: bool = bool(state.get("cleared", false))
 	## A Doublet fires as the gem it wears; everything else is simply itself. The id, the
 	## four C's and the inclusions stay the socket's own either way. A Black Opal fires each
 	## skill it has absorbed the same way, as a stone wearing it (`opts.as_skill`).
@@ -1176,6 +1264,9 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 		unit.previous_fired = false
 		return _event(state, "gem_fizzle", {"unit": unit.id, "socket": socket, "stone_id": str(stone.id), "skill": str(stone.skill),
 			"reason": "The socket is buried." if unit.buried.has(socket) else "The socket is clouded.", "resonance": unit.resonance, "blocked": true})
+	## What a Warden has numbed is read as it stands now (W3): a gem before this one may have
+	## changed a face, or killed the creature that numbed it.
+	numb_hand(state, unit)
 	var context: Dictionary = rail_context(state, unit, socket, opts)
 	## A Flawless Certainty: the gems it forces read the highest die for every number they ask for.
 	var reading: Array = _best_read(unit.hand) if certain > 0 and bool(unit.get("force_after", {}).get("best_read", false)) else unit.hand
@@ -1216,9 +1307,9 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 		## a fresh disappointment, so a retrigger never lists it twice.
 		if not retrigger and not unit.get("fizzled_sockets", []).has(socket):
 			unit.fizzled_sockets.append(socket)
-		return _event(state, "gem_fizzle", {"unit": unit.id, "socket": socket, "stone_id": str(stone.id), "skill": str(stone.skill),
+		return _quiet_step(_event(state, "gem_fizzle", {"unit": unit.id, "socket": socket, "stone_id": str(stone.id), "skill": str(stone.skill),
 			"reason": str(ev.get("reason", "")), "resonance": unit.resonance, "dice": ev.get("dice", []), "healed": healed,
-			"cut_step": int(ev.get("cut_step", 0)), "worn": str(stone.get("worn_from", ""))})
+			"cut_step": int(ev.get("cut_step", 0)), "worn": str(stone.get("worn_from", ""))}), bool(opts.get("quiet", false)) and healed <= 0)
 	## It fires.
 	var scale: int = int(opts.get("scale", 100))
 	var hp_cost: int = int(ev.get("hp_cost", 0))
@@ -1411,6 +1502,15 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 	for entry in tally.get("mults", []):
 		if str(entry.get("what", "")) == "flawless":
 			bonus.counted = true
+	## Nothing left to hit and nothing else to do: resolved, but not played (P3).
+	if unopposed and not dry and hp_cost <= 0 and backlash <= 0 and results.all(func(r: Variant) -> bool: return r is Dictionary and str(r.get("kind", "")) in DeepRules.HOSTILE):
+		return _quiet_step(_event(state, "gem_fire", {"unit": unit.id, "socket": socket, "stone_id": str(stone.id), "skill": str(stone.skill),
+			"dice": ev.get("dice", []), "effects": results, "resonance": unit.resonance, "gain": gain, "harmony": harmony, "lit": lit, "tally": {},
+			"magnitude": float(ev.get("magnitude", 1.0)), "carat": int(ev.get("carat", 1)), "cut_step": int(ev.get("cut_step", 0)),
+			"retrigger": retrigger, "replay": bool(opts.get("replay", false)), "scale": scale, "hp_cost": hp_cost, "fires": int(ev.get("fires", 1)),
+			"forced": bool(opts.get("force", false)), "promised": promised if not retrigger else 0, "worn": str(stone.get("worn_from", "")),
+			"absorbed": str(opts.get("as_skill", "")), "certain": certain, "flawless": bonus, "rung": _rung(results),
+			"backlash": backlash, "fired_count": int(unit.get("fired_count", 0)), "damped": damp > 0, "fed": fed, "crowned": crowned, "unopposed": true}), true)
 	return _event(state, "gem_fire", {"unit": unit.id, "socket": socket, "stone_id": str(stone.id), "skill": str(stone.skill),
 		"dice": ev.get("dice", []), "effects": results, "resonance": unit.resonance, "gain": gain, "harmony": harmony, "lit": lit, "tally": tally,
 		"magnitude": float(ev.get("magnitude", 1.0)), "carat": int(ev.get("carat", 1)), "cut_step": int(ev.get("cut_step", 0)),
@@ -1437,10 +1537,15 @@ static func resolve_birthstone(state: Dictionary, unit: Dictionary, opts: Dictio
 		return {}
 	var dry: bool = bool(opts.get("dry", false))
 	var replay: bool = bool(opts.get("replay", false))
+	## Every creature already down: a tier that only attacks is resolved but not played (P3).
+	var unopposed: bool = bool(state.get("cleared", false)) and not dry
 	## What the rail had dealt before it, so its own blow can be weighed for the run's biggest hit.
 	var dealt_before: int = int(unit.get("dealt", 0))
 	var promised: int = int(unit.get("repeat_next", 0))
 	unit.repeat_next = 0
+	## What a Warden has numbed is read as it stands now (W3): a gem may have changed a face,
+	## or killed the creature, since the throw.
+	numb_hand(state, unit)
 	var a: Dictionary = DeepHand.analyze(unit.hand)
 	## A Birthright fires it mid-rail at a share of the Resonance so far.
 	var resonance: int = DeepRules.sat_muldiv(int(unit.get("resonance", 0)), maxi(0, int(opts.get("share", 100))), 100)
@@ -1560,6 +1665,8 @@ static func resolve_birthstone(state: Dictionary, unit: Dictionary, opts: Dictio
 					break
 			entry.effects = results
 			entry.count = birth_count(str(entry.name), entry.trigger, resolved, resonance, a, strength, count_pace(state))
+			if unopposed and results.all(func(r: Variant) -> bool: return r is Dictionary and str(r.get("kind", "")) in DeepRules.HOSTILE):
+				entry.unopposed = true
 			if change > 0 and entry.count.has("amount"):
 				## The count shows the multiplied figure: the tier's own three, twice.
 				entry.count.change = 1 + change
@@ -1655,7 +1762,9 @@ static func next_face_pays(unit: Dictionary) -> int:
 
 static func tier_span(entry: Dictionary) -> float:
 	## One lit tier on screen: its count, then what it does landing (at the least BIRTH_LAND,
-	## for a guard, a heal or a stun to be seen).
+	## for a guard, a heal or a stun to be seen). A tier with nothing left to hit takes none (P3).
+	if bool(entry.get("unopposed", false)):
+		return 0.0
 	return birth_span(entry.get("count", {})) + maxf(BIRTH_LAND, hits_span(entry.get("effects", []))) + ticks_span(entry.get("effects", []))
 
 static func birth_count(name: String, trigger: Dictionary, resolved: Array, resonance: int, a: Dictionary, strength: int, pace: float) -> Dictionary:
@@ -1734,7 +1843,40 @@ static func birth_count(name: String, trigger: Dictionary, resolved: Array, reso
 		if index != headline and str(applied.get("kind", "")) in TALLY_KINDS and str(applied.get("kind", "")) != "gold" and int(applied.get("amount", 0)) > 0:
 			also.append({"kind": str(applied.kind), "amount": int(applied.amount)})
 	count.also = also
+	## A tier that came to nothing (no Resonance to multiply, a heal at full health) is not
+	## counted out: the screen shows a small grey pill for a moment instead (F1, November 13).
+	var why: String = _paid_nothing(resolved, resonance)
+	if not why.is_empty():
+		count.nothing = why
 	return count
+
+static func _paid_nothing(resolved: Array, resonance: int) -> String:
+	## Why a lit tier landed nothing at all, in a few words, or "" when it landed something.
+	## Only a tier made of plain figures counts: anything else it does is worth seeing.
+	if resolved.is_empty():
+		return ""
+	var healing: bool = false
+	for entry in resolved:
+		var applied: Dictionary = entry[1]
+		var kind: String = str(applied.get("kind", ""))
+		if not kind in TALLY_KINDS:
+			return ""
+		for result in entry[2]:
+			if not result is Dictionary:
+				continue
+			if result.has("overflow") or result.has("overflow_hits") or not result.get("rebound", []).is_empty():
+				return ""
+			if kind == "heal":
+				healing = true
+				if int(result.get("healed", 0)) > 0:
+					return ""
+			elif int(result.get("amount", 0)) > 0 or int(result.get("hp_loss", 0)) > 0 or int(result.get("absorbed", 0)) > 0:
+				return ""
+		if kind != "heal" and int(applied.get("amount", 0)) > 0:
+			return ""
+	if healing and resonance > 0:
+		return "nothing to heal"
+	return "no Resonance" if resonance <= 0 else "nothing to land"
 
 static func _resonance_factor(expr: Variant) -> Array:
 	## [the other factor] when an amount is Resonance times something ([null] when it is
@@ -1775,7 +1917,8 @@ static func birth_span(count: Dictionary) -> float:
 	if count.is_empty():
 		return 0.0
 	var pace: float = clampf(float(count.get("pace", 1.0)), 0.0, 1.0)
-	if pace <= 0.0:
+	## A tier that came to nothing is only a glance: its grey pill (F1, November 13, 2026).
+	if pace <= 0.0 or count.has("nothing"):
 		return BIRTH_GLANCE
 	var span: float = BIRTH_CALL
 	if count.has("amount"):
@@ -2733,6 +2876,7 @@ static func _join_rail(state: Dictionary, unit: Dictionary, at: int, stone: Dict
 		for index in range(places.size()):
 			if int(places[index]) >= at:
 				places[index] = int(places[index]) + 1
+	_shift_holds(unit, at, 1, false)
 	if int(unit.get("previous_socket", -1)) >= at:
 		unit.previous_socket = int(unit.previous_socket) + 1
 	var certainty: Dictionary = unit.get("force_after", {})
@@ -2852,9 +2996,9 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 
 		"replay_color":
 			## A Seam: every gem of one color that has already fired this turn plays again,
-			## in rail order. Only gems earlier on the rail than the Seam: a replayed Seam
-			## then plays exactly what it played the first time, and nothing a replay reaches
-			## can reach back (see `repeatable()`).
+			## in rail order. Only gems earlier on the rail than the Seam, and never another
+			## opal (see `repeatable()`): a replayed Seam then plays exactly what it played the
+			## first time, and nothing a replay reaches can reach back.
 			var want: String = str(effect.get("color", ""))
 			var encore: Array = []
 			var touched: Array = []
@@ -2862,7 +3006,7 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 			played.sort()
 			for other in played:
 				var at: int = int(other)
-				if at >= socket or not repeatable(unit, at):
+				if at >= socket or not repeatable(unit, at, opal_at(unit, socket)):
 					continue
 				## A Rainbow Seam asks for no color at all: everything that fired plays again.
 				if want != "ANY" and not DeepStone.colors(stone_at(unit, at), str(unit.sockets[at])).has(want):
@@ -2880,8 +3024,9 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 		"replay_fizzled":
 			## A Matrix: gems that stayed dark this turn fire anyway, whatever the hand
 			## shows. The amount is how many of them it can wake, earliest first — two, or
-			## all of them when it is Flawless. Only gems earlier on the rail than the Matrix
-			## (see `repeatable()`): a woken Seam then never reaches the Matrix that woke it.
+			## all of them when it is Flawless. Only gems earlier on the rail than the Matrix,
+			## and never another opal (see `repeatable()`). A Birthstone tier is no opal and
+			## wakes opals too.
 			var woken: Array = []
 			var dark_sockets: Array = []
 			var dark: Array = unit.get("fizzled_sockets", []).duplicate()
@@ -2892,7 +3037,7 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 				var at: int = int(other)
 				if dark_sockets.size() >= maxi(1, amount):
 					break
-				if (socket >= 0 and at >= socket) or not repeatable(unit, at):
+				if (socket >= 0 and at >= socket) or not repeatable(unit, at, opal_at(unit, socket)):
 					continue
 				dark_sockets.append(at)
 				for _again in range(maxi(1, int(effect.get("repeat", 1)))):
@@ -2919,11 +3064,10 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 			out.total = int(unit.get("repeat_next", 0))
 		"void_copy":
 			## An Echo: a Void copy of the last gem that fired joins the rail riding this
-			## socket, and fires right after it for the rest of the fight. Any gem, opals
-			## included, but never another Echo (nor a Doublet wearing one): copies fire as
-			## rail gems every turn, and two Echoes would fill a rail with each other. The
-			## copy is the fight's own: nothing carries it out, so it is gone the moment the
-			## fight is.
+			## socket, and fires right after it for the rest of the fight. Never an opal
+			## (a Doublet wearing a gem is that gem): copies fire as rail gems every turn, and
+			## two Echoes would fill a rail with each other. The copy is the fight's own:
+			## nothing carries it out, so it is gone the moment the fight is.
 			var source_socket: int = previous_socket
 			var copyable: bool = socket >= 0 and source_socket >= 0 and source_socket < unit.rail.size() \
 				and unit.rail[source_socket] is Dictionary and repeatable(unit, source_socket) \
@@ -4137,11 +4281,15 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 			out.nothing = true
 		"bury_socket":
 			out.merge(_bury_heaviest(target), true)
-			## Rubble for the fight: it stays buried every turn after (`_begin_turn`).
-			if bool(effect.get("for_fight", false)) and out.has("socket"):
+			## Rubble that stays: for `turns` turns after this one (the Foreman's, 3 since
+			## November 13, 2026), or for the fight with `for_fight` and no turns. The socket
+			## digs itself out after (`_begin_turn`, `hold_left`).
+			var lasting: int = int(effect.get("turns", 0))
+			if (lasting > 0 or bool(effect.get("for_fight", false))) and out.has("socket"):
 				if not target.get("rubble", null) is Array:
 					target.rubble = []
-				target.rubble.append(int(out.socket))
+				target.rubble.append({"socket": int(out.socket), "laid": int(state.get("turn", 0)), "turns": maxi(0, lasting)})
+				out.turns = maxi(0, lasting)
 		"copy_hand":
 			out.merge(_copy_hand(state, target, amount), true)
 		"grip_die":
@@ -4209,7 +4357,7 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 				target.pinned[name] = true
 			out.pinned = name
 		"fog":
-			out.merge(_fog(target, source, rng), true)
+			out.merge(_fog(target, source, rng, int(effect.get("turns", 0)), int(state.get("turn", 0))), true)
 		"flee":
 			## Off into the dark with everything it took.
 			target.fled = true
@@ -4467,9 +4615,11 @@ static func _die_index(unit: Dictionary, die_id: String) -> int:
 			return at
 	return -1
 
-static func _fog(target: Dictionary, source: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
+static func _fog(target: Dictionary, source: Dictionary, rng: RandomNumberGenerator, turns: int = 0, laid: int = 0) -> Dictionary:
 	## A Clouder's fog: a socket on the rail clouded until someone hits the Clouder (or it
-	## dies). Never the last open socket: a rail that cannot fire at all is a stalemate.
+	## dies), and with `turns` (3 since November 13, 2026) no longer than that many turns after
+	## this one (`hold_left`). Never the last open socket: a rail that cannot fire at all is a
+	## stalemate.
 	if str(target.get("side", "")) != "player":
 		return {"nothing": true}
 	var open: Array = []
@@ -4482,8 +4632,46 @@ static func _fog(target: Dictionary, source: Dictionary, rng: RandomNumberGenera
 	target.clouded.append(socket)
 	if not target.get("fog", null) is Array:
 		target.fog = []
-	target.fog.append({"socket": socket, "by": str(source.get("id", ""))})
-	return {"socket": socket, "fogged": true}
+	target.fog.append({"socket": socket, "by": str(source.get("id", "")), "laid": laid, "turns": maxi(0, turns)})
+	return {"socket": socket, "fogged": true, "turns": maxi(0, turns)}
+
+static func hold_left(entry: Variant, turn: int) -> int:
+	## How many turns a timed rubble or fog entry still holds its socket, this one included
+	## (0: it lasts the fight, or until its Clouder is hit). Laid as a creature acts on turn N
+	## with `turns` 3, it holds turns N+1 to N+3 and reads 3, 3, 2, 1 from N on.
+	if not entry is Dictionary or int(entry.get("turns", 0)) <= 0:
+		return 0
+	return maxi(0, int(entry.turns) - maxi(0, turn - int(entry.get("laid", 0)) - 1))
+
+static func hold_at(unit: Dictionary, field: String, socket: int) -> Dictionary:
+	## The rubble or fog entry over this socket (`field` "rubble" or "fog"), or empty.
+	for entry in unit.get(field, []):
+		if entry is Dictionary and int(entry.get("socket", -1)) == socket:
+			return entry
+		if not entry is Dictionary and int(entry) == socket:
+			return {"socket": int(entry), "turns": 0}
+	return {}
+
+static func _shift_holds(unit: Dictionary, at: int, by: int, drop: bool) -> void:
+	## Rubble and fog entries name a place on the rail: a gem joining at `at` moves the ones at
+	## or past it on by one (`by` 1), a copy fading at `at` takes its own off (`drop`) and moves
+	## the ones past it back (`by` -1).
+	for field in ["rubble", "fog"]:
+		if not unit.get(field, null) is Array:
+			continue
+		var kept: Array = []
+		for entry in unit[field]:
+			var place: int = int(entry.get("socket", -1)) if entry is Dictionary else int(entry)
+			if drop and place == at:
+				continue
+			if (by > 0 and place >= at) or (by < 0 and place > at):
+				place += by
+			if entry is Dictionary:
+				entry.socket = place
+				kept.append(entry)
+			else:
+				kept.append({"socket": place, "turns": 0})
+		unit[field] = kept
 
 static func _clung(state: Dictionary, unit: Dictionary) -> bool:
 	## Whether the gem firing now is one a living Star Leech clings to.
@@ -4522,6 +4710,103 @@ static func _blank_next(target: Dictionary, rng: RandomNumberGenerator) -> Dicti
 	blank.append(die_id)
 	target.blank_next = blank
 	return {"die": die_id}
+
+# --- dice a Warden denies (W3, November 13, 2026) -----------------------------------------
+##
+## Four Warden and boss faces pin a rule on the creature until its next action (`pin_trait`),
+## so it holds through the party's next turn and lifts at once if the creature falls:
+##   numb_low n    dice showing n or less count for nothing (the Lock-Keeper's and the
+##                 Undertow's High Water)
+##   numb_high n   dice showing n or more count for nothing (the Foreman's Low Ceiling, the
+##                 Anvil Knight's Flatten)
+##   numb_small    each player's smallest dice count for nothing (the Drill's Jam)
+##   set_toll n    every throw costs n health for each die that matches another (the Mirror
+##                 Regent's and the Kaleidoscope's Hall of Mirrors)
+## A die that counts for nothing is marked on the roll (`numb`) and DeepHand reads it as it
+## reads a blank: no gem and no Birthstone sees it.
+
+static func numbing(state: Dictionary) -> Dictionary:
+	## The dice rules the creatures standing now hold: {low, low_by, high, high_by, small}.
+	var out: Dictionary = {}
+	for foe in living(state.get("enemies", [])):
+		var low: int = DeepCreatures.trait_value(foe, "numb_low", 0)
+		if low > int(out.get("low", 0)):
+			out.low = low
+			out.low_by = str(foe.id)
+		var high: int = DeepCreatures.trait_value(foe, "numb_high", 0)
+		if high > 0 and (not out.has("high") or high < int(out.high)):
+			out.high = high
+			out.high_by = str(foe.id)
+		if DeepCreatures.has_trait(foe, "numb_small") and not out.has("small"):
+			out.small = str(foe.id)
+	return out
+
+static func numb_hand(state: Dictionary, unit: Dictionary) -> void:
+	## Marks every roll of a player's hand that counts for nothing now (`numb`: "low", "high" or
+	## "small", and `numb_by`, the creature) and clears the rest. Run whenever the hand or the
+	## room changes: the throw, a reroll, a flip, and before each gem reads the hand. A wild
+	## is no number, so only a size numbs it. The smallest dice are the smallest size among the
+	## dice thrown from the bowl (phantoms are not the bowl's); when that is every one of them,
+	## the last of them still counts, so a hand is never numbed whole by its size.
+	var hand: Array = unit.get("hand", [])
+	if hand.is_empty():
+		return
+	var rule: Dictionary = numbing(state) if str(unit.get("side", "")) == "player" else {}
+	var small: int = 0
+	var spared: String = ""
+	if rule.has("small"):
+		var bowl: Array = hand.filter(func(r: Dictionary) -> bool: return not bool(r.get("phantom", false)) and r.has("shape"))
+		for roll in bowl:
+			var size: int = DeepDice.size_of(str(roll.shape))
+			small = size if small == 0 else mini(small, size)
+		if not bowl.is_empty() and bowl.all(func(r: Dictionary) -> bool: return DeepDice.size_of(str(r.shape)) == small):
+			spared = str(bowl.back().get("die_id", ""))
+	for roll in hand:
+		var why: String = ""
+		var by: String = ""
+		var kind: String = str(roll.get("kind", "plain"))
+		var value: int = int(roll.get("value", 0))
+		if kind != "blank":
+			if small > 0 and not bool(roll.get("phantom", false)) and roll.has("shape") and DeepDice.size_of(str(roll.shape)) == small and str(roll.get("die_id", "")) != spared:
+				why = "small"
+				by = str(rule.small)
+			elif kind != "wild" and rule.has("low") and value <= int(rule.low):
+				why = "low"
+				by = str(rule.low_by)
+			elif kind != "wild" and rule.has("high") and value >= int(rule.high):
+				why = "high"
+				by = str(rule.high_by)
+		if why.is_empty():
+			roll.erase("numb")
+			roll.erase("numb_by")
+		else:
+			roll.numb = why
+			roll.numb_by = by
+
+static func set_toll(state: Dictionary, unit: Dictionary) -> Dictionary:
+	## A Hall of Mirrors: while one holds, every throw costs the thrower health for each die
+	## that matches another (a pair is 2, a full house 5). Health lost, as Backlash is: no
+	## block stops it and it never takes the last point. {} when nothing is owed.
+	var per: int = 0
+	var by: String = ""
+	for foe in living(state.get("enemies", [])):
+		var toll: int = DeepCreatures.trait_value(foe, "set_toll", 0)
+		if toll > 0:
+			per += toll
+			if by.is_empty():
+				by = str(foe.id)
+	if per <= 0 or bool(unit.get("downed", false)) or int(unit.get("hp", 0)) <= 1:
+		return {}
+	var dice: Array = []
+	for group in DeepHand.analyze(unit.get("hand", [])).get("groups", []):
+		if int(group.get("count", 0)) >= 2:
+			dice.append_array(group.get("dice", []))
+	if dice.is_empty():
+		return {}
+	var loss: int = mini(int(unit.hp) - 1, DeepRules.sat_mul(per, dice.size()))
+	unit.hp = int(unit.hp) - loss
+	tally_add(unit, "taken", loss)
+	return {"unit": str(unit.id), "amount": loss, "dice": dice, "per": per, "by": by, "hp_after": int(unit.hp)}
 
 static func _morph(state: Dictionary, foe: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
 	## A Void Echo's Echo Anew: it becomes another creature from the mines it remembers, at that
@@ -4960,11 +5245,11 @@ static func _damage(state: Dictionary, source: Dictionary, target: Dictionary, a
 				if not firing.is_empty():
 					target.hardest_gem = {"unit": str(source.id), "socket": int(firing.get("socket", -1)), "stone_id": str(firing.get("stone_id", ""))}
 		if str(source.get("side", "")) == "player" and str(source.get("passive", {}).get("kind", "")) == "block_per_hit" and raw > 0 and not pure:
-			## Riposte: every hit the Rogue lands raises block worth her Resonance.
-			var parry: int = int(source.get("resonance", 0))
-			if parry > 0:
-				source.block = DeepRules.sat_add(int(source.block), parry)
-				out.riposte = parry
+			## Riposte: every hit the Rogue lands raises block worth half her Resonance, and
+			## at least 1 (owner, November 13, 2026: it was the whole Resonance).
+			var parry: int = maxi(1, int(source.get("resonance", 0)) / 2)
+			source.block = DeepRules.sat_add(int(source.block), parry)
+			out.riposte = parry
 		if DeepCreatures.has_trait(target, "cloud_socket") and loss > 0:
 			for unit in state.players:
 				unit.clouded = []
@@ -5079,6 +5364,15 @@ static func _damage(state: Dictionary, source: Dictionary, target: Dictionary, a
 	var acid: int = DeepCreatures.trait_value(target, "acid_armour", 0) if is_enemy_target else 0
 	if not reactive and not pure and amount > 0 and acid > 0 and str(source.get("side", "")) == "player" and int(source.get("hp", 0)) > 0:
 		out.acid = _apply_one(state, target, source, "poison", acid, {}, rng, reactions)
+	## Jagged (W4, November 13, 2026): every blow it takes costs whoever threw it health, so a
+	## rail of many small hits pays for each of them. Health lost, as Backlash is: no block
+	## stops it (so no Riposte block either), and it never takes the last point.
+	var jag: int = DeepCreatures.trait_value(target, "jagged", 0) if is_enemy_target else 0
+	if not reactive and not pure and amount > 0 and jag > 0 and str(source.get("side", "")) == "player" and int(source.get("hp", 0)) > 1:
+		var cut: int = mini(int(source.hp) - 1, jag)
+		source.hp = int(source.hp) - cut
+		tally_add(source, "taken", cut)
+		out.jagged = {"unit": str(source.id), "amount": cut, "hp_after": int(source.hp), "by": str(target.id)}
 	var spikes: int = int(target.statuses.get("spikes", 0))
 	if not reactive and not pure and amount > 0 and spikes > 0 and not reactions.has(str(target.id)) and int(source.get("hp", 0)) > 0:
 		reactions[str(target.id)] = true
@@ -5453,16 +5747,14 @@ static func _echoes_fade(state: Dictionary, unit: Dictionary) -> void:
 		if not rail[at] is Dictionary or not bool(rail[at].get("echo_turn", false)):
 			continue
 		DeepStone.leave_rail(unit, at)
-		for field in ["fired_sockets", "fizzled_sockets", "buried", "clouded", "rubble"]:
+		for field in ["fired_sockets", "fizzled_sockets", "buried", "clouded"]:
 			var places: Array = unit.get(field, [])
 			for index in range(places.size() - 1, -1, -1):
 				if int(places[index]) == at:
 					places.remove_at(index)
 				elif int(places[index]) > at:
 					places[index] = int(places[index]) - 1
-		for fog in unit.get("fog", []):
-			if int(fog.get("socket", -1)) > at:
-				fog.socket = int(fog.socket) - 1
+		_shift_holds(unit, at, -1, true)
 		if int(unit.get("previous_socket", -1)) >= at:
 			unit.previous_socket = int(unit.previous_socket) - 1
 		var was: Array = unit.get("initial_rail", [])
@@ -5541,17 +5833,28 @@ static func _begin_turn(state: Dictionary, rng_dice: RandomNumberGenerator, rng_
 		party_turn += int(unit.get("dealt", 0))
 	state.party_best_turn = maxi(int(state.get("party_best_turn", 0)), party_turn)
 	var afflicted: Array = []
+	var tolled: Array = []
 	for unit in state.players:
 		## An Echo's copy lasts the turn it was made in (a Flawless one, the fight).
 		_echoes_fade(state, unit)
 		## Rubble and fog both clear when a new turn is dug: a gimmick may take a socket for
-		## one turn. What stays is the Foreman's rubble for the fight, and a Clouder's fog while
-		## the Clouder stands and nobody has hit it (`_fog`).
-		unit.buried = unit.get("rubble", []).duplicate()
+		## one turn. What stays is the Foreman's rubble for its turns (3 since November 13,
+		## 2026: the socket then digs itself out), and a Clouder's fog for its turns while the
+		## Clouder stands and nobody has hit it (`_fog`).
+		unit.buried = []
+		var rubble: Array = []
+		for entry in unit.get("rubble", []):
+			var held: Dictionary = entry if entry is Dictionary else {"socket": int(entry), "turns": 0}
+			if int(held.get("turns", 0)) > 0 and hold_left(held, int(state.turn)) <= 0:
+				continue
+			rubble.append(held)
+			if not unit.buried.has(int(held.socket)):
+				unit.buried.append(int(held.socket))
+		unit.rubble = rubble
 		unit.clouded = []
 		var fogged: Array = []
 		for fog in unit.get("fog", []):
-			if int(enemy(state, str(fog.get("by", ""))).get("hp", 0)) > 0:
+			if int(enemy(state, str(fog.get("by", ""))).get("hp", 0)) > 0 and (int(fog.get("turns", 0)) <= 0 or hold_left(fog, int(state.turn)) > 0):
 				fogged.append(fog)
 				if not unit.clouded.has(int(fog.socket)):
 					unit.clouded.append(int(fog.socket))
@@ -5715,6 +6018,12 @@ static func _begin_turn(state: Dictionary, rng_dice: RandomNumberGenerator, rng_
 		unit.rerolled_dice = []
 		unit.hand.append_array(carried_phantoms)
 		_loaded(unit, [], rng_dice)
+		## A Warden's rules on the dice this turn (W3): what counts for nothing, and the toll a
+		## Hall of Mirrors takes on this throw.
+		numb_hand(state, unit)
+		var toll: Dictionary = set_toll(state, unit)
+		if not toll.is_empty():
+			tolled.append(toll)
 		unit.regrown = regrown
 		unit.dues = _pay_dues(state, unit)
 		unit.crowned = _crowns_rolled(unit, unit.hand.filter(func(r: Dictionary) -> bool: return not bool(r.get("phantom", false))), true)
@@ -5786,7 +6095,7 @@ static func _begin_turn(state: Dictionary, rng_dice: RandomNumberGenerator, rng_
 					var locked: Dictionary = _lock_dice(victim, "high", 1, rng_creatures)
 					if not locked.get("dice", []).is_empty():
 						afflicted.append({"unit": str(victim.id), "kind": "die_lock", "dice": locked.dice, "by": str(foe.id)})
-	return _event(state, "turn_begin", {"turn": state.turn, "frozen": frozen, "charged": batteries, "afflicted": afflicted,
+	return _event(state, "turn_begin", {"turn": state.turn, "frozen": frozen, "charged": batteries, "afflicted": afflicted, "tolled": tolled,
 		"hands": state.players.map(func(u: Dictionary) -> Dictionary: return {"unit": u.id, "hand": u.hand.duplicate(true), "rerolls": u.rerolls,
 			"dues": u.get("dues", {}), "regrown": u.get("regrown", {}), "resonance": int(u.get("resonance", 0)),
 			"crowned": u.get("crowned", []), "doubled": bool(u.get("resonance_doubled", false)),
@@ -5835,6 +6144,7 @@ static func forecast(state: Dictionary, player_id: String) -> Dictionary:
 	var unit: Dictionary = player(copy, player_id)
 	if unit.is_empty():
 		return {}
+	numb_hand(copy, unit)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 1
 	unit.firing_target = str(unit.get("target", ""))
@@ -5940,6 +6250,23 @@ static func forecast(state: Dictionary, player_id: String) -> Dictionary:
 	return {"sockets": sockets, "totals": totals, "birthstone": birthstone}
 
 # --- events --------------------------------------------------------------------------------
+
+static func _quiet_step(event: Dictionary, quiet: bool) -> Dictionary:
+	## A step that is resolved but not paced (P3, November 13, 2026): a fizzle on a rail where
+	## nothing fires, a gem that only attacks once every creature is down. The clock moves
+	## straight on to the next step; the screen plays it with the rest as one beat.
+	if quiet and not event.is_empty():
+		event.duration = 0.0
+		event.quiet = true
+	return event
+
+static func _rail_quiet(state: Dictionary, unit: Dictionary) -> bool:
+	## Whether nothing on this rail fires with the hand as it stands: no gem and no tier of the
+	## Birthstone, by the same forecast the hand was planned with.
+	var seen: Dictionary = forecast(state, str(unit.get("id", "")))
+	if seen.is_empty() or int(seen.get("totals", {}).get("fires", 0)) > 0:
+		return false
+	return not bool(seen.get("birthstone", {}).get("fired", false))
 
 static func _event(state: Dictionary, kind: String, fields: Dictionary) -> Dictionary:
 	state.seq = int(state.get("seq", 0)) + 1

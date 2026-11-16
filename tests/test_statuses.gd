@@ -513,9 +513,9 @@ func enemy_integrations() -> void:
 	check(wailed.size() == 1 and wailed[0].effects.size() == 2 and wailed[0].effects.all(func(e: Dictionary) -> bool: return int(e.get("hp_loss", 0)) == piercing and int(e.get("absorbed", 0)) == 0),
 		"a Wail hits every player for %d through block: %s" % [piercing, str(wailed[0].effects if not wailed.is_empty() else [])])
 	check(wail.state.players.all(func(p: Dictionary) -> bool: return int(p.statuses.get("marked", 0)) == 0), "it does not mark the party")
-	## A fresh Curse (the Regent's Splinter) or Dulled (the Drill's Grind) lasts through the
+	## A fresh Curse (the Amethyst Wyrm's Hex; the Regent's Splinter until November 13, 2026) or Dulled (the Drill's Grind) lasts through the
 	## player turn after it, Ward turns it away, and it decays without being reapplied.
-	for spec in [["THE_REGENT", "curse", "Splinter", "Mirror"], ["THE_DRILL", "dulled", "Grind", "Bore"]]:
+	for spec in [["AMETHYST_WYRM", "curse", "Hex", "Mirror"], ["THE_DRILL", "dulled", "Grind", "Bore"]]:
 		var key: String = str(spec[0])
 		var f: Dictionary = setup(key, 2)
 		var kind: String = str(spec[1])
@@ -530,7 +530,7 @@ func enemy_integrations() -> void:
 			check(int(DeepBattle.forecast(f.state, "p0").sockets[0].cut_step) == 3, "%s reduces the next rail's effective Cut" % key)
 		else:
 			f.foe.block = 0
-			check(int(apply(f, "damage", 20)[0].raw) == 18 and int(apply(f, "damage", 20, false)[0].raw) == 22, "Splinter changes both outgoing and incoming damage by ten percent next turn")
+			check(int(apply(f, "damage", 20)[0].raw) == 18 and int(apply(f, "damage", 20, false)[0].raw) == 22, "a fresh Curse changes both outgoing and incoming damage by ten percent next turn")
 		f.player.rail[0] = null
 		# Reapplication must not indefinitely postpone decay of an existing stack.
 		turn(f)

@@ -783,14 +783,17 @@ static func rework_break_pct() -> float:
 	return float(DeepContent.constant("rework_break_pct", 4))
 
 static func rework_used(profile: Dictionary, kind: String) -> bool:
-	return bool(profile.get("daily", {}).get("rework_" + kind, false))
+	## Whether the day's go at the Wheel (or the Oven) is spent. The Market's restock opens it
+	## again (K8, November 16, 2026: no dearer second goes; the restock is the price of another).
+	var daily: Dictionary = profile.get("daily", {})
+	return bool(daily.get("rework_" + kind, false)) or int(daily.get("rework_%s_goes" % kind, 0)) > 0
 
 static func rework_refusal(profile: Dictionary, skill: String, kind: String) -> String:
 	## Why a vault stone cannot go on the Wheel or into the Oven, or "".
 	if not kind in REWORKS:
 		return "no such service"
 	if rework_used(profile, kind):
-		return "The %s has been used today. It opens again tomorrow." % ("Wheel" if kind == "cut" else "Oven")
+		return "The %s has been used today. %s" % ["Wheel" if kind == "cut" else "Oven", "It opens again tomorrow." if restocked_today(profile) else "A restock at the counter opens it again."]
 	var stone: Dictionary = DeepProfile.owned(profile, skill)
 	if stone.is_empty():
 		return "Only stones in your vault can be reworked."
@@ -840,6 +843,8 @@ static func rework(profile: Dictionary, skill: String, kind: String, rng: Random
 		rng = RandomNumberGenerator.new()
 		rng.randomize()
 	profile.gold = int(profile.gold) - paid
+	if not profile.get("daily", null) is Dictionary:
+		profile.daily = {}
 	profile.daily["rework_" + kind] = true
 	var was: int = int(stone.get(kind, 0))
 	if DeepRng.chance(rng, rework_break_pct()):
@@ -867,8 +872,10 @@ static func restocked_today(profile: Dictionary) -> bool:
 	return bool(profile.get("daily", {}).get("restocked", false))
 
 static func restock(profile: Dictionary) -> Dictionary:
-	## Once a day, for gold: a new Geode of the day and three new cut stones. The week's Geode
-	## and the commissions stay as they are (commissions have their own reroll).
+	## Once a day, for gold: a new Geode of the day and three new cut stones, and the Wheel and
+	## the Oven open again if today's go was spent (K8, November 16, 2026). The week's Geode,
+	## the contract bench and the commissions stay as they are (commissions have their own
+	## reroll).
 	if restocked_today(profile):
 		return {"ok": false, "error": "The market has been restocked today."}
 	if int(profile.get("gold", 0)) < restock_price():
@@ -878,6 +885,10 @@ static func restock(profile: Dictionary) -> Dictionary:
 	profile.daily.restocked = true
 	profile.daily.shelf = _roll_daily_geode(profile, date, 1)
 	profile.daily.case = _roll_case(profile, date, 1)
+	for kind in REWORKS:
+		profile.daily.erase("rework_" + kind)
+		profile.daily.erase("rework_%s_goes" % kind)
+	profile.daily.erase("geode_again")
 	return {"ok": true, "paid": restock_price()}
 
 # --- contracts ---------------------------------------------------------------------------------
@@ -1651,6 +1662,63 @@ static func daily_gold(score: int, tier: int = 0) -> int:
 	## The gold a score is worth on a Hazard tier.
 	return int(floor(float(daily_payout(score)) * daily_gold_mult(tier)))
 
+## The day's par lines (K4, November 13, 2026): bronze, silver and gold scores the seam is
+## measured by, each paying its gold the first time the day's best reaches it. Every day's seam
+## sets its own, within a fifth either way of the base lines, drawn from its date.
+const DAILY_MEDALS: Array = ["BRONZE", "SILVER", "GOLD"]
+const DAILY_MEDAL_NAMES: Dictionary = {"BRONZE": "Bronze", "SILVER": "Silver", "GOLD": "Gold"}
+
+static func daily_par(date: String = "") -> Array:
+	## [{medal, score, gold}] for the day's seam, bronze first.
+	if date.is_empty():
+		date = today()
+	var base: Dictionary = DeepContent.constant("daily_par", {"BRONZE": 80, "SILVER": 140, "GOLD": 220})
+	var pays: Dictionary = DeepContent.constant("daily_par_gold", {"BRONZE": 20, "SILVER": 40, "GOLD": 80})
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash("deep-cut-daily-par:%s" % date)
+	var swing: float = rng.randf_range(0.8, 1.2)
+	var out: Array = []
+	for medal in DAILY_MEDALS:
+		out.append({"medal": medal, "score": maxi(5, int(round(float(base.get(medal, 100)) * swing / 5.0)) * 5), "gold": int(pays.get(medal, 0))})
+	return out
+
+static func daily_medal(date: String, score: int) -> String:
+	## The best par line a score reaches on that day's seam, or "".
+	var reached: String = ""
+	for line in daily_par(date):
+		if score >= int(line.score):
+			reached = str(line.medal)
+	return reached
+
+static func daily_streak(profile: Dictionary, date: String = "") -> int:
+	## Days in a row with the day's seam dug, up to today (or to yesterday, while today is still
+	## open to dig): the Ledger's daily bests and today's record.
+	if date.is_empty():
+		date = today()
+	var days: Dictionary = {}
+	for entry in profile.get("records", {}).get("daily_bests", []):
+		if entry is Dictionary:
+			days[str(entry.get("date", ""))] = true
+	if daily_played(profile, date):
+		days[date] = true
+	var at: int = Time.get_unix_time_from_datetime_string(date)
+	if not days.has(date):
+		at -= 86400
+	var count: int = 0
+	while days.has(Time.get_date_string_from_unix_time(at)) and count < 3650:
+		count += 1
+		at -= 86400
+	return count
+
+static func daily_recent(profile: Dictionary, count: int = 7) -> Array:
+	## The last days dug, newest first: [{date, score, gold, medal}].
+	var bests: Array = profile.get("records", {}).get("daily_bests", []).filter(func(e: Variant) -> bool: return e is Dictionary)
+	var out: Array = []
+	for index in range(bests.size() - 1, maxi(-1, bests.size() - 1 - count), -1):
+		var entry: Dictionary = bests[index]
+		out.append({"date": str(entry.get("date", "")), "score": int(entry.get("score", 0)), "gold": int(entry.get("gold", 0)), "medal": daily_medal(str(entry.get("date", "")), int(entry.get("score", 0)))})
+	return out
+
 static func settle_daily(profile: Dictionary, scored: Dictionary, date: String, tier: int = 0) -> Dictionary:
 	## Pays a finished attempt at the day's seam: the gold its score is worth on its Hazard
 	## tier, less what the day's best already paid, to a lapidary who may be paid at all. The
@@ -1672,7 +1740,19 @@ static func settle_daily(profile: Dictionary, scored: Dictionary, date: String, 
 	if improved or gold > best_gold:
 		_note_daily_best(profile, date, int(record.best_score), maxi(best_gold, gold))
 	record.best_gold = maxi(best_gold, gold)
+	## Every par line the day's best now reaches pays its gold once (K4).
+	var medals: Array = []
+	var medal_gold: int = 0
+	if not record.get("medals", null) is Array:
+		record.medals = []
+	for line in daily_par(date):
+		if int(record.best_score) >= int(line.score) and not record.medals.has(str(line.medal)):
+			record.medals.append(str(line.medal))
+			medals.append(str(line.medal))
+			if eligible:
+				medal_gold += int(line.gold)
 	profile.dig = record
-	profile.gold = int(profile.get("gold", 0)) + paid
-	out.merge({"gold": gold, "paid": paid, "best_score": int(record.best_score), "best_gold": int(record.best_gold), "improved": improved, "eligible": eligible}, true)
+	profile.gold = int(profile.get("gold", 0)) + paid + medal_gold
+	out.merge({"gold": gold, "paid": paid, "best_score": int(record.best_score), "best_gold": int(record.best_gold), "improved": improved, "eligible": eligible,
+		"medals": medals, "medal_gold": medal_gold}, true)
 	return out

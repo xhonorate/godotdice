@@ -164,9 +164,17 @@ static func reroll_clarity(rng: RandomNumberGenerator, stone: Dictionary, mine: 
 	## whatever is in there is drawn again too. Returns {clarity, inclusions, was, had}.
 	var was: int = int(stone.get("clarity", 0))
 	var had: Array = stone.get("inclusions", []).duplicate()
+	var burnt: Array = (stone.get("burnt", []) as Array).duplicate() if DeepStone.is_flawless(stone) else []
 	stone.clarity = roll_clarity(rng, luck(mine, depth, bonus), was)
 	stone.inclusions = roll_inclusions(rng, DeepStone.inclusion_slots(int(stone.clarity)), mine, "", DeepStone.color(stone))
 	stone.inclusions_revealed = true
+	## Fired Flawless, it keeps the names of what the heat burnt out of it, and its grade and
+	## worth go on counting them (DeepStone.counted_inclusions, K7). Any other Clarity drops them.
+	stone.erase("burnt")
+	if DeepStone.is_flawless(stone):
+		burnt.append_array(had)
+		if not burnt.is_empty():
+			stone.burnt = burnt.slice(0, 3)
 	return {"clarity": int(stone.clarity), "inclusions": stone.inclusions.duplicate(), "was": was, "had": had}
 
 static func clarity_side(clarity: int) -> int:

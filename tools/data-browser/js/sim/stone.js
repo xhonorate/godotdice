@@ -127,7 +127,7 @@ export function gradeBreakdown(stone) {
 	const reach = Math.max(1, clarityIndex > clear ? C.clarities().length - 1 - clear : clear);
 	const clarityPts = (Math.abs(clarityIndex - clear) / reach) * 20;
 	let inclusionPts = 0;
-	for (const key of stone.inclusions || []) inclusionPts += INCLUSION_SCORE[C.inclusion(key).rarity || 'COMMON'] ?? 2;
+	for (const key of countedInclusions(stone)) inclusionPts += INCLUSION_SCORE[C.inclusion(key).rarity || 'COMMON'] ?? 2;
 	inclusionPts = Math.min(15, inclusionPts);
 	const skillPts = (C.rarityScore(skillOf(stone).rarity || 'COMMON') / 28) * 8;
 	return { carat_pts: caratPts, cut_pts: cutPts, clarity_pts: clarityPts, inclusion_pts: inclusionPts, skill_pts: skillPts, total: caratPts + cutPts + clarityPts + inclusionPts + skillPts };
@@ -142,13 +142,22 @@ export function grade(stone) {
 	return { score, tier, name: TIER_NAMES[tier], index: TIERS.indexOf(tier), breakdown };
 }
 
+// What grade and worth count as frozen inside: a Flawless stone's burnt-out inclusions too (K7).
+export function countedInclusions(stone) {
+	const held = (stone.inclusions || []).slice();
+	if (isFlawless(stone)) held.push(...(stone.burnt || []));
+	return held;
+}
+
 export function value(stone) {
 	const clear = C.clearIndex();
 	let base = 10 + (I(stone.carat)) * 4;
 	base *= 1 + (I(stone.cut)) * 0.25;
-	base *= 1 + 0.3 * Math.abs((stone.clarity ?? clear) - clear);
+	let away = Math.abs((stone.clarity ?? clear) - clear);
+	if (isFlawless(stone)) away = Math.max(away, clear);
+	base *= 1 + 0.3 * away;
 	base *= RARITY_VALUE[skillOf(stone).rarity || 'COMMON'] ?? 1;
-	for (const key of stone.inclusions || []) base *= 1 + (INCLUSION_SCORE[C.inclusion(key).rarity || 'COMMON'] ?? 2) / 20;
+	for (const key of countedInclusions(stone)) base *= 1 + (INCLUSION_SCORE[C.inclusion(key).rarity || 'COMMON'] ?? 2) / 20;
 	return Math.max(1, Math.round(base));
 }
 

@@ -220,6 +220,32 @@ static func unstake(stone: Dictionary) -> Dictionary:
 	stone.erase("staked")
 	return stone
 
+static func polished(stone: Dictionary) -> int:
+	## The carats a Polish put on this stone for the rest of the run (a rest stop's cloth:
+	## review card B1). They count in every fight and every number the
+	## run shows, and come off as the stone goes home (`unpolish`).
+	return int(stone.get("polished", 0))
+
+static func polish(stone: Dictionary, carats: int = 1) -> int:
+	## `carats` more on the stone for the rest of the run, never past the heaviest a stone can
+	## be. Returns the carats it really took (0 for a stone already as heavy as they come).
+	var before: int = int(stone.get("carat", 1))
+	var after: int = mini(before + maxi(0, carats), carat_max())
+	if after <= before:
+		return 0
+	stone.carat = after
+	stone.polished = polished(stone) + (after - before)
+	return after - before
+
+static func unpolish(stone: Dictionary) -> Dictionary:
+	## The stone as it goes home: a Polish lasts the run, so its carats come off (never below
+	## one carat). The mark goes with them, so a second call changes nothing.
+	var lent: int = polished(stone)
+	if lent > 0:
+		stone.carat = maxi(1, int(stone.get("carat", 1)) - lent)
+	stone.erase("polished")
+	return stone
+
 static func is_fragile(stone: Dictionary) -> bool:
 	## A stone that cannot leave the mine: one with a Void frozen in it, or one staked out
 	## at the shaft head on the understanding that it was never going to come home.
@@ -575,7 +601,7 @@ static func grade_breakdown(stone: Dictionary) -> Dictionary:
 	var reach: int = maxi(1, (DeepContent.clarities().size() - 1 - clear) if clarity_index > clear else clear)
 	var clarity_pts: float = float(absi(clarity_index - clear)) / float(reach) * 20.0
 	var inclusion_pts: float = 0.0
-	for key in stone.get("inclusions", []):
+	for key in counted_inclusions(stone):
 		inclusion_pts += float(INCLUSION_SCORE.get(str(DeepContent.inclusion(str(key)).get("rarity", "COMMON")), 2.0))
 	inclusion_pts = minf(15.0, inclusion_pts)
 	var skill_pts: float = DeepContent.rarity_score(str(skill_of(stone).get("rarity", "COMMON"))) / 28.0 * 8.0
@@ -594,13 +620,17 @@ static func grade(stone: Dictionary) -> Dictionary:
 	return {"score": score, "tier": tier, "name": TIER_NAMES[tier], "index": TIERS.find(tier), "breakdown": breakdown}
 
 static func value(stone: Dictionary) -> int:
-	## Sell price in gold.
+	## Sell price in gold. Flawless is worth what the far end of the ladder is (Intricate), as
+	## the grade scores both ends in full: a stone fired Flawless never loses worth (K7).
 	var clear: int = DeepContent.clear_index()
 	var base: float = 10.0 + float(int(stone.get("carat", 1))) * 4.0
 	base *= 1.0 + float(int(stone.get("cut", 0))) * 0.25
-	base *= 1.0 + 0.3 * float(absi(int(stone.get("clarity", clear)) - clear))
+	var away: int = absi(int(stone.get("clarity", clear)) - clear)
+	if is_flawless(stone):
+		away = maxi(away, clear)
+	base *= 1.0 + 0.3 * float(away)
 	base *= float(RARITY_VALUE.get(str(skill_of(stone).get("rarity", "COMMON")), 1.0))
-	for key in stone.get("inclusions", []):
+	for key in counted_inclusions(stone):
 		base *= 1.0 + float(INCLUSION_SCORE.get(str(DeepContent.inclusion(str(key)).get("rarity", "COMMON")), 2.0)) / 20.0
 	return maxi(1, int(round(base)))
 
@@ -619,6 +649,15 @@ static func sell_value(stone: Dictionary) -> int:
 	## what its size class is worth while it is still in its rock. The one place that price
 	## is worked out, so the number the scales promise is the number the sale pays.
 	return value(stone) / 2 if bool(stone.get("appraised", false)) else rough_value(stone)
+
+static func counted_inclusions(stone: Dictionary) -> Array:
+	## What a stone's grade and worth count as frozen inside it: its inclusions, and on a Flawless
+	## stone those the fire burnt out of it on the way (`burnt`, set by DeepForge.reroll_clarity).
+	## Flawless never lowers a stone's grade or worth: it counts at least what it took (K7).
+	var held: Array = stone.get("inclusions", []).duplicate()
+	if is_flawless(stone):
+		held.append_array(stone.get("burnt", []))
+	return held
 
 static func inclusion_names(stone: Dictionary) -> Array:
 	var out: Array = []
