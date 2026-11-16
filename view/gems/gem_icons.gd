@@ -1822,6 +1822,22 @@ static func _emblem_shapes(glyph: String) -> Array:
 ## run goes, and the verbs on its buttons. Same rules as the emblems: bold, no hairlines.
 static func _ui_shapes(glyph: String) -> Array:
 	match glyph:
+		"buff_wheel":
+			# A stall's polishing wheel (review card R3): the wheel on its axle, its spokes, and
+			# a glint thrown off its rim. An interface mark, not a skill's: the Polish gem has
+			# its own (`shine`).
+			return [ {"op": "add", "circle": [0.42, 0.56, 0.36]}, {"op": "sub", "circle": [0.42, 0.56, 0.26]},
+				{"op": "add", "circle": [0.42, 0.56, 0.08]},
+				{"op": "add", "poly": _bar(Vector2(0.42, 0.30), Vector2(0.42, 0.82), 0.06)},
+				{"op": "add", "poly": _bar(Vector2(0.16, 0.56), Vector2(0.68, 0.56), 0.06)},
+				{"op": "add", "poly": _star(4, 0.17, 0.045, Vector2(0.82, 0.18))}]
+		"chisel":
+			# The carver's chisel (review card M3) on the slant: a stout handle, a narrow blade
+			# and its bevelled edge biting down to the left.
+			return [ {"op": "add", "poly": _bar(Vector2(0.90, 0.10), Vector2(0.60, 0.40), 0.20)},
+				{"op": "add", "poly": _bar(Vector2(0.60, 0.40), Vector2(0.52, 0.48), 0.12)},
+				{"op": "add", "poly": _bar(Vector2(0.54, 0.46), Vector2(0.22, 0.78), 0.10)},
+				{"op": "add", "poly": _poly([[0.26, 0.74], [0.16, 0.92], [0.06, 0.94], [0.18, 0.70]])}]
 		"ore":
 			# A nugget: an irregular lump with two facet cuts, so it reads as rock, not coin.
 			return [ {"op": "add", "poly": _poly([[0.18, 0.38], [0.40, 0.14], [0.70, 0.18], [0.92, 0.46],

@@ -114,11 +114,15 @@ var _base_box: PanelContainer
 var _base_label: Label
 var _mult_box: PanelContainer
 var _mult_label: Label
-## A Flawless line's own multiplier, in a box of its own to the right of the rest: it is the bonus,
-## and the player should see it arrive as one. Laid out from the start and hidden, so nothing shifts.
+## Every Flawless multiplier (the clarity's ×1.5, a Flawless line's own ×2) in a gold box of its
+## own to the right of the rest: one more step of the count, lit where it stands when its turn
+## comes, never a chip flown up from the socket (X11, owner, November 16, 2026: "if it is a value
+## multiplier, then it should be part of the tally counter, rather than its own pop-up"). Laid
+## out from the start, dim, so nothing shifts and the place it will light is seen.
 var _flawless_sign: Label
 var _flawless_box: PanelContainer
 var _flawless_label: Label
+var _flawless_x: float = 1.0
 var _total_box: PanelContainer
 var _total_label: Label
 var _base: int = 0
@@ -209,9 +213,17 @@ func show_sum(tally: Dictionary) -> void:
 	else:
 		_base_label.text = DeepUi.number(int(tally.get("base", 0)))
 	var product: float = 1.0
+	var flawless: float = 1.0
 	for entry in tally.get("mults", []):
-		product *= float(entry.get("x", 1.0))
+		if is_flawless_step(entry) and _flawless_box != null:
+			flawless *= float(entry.get("x", 1.0))
+		else:
+			product *= float(entry.get("x", 1.0))
 	_mult_label.text = times(product).substr(1)
+	if _flawless_box != null:
+		_flawless_label.text = times(flawless).substr(1)
+		_flawless_sign.modulate.a = 1.0
+		_flawless_box.modulate.a = 1.0
 	for entry in tally.get("adds", []):
 		var by: int = int(entry.get("by", 0))
 		var look: Array = STEP_LOOKS.get(str(entry.get("what", "")), ["spark", "76b6ff", ""])
@@ -351,20 +363,36 @@ func _build() -> void:
 	_mult_label.custom_minimum_size.x = 18.0 if compact else 28.0
 	## Struck no stronger than it was: the box stays, dim, so the place a multiplier would
 	## land is learned before the first heavy stone ever fills it.
-	if _tally.get("mults", []).filter(func(e: Dictionary) -> bool: return str(e.get("what", "")) != "flawless").is_empty():
+	if _tally.get("mults", []).filter(func(e: Dictionary) -> bool: return not is_flawless_step(e)).is_empty():
 		_mult_box.modulate = Color(1, 1, 1, 0.45)
-	if _tally.get("mults", []).any(func(e: Dictionary) -> bool: return str(e.get("what", "")) == "flawless"):
+	if _tally.get("mults", []).any(func(e: Dictionary) -> bool: return is_flawless_step(e)):
 		var gold: Color = FlawlessFx.tone()
 		_flawless_sign = DeepUi.label(_row, "×", 18 if compact else 24, DeepUi.PAPER)
 		_flawless_sign.add_theme_color_override("font_outline_color", Color(DeepUi.INK, 0.95))
 		_flawless_sign.add_theme_constant_override("outline_size", 5)
 		_flawless_sign.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		_flawless_sign.modulate.a = 0.0
 		_flawless_box = _box(_row, gold)
 		var line := DeepUi.hbox(_flawless_box, 4)
 		DeepUi.icon(line, "star", 14.0 if compact else 22.0, gold).size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		_flawless_label = _number(line, "2", big - 2, gold.lightened(0.15))
-		_flawless_box.modulate.a = 0.0
+		_flawless_label = _number(line, "1", big - 2, gold.lightened(0.15))
+		## As wide from the start as the widest it will read (×1.5 is wider than the ×3 it
+		## becomes), so the row never shifts as it lights.
+		var font: Font = _flawless_label.get_theme_font(&"font")
+		var px: int = _flawless_label.get_theme_font_size(&"font_size")
+		var running: float = 1.0
+		var widest: float = 18.0 if compact else 28.0
+		for entry in _tally.get("mults", []):
+			if is_flawless_step(entry):
+				running *= float(entry.get("x", 1.0))
+				widest = maxf(widest, ceilf(font.get_string_size(times(running).substr(1), HORIZONTAL_ALIGNMENT_LEFT, -1, px).x) + 2.0)
+		_flawless_label.custom_minimum_size.x = widest
+		_flawless_x = 1.0
+		_flawless_sign.modulate.a = 0.45
+		_flawless_box.modulate.a = 0.45
+
+static func is_flawless_step(entry: Dictionary) -> bool:
+	## A multiplier the stone's Flawless grade lays on: its clarity (×1.5) or its line's own ×N.
+	return str(entry.get("what", "")) in ["clarity", "flawless"]
 
 func _box(parent: Control, edge: Color) -> PanelContainer:
 	var box := PanelContainer.new()
@@ -475,6 +503,18 @@ func _lay(entry: Dictionary, seconds: float) -> void:
 	## or a multiplier into the right-hand box, flown in from where it comes from.
 	var what: String = str(entry.get("what", ""))
 	var source: Control = _anchor()
+	if is_flawless_step(entry) and _flawless_box != null:
+		## A Flawless multiplier is a step of the count, not a pop-up: its gold box in the row
+		## lights where it stands. A line's own ×N also has the gem sparkle and ring under it,
+		## as every Flawless line that does something does.
+		if what == "flawless":
+			if get_parent() is Control:
+				FlawlessFx.sparkle(get_parent() as Control, _centre(source), 0.7 if compact else 1.0)
+			DeepAudio.play_at(_centre(source), "flawless_glint", {"volume": 0.85 * volume, "gap": 0.0})
+		var lit: int = _step
+		_step += 1
+		_laid(what, float(entry.get("x", 1.0)), FlawlessFx.tone(), lit)
+		return
 	var look: Array = STEP_LOOKS.get(what, ["spark", "ffd76a", ""])
 	var tint: Color = Color(str(look[1]))
 	var note: String = str(look[2])
@@ -499,28 +539,26 @@ func _lay(entry: Dictionary, seconds: float) -> void:
 		"carat":
 			var weight: float = float(entry.get("weight", 1.0))
 			note = ("%d carats" % int(weight)) if is_equal_approx(weight, round(weight)) else ("%.1f carats" % weight)
-		"flawless":
-			## The bonus is on: the gem sparkles and rings, and its multiplier flies out of the sparkle.
-			if get_parent() is Control:
-				FlawlessFx.sparkle(get_parent() as Control, _centre(source), 0.7 if compact else 1.0)
-			DeepAudio.play_at(_centre(source), "flawless_glint", {"volume": 0.85 * volume, "gap": 0.0})
+	## It rises from just over the top of what it comes from, never over the gem's name (X11,
+	## November 13, 2026).
 	var from: Vector2 = _centre(source)
 	if source != null:
-		from.y -= source.size.y * 0.35
-	var to: Vector2 = _centre(_base_box if what == "link" else (_flawless_box if what == "flawless" and _flawless_box != null else _mult_box))
+		from.y = source.get_global_rect().position.y - 4.0
+	var to: Vector2 = _centre(_base_box if what == "link" else _mult_box)
 	var step: int = _step
 	_step += 1
-	_fly(from, to, text, note, tint, clampf(seconds * 0.6, 0.05, 0.24), _laid.bind(what, float(entry.get("x", 1.0)), tint, step), glyph)
+	_fly(from, to, text, note, tint, clampf(seconds * 0.6, 0.05, 0.24), _laid.bind(what, float(entry.get("x", 1.0)), tint, step), glyph, source != null)
 
 func _laid(what: String, x: float, tint: Color, step: int) -> void:
 	if what == "link":
 		_set_base(int(_tally.get("base", 0)))
 		_voice(tick, _centre(_base_box), 0.6, step)
 		return
-	if what == "flawless" and _flawless_box != null:
+	if _flawless_box != null and what in ["clarity", "flawless"]:
+		_flawless_x *= x
 		_flawless_sign.modulate.a = 1.0
 		_flawless_box.modulate.a = 1.0
-		_flawless_label.text = times(x).substr(1)
+		_flawless_label.text = times(_flawless_x).substr(1)
 		DeepUi.spring(_flawless_box, 0.34, 9.0, 0.48)
 		_sparks(_centre(_flawless_box), tint, 18, 150.0)
 		_voice("tally_mult", _centre(_flawless_box), 0.85, step)
@@ -677,9 +715,10 @@ func _sparks(at: Vector2, tint: Color, amount: int, speed: float) -> void:
 		return
 	DeepUi.burst(parent, at - parent.get_global_rect().position, tint, maxi(4, amount / 3) if ScreenFx.calm else amount, speed, 0.4, 4.0)
 
-func _fly(from: Vector2, to: Vector2, text: String, note: String, tint: Color, seconds: float, landed: Callable, glyph: String = "") -> void:
+func _fly(from: Vector2, to: Vector2, text: String, note: String, tint: Color, seconds: float, landed: Callable, glyph: String = "", over: bool = false) -> void:
 	## A chip carrying a number (or a glint, with no number) from where it comes from to where
-	## it lands, along a bow, trailing sparks of its own color.
+	## it lands, along a bow, trailing sparks of its own color. `over`: `from` is the top edge of
+	## what it comes from, and the chip starts standing on it rather than centred on it.
 	if not from.is_finite() or not to.is_finite():
 		landed.call()
 		return
@@ -710,6 +749,9 @@ func _fly(from: Vector2, to: Vector2, text: String, note: String, tint: Color, s
 	var half: Vector2 = body.get_combined_minimum_size() * 0.5
 	body.size = half * 2.0
 	chip.pivot_offset = half
+	if over:
+		## It starts 1.35 times its size (below), so its foot is that far under its middle.
+		from.y -= half.y * 1.35
 	trail.local_coords = false
 	trail.amount = 16
 	trail.lifetime = 0.24

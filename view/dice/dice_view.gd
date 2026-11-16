@@ -1195,20 +1195,29 @@ func _draw_glow(target: Control) -> void:
 		for i in sides:
 			silhouette.append(centre + Vector2.from_angle(-PI * 0.5 + TAU * float(i) / float(sides)) * radius)
 		target.draw_colored_polygon(silhouette, _palette().body)
-	if highlighted:
+	if highlighted and not selected:
 		## Lit, not shadowed: a 16% fill of the accent over the dock's near-black panel came out
 		## a muddy olive disc that read as a shadow under the dice; a crisp ring of the accent
-		## over a barely-there fill points the die out instead.
-		target.draw_circle(centre, radius * 1.16, Color(accent, 0.06))
-		target.draw_arc(centre, radius * 1.16, 0.0, TAU, 48, Color(accent, 0.7), 2.0, true)
+		## over a barely-there fill points the die out instead. Only a hair of a ring, so the
+		## pointer resting on a die is never mistaken for the die being picked (F7, Nov 13).
+		target.draw_circle(centre, radius * 1.16, Color(accent, 0.04))
+		target.draw_arc(centre, radius * 1.16, 0.0, TAU, 48, Color(accent, 0.45), 1.5, true)
 	if _pop_time < POP_SECONDS:
 		var t: float = clampf(_pop_time / POP_SECONDS, 0.0, 1.0)
 		var fade: float = 1.0 - t
 		target.draw_circle(centre, radius * 1.05, Color(_pop_tint, 0.2 * fade * fade))
 		target.draw_arc(centre, radius * lerpf(0.95, 1.3, sqrt(t)), 0.0, TAU, 48, Color(_pop_tint, 0.85 * fade), 1.0 + 2.5 * fade, true)
 	if selected:
-		var pulse := 0.55 + 0.25 * sin(_clock * 4.2)
-		target.draw_arc(centre, radius * 1.06, 0.0, TAU, 48, Color(accent, pulse), 2.5, true)
+		## Picked to be thrown again: a soft glow round the die (a band of light, not a fill
+		## under it, which reads as a shadow), a thick bright band that never fades, a thinner
+		## ring breathing round it and four sparks riding the band. Read at a glance from the
+		## hover's hair-thin ring (F7, November 13, 2026).
+		var pulse := 0.5 + 0.5 * sin(_clock * 4.2)
+		var bright: Color = accent.lightened(0.22)
+		target.draw_arc(centre, radius * 1.1, 0.0, TAU, 64, Color(bright, 0.1 + 0.06 * pulse), radius * 0.2, true)
+		var band: float = maxf(3.5, radius * 0.085)
+		target.draw_arc(centre, radius * 1.07, 0.0, TAU, 64, Color(bright, 0.96), band, true)
+		target.draw_arc(centre, radius * (1.15 + 0.02 * pulse), 0.0, TAU, 64, Color(accent, 0.3 + 0.35 * pulse), maxf(1.5, band * 0.4), true)
 		for i in 4:
 			var angle := _clock * 1.1 + TAU * float(i) / 4.0
-			target.draw_circle(centre + Vector2.from_angle(angle) * radius * 1.06, 2.6, Color(accent, pulse))
+			target.draw_circle(centre + Vector2.from_angle(angle) * radius * 1.07, band * 0.85, Color(bright.lightened(0.35), 1.0))

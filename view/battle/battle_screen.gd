@@ -371,6 +371,17 @@ var _motley_fx: Control = null
 var _pressing: String = ""
 var _press_token: int = 0
 var _long_pressed: String = ""
+## Each set gem's trigger mark as last shown, by "player|socket|stone": its key and the Cut step
+## it stood on. A mark that moves is flagged (`_trigger_flags`: dir +1 looser, -1 tighter, and
+## the last turn it stays flagged) until the next turn starts (F3, November 13, 2026).
+var _trigger_seen: Dictionary = {}
+var _trigger_flags: Dictionary = {}
+## The hand changes a gem makes as it fires (Graft's lower pair taking the higher pair's number,
+## a Raise, a Match): the dice it changed turn over to the faces they now show and wear the
+## gem's emblem until the turn is over (F2, November 13, 2026). By "player|die": the turn, the
+## gem's skill, its color and what the die showed before.
+const REWRITES: Array = ["raise_low", "raise_high", "set_match", "graft_pairs", "flip_low", "flip_high"]
+var _rewritten: Dictionary = {}
 var _pending_regrown: Dictionary = {}
 var _battery_tween: Tween:
 	get: return _page.battery_tween
@@ -1062,6 +1073,9 @@ func _forget_fight() -> void:
 		bank_changed.emit(0)
 	_study_lag = 0
 	_leech_beat.clear()
+	_trigger_seen.clear()
+	_trigger_flags.clear()
+	_rewritten.clear()
 	_infinity_seen = false
 	## A fight opens on its first turn with no turn_begin of its own: its passives are due.
 	_opening_due = true
@@ -2238,6 +2252,7 @@ func _land_late(hit: Dictionary, hp: int, block: int, id: String = "") -> void:
 			return
 
 func _hold_moves(moved: Dictionary) -> void:
+	var held_foe: bool = false
 	for id in moved:
 		var unit: Dictionary = DeepBattle.player(state, str(id)) if _is_player(str(id)) else DeepBattle.enemy(state, str(id))
 		if unit.is_empty():
@@ -2249,6 +2264,12 @@ func _hold_moves(moved: Dictionary) -> void:
 			continue
 		_held[id] = {"hp": int(unit.hp) + int(change[0]), "block": int(unit.get("block", 0)) + int(change[1]),
 			"landings": int(change[2]), "until": Time.get_ticks_msec() + HELD_MS}
+		## A creature's tag and the ledger open on it read the held figure from now, together (X14).
+		if not _is_player(str(id)) and not state.is_empty():
+			_sync_plates(str(id))
+			held_foe = true
+	if held_foe:
+		_sync_enemy_panel()
 
 func _vital_moves(effects: Array, into: Dictionary) -> void:
 	## What each landing will move: [health back, block back, landings], by who it lands on.
@@ -2316,9 +2337,11 @@ func _land_vitals(id: String, hp: int, block: int) -> void:
 		_show_mood(id)
 	else:
 		## Only the plate it landed on: the others have not moved. The count of creatures
-		## still standing loses one as a killing blow lands.
+		## still standing loses one as a killing blow lands. The ledger reads the same held
+		## health as the tag, moved in the same breath (X14, November 13, 2026).
 		_sync_plates(id)
 		_sync_foes_pill()
+		_sync_enemy_panel()
 
 func _mood_of(id: String) -> String:
 	## The face a player wears right now: down once the blow that downed them has landed, the
@@ -2699,6 +2722,9 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 				var dark: bool = DeepPatch.holds(unit.get("buried", []), socket) or DeepPatch.holds(unit.get("clouded", []), socket) \
 					or (showing and not entry.is_empty() and not active) or (planning and not showing)
 				lay_trigger(asks, described, DeepUi.GOOD if lit else (DeepUi.MUTED if dark else DeepUi.PAPER))
+				## A mark that moved this turn (a Cut raised, Dulled) is flagged up or down (F3).
+				var held_dark: bool = DeepPatch.holds(unit.get("buried", []), socket) or DeepPatch.holds(unit.get("clouded", []), socket)
+				flag_trigger(asks, _trigger_moved(unit_id, socket, stone, described, entry, held_dark, planning))
 			var picture: Control = card.get_node_or_null("Slot/Gem")
 			if picture != null:
 				picture.set("context", DeepBattle.rail_context(state, unit, socket))
@@ -2748,11 +2774,23 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 				links.append([DeepStone.color(stone), int(entry.get("resonance", 0))])
 	## What creatures have done to each socket: fog, rubble, a gem held or snuffed, a colour
 	## drunk, a carat cap (the Creature Tells pass).
+	## Where an opal cannot reach the gem beside or behind it (opals never copy opals): a
+	## warning on its socket, and a dim link toward the gem (B2, November 13, 2026).
+	var blocks: Dictionary = DeepBattle.opal_blocks(rail)
 	for socket in range(rail.size()):
 		var card: Control = _socket_cards[socket]
 		if bool(card.get_meta("badge", false)) or bool(card.get_meta("hollow", false)):
 			continue
 		_sync_socket_marks(unit, socket, card, rail[socket])
+		var warn_slot: Control = card.get_node_or_null("Slot")
+		if warn_slot != null:
+			var toward: Array = []
+			for mark in blocks.get(socket, []):
+				var at: int = int(mark.get("at", -1))
+				if at >= 0 and at < _socket_cards.size() and _socket_cards[at] is Control:
+					var aim: Control = _socket_cards[at].get_node_or_null("Slot") if (_socket_cards[at] as Control).get_node_or_null("Slot") != null else _socket_cards[at]
+					toward.append(func() -> Rect2: return aim.get_global_rect() if is_instance_valid(aim) else Rect2())
+			RailWarnings.opal_warn(warn_slot, rail[socket], RailWarnings.lines_for(rail, socket, blocks), toward, false)
 	_sync_birthstone(unit, planning, showing)
 	_settle_figures()
 	_show_plays(_page)
@@ -2811,10 +2849,25 @@ func _gem_plate(page: Page, unit_id: String, flat: int) -> Control:
 		opts.riders = ([own] if not own.is_empty() else []) + riders
 	elif not riders.is_empty():
 		opts.riders = riders
+	var turn_now: int = int(state.get("turn", 0))
 	if DeepPatch.holds(unit.get("buried", []), flat):
+		var rubble: Dictionary = DeepBattle.hold_at(unit, "rubble", flat)
+		var left: int = DeepBattle.hold_left(rubble, turn_now)
 		opts.note = "Buried in rubble: it cannot fire this turn."
+		if left > 0:
+			opts.note = "Buried in rubble for %s: it cannot fire. It digs itself out after %s." % [DeepUi.plural(int(rubble.get("turns", 0)), "turn"), DeepUi.plural(left, "more turn")]
+		elif not rubble.is_empty():
+			opts.note = "Buried in rubble for the rest of the fight: it cannot fire."
 	elif DeepPatch.holds(unit.get("clouded", []), flat):
+		var fog: Dictionary = DeepBattle.hold_at(unit, "fog", flat)
+		var fog_left: int = DeepBattle.hold_left(fog, turn_now)
 		opts.note = "Clouded: hit the creature that fogged it to clear it."
+		if fog_left > 0:
+			opts.note = "Clouded for %s: it lifts after %s, or when you hit the creature that fogged it." % [DeepUi.plural(int(fog.get("turns", 0)), "turn"), DeepUi.plural(fog_left, "more turn")]
+	## An opal beside or behind a gem it cannot touch says so (opals never copy opals).
+	var cant: Array = RailWarnings.lines_for(rail, flat, DeepBattle.opal_blocks(rail))
+	if not cant.is_empty():
+		opts.cant = cant
 	return Plates.gem(stone, DeepBattle.rail_context(state, unit, flat), unit.get("hand", []), entry, unit.get("dice", []), opts)
 
 func _riders_plate(riders: Array, socket: int) -> Control:
@@ -3011,12 +3064,14 @@ func _settle_figures() -> void:
 				_size_figure(fire, FIGURE_PX)
 				fire.position = Vector2(width * 0.5 + name_w * 0.5 + 5.0, (NAME_ROW - font.get_height(FIGURE_PX)) * 0.5 - 1.0).round()
 			else:
+				## No room beside its name: the figure sits on the ring's top edge, as the phone's
+				## do, and the name stays over it (review card X13: Anchor's "+10" took its name's
+				## place and read as a socket with no name).
 				if said != null:
-					said.visible = false
-				var alone: Vector2 = font.get_string_size(fire.text, HORIZONTAL_ALIGNMENT_LEFT, -1, FIGURE_ALONE_PX)
-				_size_figure(fire, FIGURE_ALONE_PX)
-				fire.position = Vector2((width - alone.x) * 0.5, (NAME_ROW - font.get_height(FIGURE_ALONE_PX)) * 0.5 - 1.0).round()
-				left = (width - alone.x) * 0.5
+					said.visible = true
+				_size_figure(fire, FIGURE_PX)
+				var lone: Vector2 = font.get_string_size(fire.text, HORIZONTAL_ALIGNMENT_LEFT, -1, FIGURE_PX)
+				fire.position = Vector2((width - lone.x) * 0.5, NAME_ROW + 1.0).round()
 		elif said != null:
 			said.visible = true
 		next_left = left
@@ -3550,6 +3605,85 @@ static func lay_trigger(row: Node, described: Dictionary, tone: Color) -> void:
 	row.set_meta("key", key)
 	_hush(DiceIcons.build(_trigger_line(row), described, TRIGGER_EDGE, tone))
 
+func _trigger_moved(unit_id: String, socket: int, stone: Dictionary, described: Dictionary, entry: Dictionary, held_dark: bool, planning: bool) -> int:
+	## +1 while a gem's trigger mark stands on a looser rung than it did (a Cut raised), -1 on a
+	## tighter one (Dulled), 0 when it has not moved. Flagged from the moment it moves until the
+	## next turn starts; a move seen while the turn plays out stays through the next turn's
+	## planning, where it is read. A socket under rubble or fog says nothing about its rung.
+	var turn: int = int(state.get("turn", 0))
+	var memo: String = "%s|%d|%s" % [unit_id, socket, str(stone.get("id", ""))]
+	if not entry.is_empty() and not held_dark and entry.has("cut_step"):
+		var mark: String = "%s|%s|%s" % [str(described.get("mark", "")), str(described.get("need", "")), str(described.get("label", ""))]
+		var cut: int = int(entry.get("cut_step", 0))
+		var seen: Dictionary = _trigger_seen.get(memo, {})
+		if not seen.is_empty() and str(seen.mark) != mark and int(seen.cut) != cut:
+			_trigger_flags[memo] = {"dir": signi(cut - int(seen.cut)), "until": turn + (0 if planning else 1)}
+		_trigger_seen[memo] = {"mark": mark, "cut": cut}
+	var flag: Dictionary = _trigger_flags.get(memo, {})
+	if flag.is_empty() or turn > int(flag.until):
+		return 0
+	return int(flag.dir)
+
+static func flag_trigger(row: Node, dir: int) -> void:
+	## Lays (or takes away) the tint and the ▲ / ▼ of a trigger mark that moved (`TriggerMove`).
+	var moved: TriggerMove = row.get_node_or_null("Moved")
+	if dir == 0:
+		if moved != null:
+			moved.name = "MovedGone"
+			moved.queue_free()
+		return
+	if moved == null:
+		moved = TriggerMove.new()
+		row.add_child(moved)
+		row.move_child(moved, 0)
+	moved.set_dir(dir)
+
+class TriggerMove extends Control:
+	## A trigger mark that moved this turn (F3, November 13, 2026): a tint behind the mark, green
+	## for a looser rung and red for a tighter one, and a small ▲ or ▼ beside it. Drawn round the
+	## mark's own line, laid under it in the trigger row; it takes no pointer.
+	var dir: int = 0
+
+	func _init() -> void:
+		name = "Moved"
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+	func set_dir(to: int) -> void:
+		dir = to
+		queue_redraw()
+		## The line it is drawn round is laid out a frame later.
+		if is_inside_tree() and not get_tree().process_frame.is_connected(queue_redraw):
+			get_tree().process_frame.connect(queue_redraw, CONNECT_ONE_SHOT)
+
+	func _draw() -> void:
+		var line: Control = null
+		for child in get_parent().get_children():
+			if child is HBoxContainer:
+				line = child
+		if line == null or dir == 0 or line.size.x <= 0.0:
+			return
+		var tone: Color = DeepUi.GOOD if dir > 0 else DeepUi.BAD
+		var pad: float = maxf(2.0, line.size.y * 0.14)
+		var back := Rect2(line.position - Vector2(pad * 2.0, pad), line.size + Vector2(pad * 4.0, pad * 2.0))
+		var box := StyleBoxFlat.new()
+		box.bg_color = Color(tone, 0.2)
+		box.border_color = Color(tone, 0.75)
+		box.set_border_width_all(1)
+		box.set_corner_radius_all(int(back.size.y * 0.5))
+		box.anti_aliasing = true
+		draw_style_box(box, back)
+		## The arrow just past the tint's right end, as tall as half the mark.
+		var tall: float = maxf(5.0, back.size.y * 0.42)
+		var x: float = back.end.x + 2.0
+		var mid: float = back.get_center().y
+		var points: PackedVector2Array
+		if dir > 0:
+			points = PackedVector2Array([Vector2(x, mid + tall * 0.5), Vector2(x + tall, mid + tall * 0.5), Vector2(x + tall * 0.5, mid - tall * 0.5)])
+		else:
+			points = PackedVector2Array([Vector2(x, mid - tall * 0.5), Vector2(x + tall, mid - tall * 0.5), Vector2(x + tall * 0.5, mid + tall * 0.5)])
+		draw_colored_polygon(points, tone.lightened(0.15))
+
 static func _hush(node: Node) -> void:
 	## A mark in the dock says nothing on hover of its own: the pointer goes through it to the
 	## card, whose plate says it all (an instant plain tooltip would stand on top of it).
@@ -3922,6 +4056,13 @@ func _die_plate(page: Page, owner_id: String, die_id: String, mine: bool) -> Con
 	elif bool(roll.get("flipped", false)):
 		opts.note = "Turned over by Sleight this turn."
 		opts.note_glyph = "flip"
+	## A Birthstone's own mark on this die (Vesper's ring and "×12") says what it is (X13).
+	var marked: String = page.act.die_note(die_id) if page != null and page.act != null and is_instance_valid(page.act) else ""
+	if not marked.is_empty():
+		opts.note = marked if str(opts.get("note", "")).is_empty() else "%s %s" % [str(opts.note), marked]
+		if not opts.has("note_glyph"):
+			opts.note_glyph = "crown"
+			opts.note_tone = DeepUi.ACCENT
 	if mine:
 		var sleight: bool = str(unit.get("passive", {}).get("kind", "")) == "free_flip"
 		if DeepBattle.all_or_nothing(unit):
@@ -4035,15 +4176,22 @@ func _sync_tray(unit: Dictionary, planning: bool) -> void:
 		var view: DiceView = _dice_views[id]
 		var tagged: Dictionary = roll.duplicate(true)
 		tagged.turn_tag = str(state.get("turn", 0))
+		## A die a gem changed this turn turns over onto the face it now shows (F2).
+		var rewrite: Dictionary = _rewritten.get("%s|%s" % [owner_id, id], {})
+		if not rewrite.is_empty() and (int(rewrite.turn) != int(state.get("turn", 0)) or int(rewrite.value) != int(roll.get("value", -1))):
+			rewrite = {}
+		if not rewrite.is_empty():
+			tagged.flipped = true
 		var can_select: bool = mine and planning and not bool(unit.get("locked", false)) and not bool(roll.get("locked", false))
 		var chosen: bool = selected.has(id) and can_select
 		## What the die showed before this sync, for the face tile that comes off a cut die.
 		if int(view.roll.get("value", -1)) != int(roll.get("value", -1)) or str(view.roll.get("kind", "plain")) != str(roll.get("kind", "plain")):
 			view.get_parent().set_meta("prev_value", int(view.roll.get("value", 0)))
 		view.configure(by_id.get(id, {"shape": roll.shape, "material": str(roll.get("material", "")), "faces": []}), tagged, chosen, false, DeepUi.ACCENT)
-		## Chosen, a die lifts 5 px on a spring (docs/UI_REDO.md, R1); at rest it sits flat.
+		## Chosen, a die lifts on a spring (docs/UI_REDO.md, R1), a little higher since F7 (Nov 13
+		## 2026: 8 px on a desk die) so a picked die stands up off the row; at rest it sits flat.
 		view.set_meta("chosen", chosen)
-		var lift: float = -5.0 if chosen else 0.0
+		var lift: float = -maxf(5.0, DIE_EDGE * 0.08) if chosen else 0.0
 		if not is_equal_approx(view.position.y, lift) and not _headless:
 			var tween := view.create_tween()
 			tween.tween_property(view, "position:y", lift, 0.12).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
@@ -4076,6 +4224,7 @@ func _sync_tray(unit: Dictionary, planning: bool) -> void:
 		_bonus_rim(view.get_parent(), lent)
 		_parity_rim(view.get_parent(), roll, unit)
 		_sync_die_marks(view.get_parent(), view, roll, unit)
+		_rewrite_badge(view.get_parent(), rewrite, int(roll.get("value", 0)))
 	_sync_ghost_seats(unit)
 	_sync_water(unit)
 	## A hand locked in while the rest of the party still chooses settles back a shade: these
@@ -4433,6 +4582,13 @@ func _control_world(control: Control, distance: float = 1.8) -> Vector3:
 func _process(delta: float) -> void:
 	if _hurry_held and (not _hurry_still_held() or str(state.get("phase", "")) != "resolving"):
 		_hurry_let_go()
+	## A title up in the room keeps clear of the creatures' plates while it is up: a plate that
+	## moves into it after it was placed (the camera's nudge as a turn opens, a creature rising)
+	## sends it on down under them (X18, November 13, 2026: "Turn 2" over a tag on the phone).
+	if _banner_box != null and _banner_box.modulate.a > 0.01 and not _headless:
+		var clear: float = _banner_top()
+		if absf(clear - _banner_box.position.y) > 1.0:
+			_banner_box.position.y = lerpf(_banner_box.position.y, clear, minf(1.0, delta * 18.0))
 	## The table is weighed against the creatures a few times a second rather than every
 	## frame, and at once whenever it has changed size.
 	_panel_clock -= delta
@@ -5195,6 +5351,11 @@ func perform(event: Dictionary) -> void:
 				_dice_regrown(back)
 				_dice_dues(owed, _dice_views.keys())
 				_crowns_ring(crowns))
+			## A Hall of Mirrors took its price for the matches the opening throw landed (W3).
+			for toll in event.get("tolled", []):
+				if str(toll.get("unit", "")) == local_id:
+					var paid: Dictionary = toll
+					_later_do(0.95, func() -> void: _toll_paid(paid))
 		"resolution_begin":
 			DeepAudio.play("resolve", {"volume": 0.75})
 			_announce("Resolve", DeepUi.ACCENT, "", 0.5)
@@ -5203,8 +5364,15 @@ func perform(event: Dictionary) -> void:
 		"rail_begin":
 			if _page_for(unit_id) != null:
 				_show_resonance(int(event.get("resonance", 0)), _page_for(unit_id))
+				## Nothing on this rail fires: said once, and the rail sags as one beat (P3).
+				if bool(event.get("nothing_fires", false)) and _is_shown(unit_id):
+					var quiet_page: Page = _page_for(unit_id)
+					DeepAudio.play("gem_fizzle", {"volume": 0.6 if unit_id == local_id else 0.45})
+					if quiet_page.resonance_box != null and is_instance_valid(quiet_page.resonance_box):
+						_float_at(quiet_page.resonance_box, "Nothing fires", DeepUi.MUTED, 16)
 		"gem_fire":
 			_gem_fire(event)
+			_jagged_paid(event)
 			if str(event.get("unit", "")) == local_id:
 				_crowns_ring(event.get("crowned", []))
 				if int(event.get("backlash", 0)) > 0:
@@ -5233,11 +5401,15 @@ func perform(event: Dictionary) -> void:
 			_gem_fizzle(event)
 		"birthstone":
 			_birthstone_fire(event)
+			_jagged_paid(event)
 		"reroll":
 			if str(event.get("unit", "")) == local_id:
 				_later_do(0.4, func() -> void:
 					_dice_dues(event.get("dues", {}), event.get("dice", []))
 					_crowns_ring(event.get("crowned", [])))
+				if not event.get("toll", {}).is_empty():
+					var paid: Dictionary = event.toll
+					_later_do(0.45, func() -> void: _toll_paid(paid))
 				## The last reroll spent, there is nothing left to decide: the hand locks itself
 				## once its dice have been seen to land. Unlock takes it back.
 				_later_do(1.3, _lock_if_spent)
@@ -5563,6 +5735,15 @@ func _birth_tier(unit_id: String, entry: Dictionary, color: Color, step: int, lo
 	var shown: bool = page != null and _is_shown(unit_id) and page.birthstone_card != null and is_instance_valid(page.birthstone_card)
 	var span: float = DeepBattle.birth_span(count)
 	var tone: Color = DeepUi.BAD if loss else color
+	## A tier that only attacks, with every creature already down, is not played (P3).
+	if bool(entry.get("unopposed", false)):
+		return
+	## A tier that came to nothing (no Resonance to multiply, a heal at full health) gets no
+	## plate and lands nothing: a small grey pill says so for a glance (F1, November 13, 2026).
+	if count.has("nothing"):
+		if not _headless and is_inside_tree():
+			_nothing_pill(_birth_anchor(unit_id), str(count.get("name", "")), str(count.nothing), shown)
+		return
 	if not count.is_empty() and not _headless and is_inside_tree():
 		var plate: ResonanceCount = _resonance_plate(unit_id, tone, step, shown)
 		plate.gem_anchor = _birth_anchor.bind(unit_id)
@@ -5586,6 +5767,37 @@ func _birth_tier(unit_id: String, entry: Dictionary, color: Color, step: int, lo
 		go.call()
 	else:
 		_later_do(span, go)
+
+func _nothing_pill(anchor: Control, title: String, why: String, shown: bool) -> void:
+	## "Second Wind · nothing to heal": a count that came to nothing, said small and grey over
+	## where its plate would have stood, for as long as the rules gave it (BIRTH_GLANCE and the
+	## landing after), then gone. It takes no pointer.
+	if anchor == null or not is_instance_valid(anchor) or not anchor.is_inside_tree():
+		return
+	anchor = _shown_anchor(anchor)
+	var pill := PanelContainer.new()
+	pill.name = "NothingPill"
+	pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pill.z_index = 60
+	pill.add_theme_stylebox_override("panel", DeepUi.capsule(pill, Color(0.09, 0.1, 0.14, 0.92), Color(DeepUi.MUTED, 0.55), 1, 10, 2))
+	var row := DeepUi.hbox(pill, 0)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var points: int = 13 if shown else 11
+	var named := DeepUi.label(row, title, points, Color(DeepUi.PAPER, 0.78))
+	named.add_theme_font_override("font", DeepUi.bold_font())
+	DeepUi.label(row, " · " + why, points, DeepUi.MUTED)
+	add_child(pill)
+	pill.reset_size()
+	var at: Vector2 = anchor.global_position + Vector2(anchor.size.x * 0.5, 0.0) - global_position
+	if _in_float_lane(anchor):
+		at.y = minf(at.y, _float_lane(global_position.x + at.x, pill.size.x * 0.5 + 6.0) - global_position.y)
+	pill.position = Vector2(clampf(at.x - pill.size.x * 0.5, 8.0, maxf(8.0, size.x - pill.size.x - 8.0)), at.y - pill.size.y - 6.0).round()
+	pill.modulate.a = 0.0
+	var fade := pill.create_tween()
+	fade.tween_property(pill, "modulate:a", 1.0, 0.09)
+	fade.tween_interval(DeepBattle.BIRTH_GLANCE + DeepBattle.BIRTH_LAND)
+	fade.tween_property(pill, "modulate:a", 0.0, 0.25)
+	fade.tween_callback(pill.queue_free)
 
 func _birth_anchor(unit_id: String) -> Control:
 	## A Birthstone's bezel while its player's page is up, else their tab.
@@ -5649,9 +5861,15 @@ func _second_wind(event: Dictionary) -> void:
 	var count: Dictionary = event.get("count", {})
 	var healed: int = int(event.get("healed", 0))
 	var heal: Array = [ {"kind": "heal", "target": unit_id, "amount": int(count.get("amount", healed)), "healed": healed}]
-	_hold_vitals(heal)
 	var page: Page = _page_for(unit_id)
 	var shown: bool = page != null and _is_shown(unit_id)
+	## At full health it heals nothing: a grey pill over their face, no count (F1, Nov 13).
+	if count.has("nothing"):
+		if not _headless and is_inside_tree():
+			var face: Control = page.face if shown and page.face != null else _tab_anchor(unit_id)
+			_nothing_pill(face, str(count.get("name", "Second Wind")), str(count.nothing), shown)
+		return
+	_hold_vitals(heal)
 	var plate: ResonanceCount = _resonance_plate(unit_id, DeepUi.GOOD, mini(_chain.fired, Tally.TOP_START), shown)
 	plate.gem_anchor = func() -> Control:
 		var on: Page = _page_for(unit_id)
@@ -5999,10 +6217,13 @@ func _play_gem_effects(event: Dictionary, effects: Array, origin: Vector3, color
 	var socket: int = int(event.get("socket", -1))
 	var bonus: Dictionary = event.get("flawless", {})
 	var pace: float = float(bonus.get("pace", 1.0))
-	## A blow that rings says which gem to sparkle as it lands.
+	## A blow that rings says which gem to sparkle as it lands. A change to the hand says which
+	## gem made it, for the dice to wear its emblem (F2).
 	for effect in effects:
 		if int(effect.get("rang", 0)) > 0:
 			effect.ring_socket = socket
+		if str(effect.get("kind", "")) in REWRITES:
+			effect.rewrite_by = str(event.get("skill", ""))
 	var parts: Array = DeepBattle.flawless_parts(effects)
 	var extra: Array = parts[1]
 	if extra.is_empty() or pace <= 0.0:
@@ -6027,7 +6248,30 @@ func _mortar(event: Dictionary) -> void:
 	_later_do(DeepBattle.FLAWLESS_BEAT * DeepBattle.count_pace(state), func() -> void:
 		_animate_effects(effects, _origin_for(unit_id, socket), FlawlessFx.tone(), unit_id == local_id, _gem_card(unit_id, socket), 1.0, unit_id))
 
+func _gem_unopposed(event: Dictionary) -> void:
+	## A gem that only attacks, come up after the last creature fell: the rules resolved it (its
+	## Resonance counts) but there is nothing to throw at, so it is not played. Its ring blinks
+	## and the count moves on; no sound, no count, no bolt (P3, November 13, 2026).
+	var unit_id: String = str(event.get("unit", ""))
+	var page: Page = _page_for(unit_id)
+	if page == null:
+		return
+	var socket: int = int(event.get("socket", -1))
+	page.plays += 1
+	_show_plays(page)
+	page.last_fired = socket
+	page.ring_value = int(event.get("resonance", 0))
+	if _is_shown(unit_id) and socket >= 0 and socket < page.socket_cards.size():
+		var card: Control = _gem_card(unit_id, socket)
+		var ring: SocketRing = card.get_node_or_null("Slot/Ring") if card != null else null
+		if ring != null:
+			ring.fire()
+	_show_resonance(int(event.get("resonance", 0)), page)
+
 func _gem_fire(event: Dictionary) -> void:
+	if bool(event.get("unopposed", false)):
+		_gem_unopposed(event)
+		return
 	var unit_id: String = str(event.get("unit", ""))
 	var mine: bool = unit_id == local_id
 	## Played in full on its own socket while its player's page is up (the dock follows each
@@ -6802,6 +7046,8 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 					for id in _dice_views:
 						var view: Control = _dice_views[id]
 						DeepUi.burst(self, _center_of(view), color, 6, 80.0, 0.4, 4.0)
+				if kind in REWRITES:
+					_rewrite_dice(effect, by, color)
 			"tick_poison", "poison_tick":
 				## A Birthstone's round of poison on every creature, or a gem's (Confluence) on
 				## its target: one tick at a time, each number landing on its own.
@@ -6879,7 +7125,7 @@ func _impact(who: String, hit: Dictionary, color: Color, mine: bool, by: String 
 		_flawless_ring(by, int(hit.ring_socket), int(hit.rang))
 	if not by.is_empty() and str(state.get("phase", "")) == "resolving":
 		_count_dealt(int(hit.get("hp_loss", 0)) + int(hit.get("absorbed", 0)), by)
-	## Riposte: every blow that lands raises the Rogue's guard by her Resonance, counted up
+	## Riposte: every blow that lands raises the Rogue's guard by half her Resonance, counted up
 	## blow by blow over her bar for as long as this gem keeps landing them.
 	if int(hit.get("riposte", 0)) > 0 and _is_player(by):
 		var passive: Dictionary = DeepBattle.player(state, by).get("passive", {})
@@ -7265,11 +7511,56 @@ func _sound_at(point: Vector3, name: String, volume: float = 0.6) -> void:
 	## A sound from where it happens in the room.
 	DeepAudio.play_at(global_position + _to_screen(point), name, {"volume": volume, "gap": 0.03})
 
+func _toll_paid(toll: Dictionary) -> void:
+	## A Hall of Mirrors' price (W3): the dice that matched catch the light, and the health they
+	## cost floats off the bar.
+	if _headless or toll.is_empty():
+		return
+	var tone: Color = Look.ink("meddle")
+	for id in toll.get("dice", []):
+		if _dice_views.has(str(id)) and is_instance_valid(_dice_views[str(id)]):
+			var die: Control = (_dice_views[str(id)] as Control).get_parent()
+			DeepUi.burst(self, _center_of(die), Color("eef2ff"), 8, 90.0, 0.4, 3.0)
+	DeepAudio.play("enemy_strike", {"volume": 0.45})
+	_screen_fx.wound(0.3)
+	_float_at(_hp_bar, "−%d %s" % [int(toll.get("amount", 0)), str(EffectChips.rule_move(DeepBattle.enemy(state, str(toll.get("by", ""))), "set_toll").get("name", "Mirrors"))], tone, 17)
+
+func _jagged_paid(event: Dictionary) -> void:
+	## What a Jagged creature's hide took from the reader for every blow this gem or Birthstone
+	## landed on it (W4): one number for the whole of it, with glass off the bar.
+	if _headless:
+		return
+	var paid: Array = [0]
+	var walk: Array = [event.get("effects", [])]
+	if event.has("tiers"):
+		walk.append(event.tiers)
+	while not walk.is_empty():
+		var next: Variant = walk.pop_back()
+		if next is Array:
+			for item in next:
+				walk.append(item)
+		elif next is Dictionary:
+			var cut: Variant = next.get("jagged", null)
+			if cut is Dictionary and str(cut.get("unit", "")) == local_id:
+				paid[0] += int(cut.get("amount", 0))
+			for key in ["effects", "hits", "results"]:
+				if next.has(key):
+					walk.append(next[key])
+	if int(paid[0]) <= 0:
+		return
+	## Said once the blows have landed: near the end of the gem's own beat.
+	_later_do(maxf(0.5, float(event.get("duration", 1.0)) * 0.85), func() -> void:
+		DeepUi.burst(self, _center_of(_hp_bar), Color("ffd8e8"), 10, 120.0, 0.45, 3.0)
+		_float_at(_hp_bar, "−%d Jagged" % int(paid[0]), Color("ff9ab8"), 17))
+
 func _hit_extras(hit: Dictionary, creature: CrystalCreature, at: Vector3) -> void:
 	## What a blow on a reworked creature sets off: a claw opening, heads cut off, a drowned
 	## thing getting back up, a mirror breaking.
 	if _headless or _fx == null:
 		return
+	## Jagged (W4): its hide cuts back, a glint of glass off it at every blow.
+	if hit.get("jagged", null) is Dictionary:
+		_fx.shards(at + Vector3(0, 0.3, 0.3), Color("ffd8e8"), 4, 3.0, 0.08, 0.6)
 	for freed in hit.get("released", []):
 		var owner: String = str(freed.get("unit", ""))
 		var from: Vector3 = creature.gripped_point() if creature != null and is_instance_valid(creature) else at
@@ -7362,12 +7653,17 @@ func _gem_fizzle(event: Dictionary) -> void:
 	var mine: bool = unit_id == local_id
 	_riders_firing(page, socket)
 	var card: Control = _gem_card(unit_id, socket)
-	DeepAudio.from(card, "gem_fizzle", {"volume": 0.6 if mine else 0.45, "gap": 0.02})
 	card.modulate = Color(0.4, 0.4, 0.5, 1.0)
 	var tween := create_tween()
 	tween.tween_property(card, "modulate", Color.WHITE, 0.6)
 	## It sags rather than leaps, and a dull knock goes through the pad.
 	DeepUi.spring(card, -0.14, 9.0, 0.45)
+	## A rail on which nothing fires sags all at once, as one beat: "Nothing fires" was said as
+	## it began, so each gem says nothing of its own (P3, November 13, 2026).
+	if bool(event.get("quiet", false)):
+		_show_resonance(int(event.get("resonance", 0)), page)
+		return
+	DeepAudio.from(card, "gem_fizzle", {"volume": 0.6 if mine else 0.45, "gap": 0.02})
 	if mine:
 		DeepAudio.rumble(0.0, 0.18, 0.07)
 	DeepUi.burst(self, _center_of(card), Color(0.5, 0.5, 0.55), 10, 60.0, 0.6, 6.0)
@@ -7824,6 +8120,61 @@ func _mark_badge(host: Control, want: Array, at: Vector2) -> void:
 	if not _headless and host.is_inside_tree():
 		DeepUi.pop_in(mark, 0.0, 0.5)
 
+func _rewrite_dice(effect: Dictionary, unit_id: String, tone: Color) -> void:
+	## A gem changed the hand as it fired (Graft, a Raise, a Match): each die it changed is noted
+	## for the turn, with what it showed before, and the tray syncs so they turn over onto the
+	## faces they show now and wear the gem's emblem (`_rewrite_badge`). F2, November 13, 2026.
+	var turn: int = int(state.get("turn", 0))
+	var unit: Dictionary = DeepBattle.player(state, unit_id)
+	var now: Dictionary = {}
+	for roll in unit.get("hand", []):
+		now[str(roll.get("die_id", ""))] = int(roll.get("value", 0))
+	var shown: bool = _page != null and str(_page.id) == unit_id
+	for id in effect.get("dice", []):
+		if not now.has(str(id)):
+			continue
+		var was: int = -1
+		if shown and _dice_views.has(str(id)) and is_instance_valid(_dice_views[str(id)]):
+			was = int((_dice_views[str(id)] as DiceView).roll.get("value", -1))
+		var key: String = "%s|%s" % [unit_id, str(id)]
+		## A die changed twice keeps what it showed before the first change.
+		if _rewritten.has(key) and int(_rewritten[key].turn) == turn:
+			was = int(_rewritten[key].was)
+		_rewritten[key] = {"turn": turn, "value": int(now[str(id)]), "was": was, "skill": str(effect.get("rewrite_by", "")), "tone": tone}
+	if shown:
+		_sync()
+
+func _rewrite_badge(holder: Control, rewrite: Dictionary, now: int) -> void:
+	## The emblem of the gem that changed this die, at its top-left corner, for the rest of the
+	## turn; its plate says what it showed before. Gone with the turn (`rewrite` empty).
+	var badge: Control = holder.get_node_or_null("Rewrite")
+	if rewrite.is_empty():
+		if badge != null:
+			badge.name = "RewriteGone"
+			badge.queue_free()
+		return
+	var skill: String = str(rewrite.get("skill", ""))
+	var key: String = "%s|%d|%d" % [skill, int(rewrite.get("was", -1)), now]
+	if badge != null and str(badge.get_meta("key", "")) == key:
+		return
+	if badge != null:
+		badge.name = "RewriteGone"
+		badge.queue_free()
+	## The gem's own color: its Flawless line lands in gold, but the die wears whose it is.
+	var own: String = str(DeepContent.skill(skill).get("color", "")) if not skill.is_empty() else ""
+	var tone: Color = DeepUi.color(own) if not own.is_empty() else rewrite.get("tone", DeepUi.ACCENT)
+	var named: String = str(DeepContent.skill(skill).get("name", "A gem")) if not skill.is_empty() else "A gem"
+	var mark := Marks.Badge.new(GemIcons.emblem(skill) if not skill.is_empty() else "spark", tone, 24.0)
+	mark.name = "Rewrite"
+	mark.position = Vector2(-8.0, -9.0)
+	mark.set_meta("key", key)
+	var was: int = int(rewrite.get("was", -1))
+	var said: String = ("It showed %d; %s made it %d for the rest of this turn." % [was, named, now]) if was >= 0 and was != now else ("%s made it %d for the rest of this turn." % [named, now])
+	mark.set_plate(func() -> Control: return Plates.words("Changed by %s" % named, said, "", tone), tone)
+	holder.add_child(mark)
+	if not _headless and holder.is_inside_tree():
+		DeepUi.pop_in(mark, 0.0, 0.5)
+
 func _wyrm_would_reflect(foe: Dictionary) -> bool:
 	## A wyrm throws back any gem fired at Resonance 0 or 1: while the hand being planned
 	## would fire one at it, its dome stands, so the threat is seen before the lock-in.
@@ -7903,6 +8254,18 @@ func _with_move_kind(kind: String) -> Dictionary:
 				if effect is Dictionary and str(effect.get("kind", "")) == kind:
 					return foe
 	return {}
+
+func _rule_mark(foe: Dictionary, trait_key: String) -> String:
+	## The face mark of the creature's move that pins this rule (W3: Low Ceiling, Jam...).
+	return str(EffectChips.rule_move(foe, trait_key).get("mark", ""))
+
+func _matching_ids(unit: Dictionary) -> Array:
+	## The dice of a hand that match another (a Hall of Mirrors' price), as the rules read them.
+	var out: Array = []
+	for group in DeepHand.analyze(unit.get("hand", [])).get("groups", []):
+		if int(group.get("count", 0)) >= 2:
+			out.append_array(group.get("dice", []))
+	return out
 
 func _move_mark(foe: Dictionary, kind: String) -> String:
 	## The face mark of the creature's move that does this, for a badge to wear.
@@ -7996,16 +8359,31 @@ func _sync_socket_marks(unit: Dictionary, socket: int, card: Control, stone: Var
 		ghost.queue_free()
 	## The badge, for whatever matters most.
 	var want: Array = []
+	## Rubble and fog that hold for a few turns count them down on the socket (W1, F6).
+	var held_for: int = 0
+	var held_tone: Color = Marks.DUST
 	if clouded:
 		var fogger: Dictionary = _fogger(unit, socket)
-		want = ["cloud", Marks.CLOUD, "Clouded by %s" % str(fogger.get("name", "the Clouder")), "Fog over the socket: the gem cannot fire. Hit %s to clear it." % str(fogger.get("name", "the creature that fogged it")), str(fogger.get("id", ""))]
+		var fog_entry: Dictionary = DeepBattle.hold_at(unit, "fog", socket)
+		held_for = DeepBattle.hold_left(fog_entry, int(state.get("turn", 0)))
+		held_tone = Marks.CLOUD
+		var fogger_name: String = str(fogger.get("name", "the creature that fogged it"))
+		var lifts: String = "Hit %s to clear it." % fogger_name
+		if held_for > 0:
+			lifts = "It lifts on its own after %s, or as soon as you hit %s." % [DeepUi.plural(held_for, "more turn"), fogger_name]
+		want = ["cloud", Marks.CLOUD, "Clouded by %s" % str(fogger.get("name", "the Clouder")), ("Fog over the socket for %s: the gem cannot fire. " % DeepUi.plural(int(fog_entry.get("turns", 0)), "turn") if held_for > 0 else "Fog over the socket: the gem cannot fire. ") + lifts, str(fogger.get("id", ""))]
 	elif buried:
 		var digger: Dictionary = _with_move_kind("bury_socket")
 		if digger.is_empty():
 			digger = _with_trait("bury_socket")
-		var for_fight: bool = DeepPatch.holds(unit.get("rubble", []), socket)
-		want = ["rampart", Marks.DUST, "Buried by %s" % str(digger.get("name", "the Foreman")),
-			"Rubble over the socket for the rest of the fight: the gem cannot fire." if for_fight else "Rubble over the socket: the gem cannot fire this turn. It clears as the next turn is dug.", str(digger.get("id", "")), _move_mark(digger, "bury_socket")]
+		var rubble_entry: Dictionary = DeepBattle.hold_at(unit, "rubble", socket)
+		held_for = DeepBattle.hold_left(rubble_entry, int(state.get("turn", 0)))
+		var said: String = "Rubble over the socket: the gem cannot fire this turn. It clears as the next turn is dug."
+		if held_for > 0:
+			said = "Rubble over the socket for %s: the gem cannot fire. It digs itself out after %s." % [DeepUi.plural(int(rubble_entry.get("turns", 0)), "turn"), DeepUi.plural(held_for, "more turn")]
+		elif not rubble_entry.is_empty():
+			said = "Rubble over the socket for the rest of the fight: the gem cannot fire."
+		want = ["rampart", Marks.DUST, "Buried by %s" % str(digger.get("name", "the Foreman")), said, str(digger.get("id", "")), _move_mark(digger, "bury_socket")]
 	elif not leech.is_empty():
 		## The face its Cling is engraved with, on the gem it clings to.
 		want = ["gem", Look.ink("meddle"), "%s clings to it" % str(leech.get("name", "A Star Leech")),
@@ -8024,6 +8402,7 @@ func _sync_socket_marks(unit: Dictionary, socket: int, card: Control, stone: Var
 		var cap: int = DeepCreatures.trait_value(capper, "carat_cap", 0)
 		want = ["scales", DeepUi.ACCENT, "Capped at %d ct by %s" % [cap, str(capper.get("name", "the Assayer"))], "No gem counts for more than %d carats while it stands." % cap, str(capper.get("id", ""))]
 	_mark_badge(slot, want, Vector2(-7, -7))
+	RailWarnings.countdown(slot, held_for, held_tone)
 	## A colour being drunk steps the stone back a little, short of a blocked one's grey; a gem
 	## a leech clings to takes on its violet.
 	if not drinker.is_empty() and slot.modulate == Color.WHITE:
@@ -8069,7 +8448,16 @@ func _sync_die_marks(holder: Control, view: DiceView, roll: Dictionary, unit: Di
 	var shrunk_now: bool = not shrunk.is_empty() and int(shrunk.get("turn", -1)) == turn
 	## A Paradox Moth's Unravel: a die rerolled last turn came up blank, and stays so this turn.
 	var blanked: bool = bool(roll.get("blanked", false))
-	Marks.dim(holder, DIE_EDGE, locked or gripped or taken_now, Color(0.16, 0.08, 0.28, 0.55) if blanked else Color(0, 0, 0, 0.5))
+	## A Warden's rule this turn (W3, November 13, 2026): the die counts for nothing, whatever it
+	## shows, until the creature acts again or falls. A Hall of Mirrors marks the dice that match.
+	var numb: String = str(roll.get("numb", ""))
+	var numb_foe: Dictionary = DeepBattle.enemy(state, str(roll.get("numb_by", ""))) if not numb.is_empty() else {}
+	if numb_foe.is_empty() or int(numb_foe.get("hp", 0)) <= 0:
+		numb = ""
+	var mirrors: Dictionary = _with_trait("set_toll")
+	var matched: bool = not mirrors.is_empty() and _matching_ids(unit).has(id)
+	Marks.dim(holder, DIE_EDGE, locked or gripped or taken_now or not numb.is_empty(), Color(0.16, 0.08, 0.28, 0.55) if blanked else (Color(0.03, 0.06, 0.14, 0.6) if not numb.is_empty() else Color(0, 0, 0, 0.5)))
+	Marks.numb_pill(holder, DIE_EDGE, not numb.is_empty())
 	var crackle: Control = holder.get_node_or_null("Crackle")
 	if locked and not blanked and crackle == null:
 		crackle = Marks.Crackle.new(DIE_EDGE)
@@ -8109,10 +8497,24 @@ func _sync_die_marks(holder: Control, view: DiceView, roll: Dictionary, unit: Di
 		want = ["die", Color("8fd0e8"), "Gripped by %s" % _foe_name(claw, "the crayfish"), "It sits out of every throw until the crayfish is hurt.", claw]
 	elif taken_now:
 		want = ["die", DeepUi.POISON, "Taken by %s" % str(taken.get("name", "a creature")), "It sits out next turn, then comes back.", str(taken.get("by", ""))]
+	elif not numb.is_empty():
+		var foe_name: String = str(numb_foe.get("name", "a creature"))
+		var trait_key: String = {"small": "numb_small", "low": "numb_low", "high": "numb_high"}.get(numb, "numb_small")
+		var line: int = DeepCreatures.trait_value(numb_foe, trait_key, 0)
+		var move_name: String = str(EffectChips.rule_move(numb_foe, trait_key).get("name", "Its rule"))
+		var said: String = {"small": "%s: your smallest dice count for nothing this turn, whatever they show." % move_name,
+			"low": "%s: a die showing %d or less counts for nothing this turn. Reroll it to bring it up." % [move_name, line],
+			"high": "%s: a die showing %d or more counts for nothing this turn. Reroll it to bring it down." % [move_name, line]}.get(numb, "")
+		want = [{"small": "die", "low": "low", "high": "high"}.get(numb, "cross_out"), Look.ink("meddle"), "Counts for nothing",
+			said + " This die counts again when %s acts, or the moment it falls." % foe_name, str(numb_foe.get("id", "")), _rule_mark(numb_foe, trait_key)]
 	elif dread:
 		want = ["drop", Marks.WATER, "Dread", "The bowl is thrown a size smaller next turn.", ""]
 	elif not roller.is_empty():
 		want = ["gear", Marks.DUST, "Rolled by %s" % str(roller.get("name", "the Drill")), "It threw your dice this turn: no rerolls.", str(roller.get("id", ""))]
+	elif matched:
+		var price: int = DeepCreatures.trait_value(mirrors, "set_toll", 1)
+		want = ["pair", Look.ink("meddle"), str(EffectChips.rule_move(mirrors, "set_toll").get("name", "Hall of Mirrors")), "This die matches another: every throw this turn costs you %d health for it (never your last). Five different values cost nothing. It lifts when %s acts again, or falls." % [price, str(mirrors.get("name", "the Regent"))],
+			str(mirrors.get("id", "")), _rule_mark(mirrors, "set_toll")]
 	_mark_badge(holder, want, Vector2(DIE_EDGE - 14.0, -8.0))
 	var tag: Label = holder.get_node_or_null("Shrunk")
 	if shrunk_now:
@@ -8926,6 +9328,14 @@ func _float_lane(x: float, half: float) -> float:
 			var rect: Rect2 = (part as Control).get_global_rect()
 			if rect.position.x < x + half and rect.end.x > x - half:
 				floor_y = minf(floor_y, rect.position.y)
+	## And above a count standing over the dock there: a "+4 harmony" said beside a gem's count
+	## rose into its boxes on the phone, where the Resonance line sits under the middle sockets
+	## (X11, round 3, November 16, 2026).
+	for child in get_children():
+		if child is Tally and (child as Control).visible and not (child as Control).is_queued_for_deletion():
+			var counted: Rect2 = (child as Control).get_global_rect()
+			if counted.size.x > 0.0 and counted.position.x < x + half and counted.end.x > x - half and counted.end.y > floor_y - 160.0:
+				floor_y = minf(floor_y, counted.position.y)
 	return floor_y - 4.0
 
 func _float_world(point: Vector3, text: String, color: Color, size: int = 20) -> Label:

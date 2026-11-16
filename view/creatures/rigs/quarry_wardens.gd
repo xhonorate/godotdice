@@ -42,11 +42,11 @@ const FOREMAN_TIP: Array = [[0.0, 0.0], [0.6, 1.0], [1.4, 1.0], [1.75, 0.0], [1.
 ## Bury, started early (lead 0.45): the pick swung up hard into the roof as the hex leaves.
 const FOREMAN_ROOF: Array = [[-0.15, 0.0], [-0.05, -1.0], [0.03, 1.0], [0.25, 1.0], [0.75, 0.0]]
 const FOREMAN_LOOK_UP: Array = [[-0.15, 0.0], [0.0, 1.0], [0.4, 1.0], [0.8, 0.0]]
-## Collapse: the hook reaches out over the party (+1) and yanks back past where it hangs (-0.6).
+## The hook reaches out over the party (+1) and yanks back past where it hangs (-0.6).
 const FOREMAN_RAKE: Array = [[0.0, 0.0], [0.18, -1.0], [0.3, 1.0], [0.42, 1.0], [0.62, -0.6], [0.85, -0.6], [1.1, 0.0]]
 
-## The Regent's Splinter, started early (lead 0.45): her mirror arm drawn back and flicked at the
-## party as the hex leaves it.
+## The Regent's Hall of Mirrors (was Splinter), started early (lead 0.45): her mirror arm drawn
+## back and flicked at the party as the spell leaves it.
 const REGENT_FLICK: Array = [[-0.15, 0.0], [-0.02, -1.0], [0.06, 1.0], [0.34, 1.0], [0.9, 0.0]]
 ## A twirl: once round, easing in and out.
 const REGENT_TWIRL: Array = [[0.0, 0.0], [3.6, 1.0]]
@@ -240,12 +240,14 @@ const RIGS: Dictionary = {
 				["fx", 0.04, "sparks", {"from": "Pick02", "color": "#ffd08a", "amount": 16, "speed": 3.0}],
 				["fx", 0.05, "shards", {"from": "Pick02", "color": "#8a7a66", "amount": 12, "speed": 2.0}],
 				["fx", 0.06, "dust", {"amount": 70}]],
-			## Reaches its hook out over the party, snags a die and rakes it back.
-			"Collapse": [["turn", "hook_arm", X, -18.0, 28.0, FOREMAN_RAKE], ["turn", "hook_arm", Y, -10.0, 30.0, FOREMAN_RAKE],
+			## Low Ceiling (W3, November 13, 2026, was Collapse): reaches its hook up into the roof and
+			## drags it down low over the party, a fall of soot and grit.
+			"Low Ceiling": [["turn", "hook_arm", X, -18.0, 28.0, FOREMAN_RAKE], ["turn", "hook_arm", Y, -10.0, 30.0, FOREMAN_RAKE],
 				["turn", "stalk_r", X, 0.0, 15.0, "attack"], ["turn", "stalk_l", X, 0.0, 15.0, "attack"], ["turn", "pick_arm", X, 0.0, -15.0, "attack"],
 				["rear", 0.2, FOREMAN_RAKE],
-				["fx", 0.3, "puff", {"from": "Lantern03", "color": "#8a7a66", "amount": 10, "size": 0.9, "rise": 0.3}],
-				["fx", 0.31, "flash_light", {"from": "Lantern03", "color": "#ffe0a0", "energy": 2.5}]],
+				["fx", 0.2, "flash_light", {"from": "Lantern03", "color": "#ffe0a0", "energy": 2.5}],
+				["fx", 0.34, "puff", {"from": "Lantern03", "color": "#2e2a26", "amount": 18, "size": 1.0, "rise": 0.6}],
+				["fx", 0.36, "dust", {"amount": 40}]],
 			## Twirls its pick once round its fist and holds it up, the edge catching the light.
 			"Reinforce": [["whirl", "pick", X, -1.0, "hold"], ["turn", "pick_arm", X, 0.0, -38.0, "hold"],
 				["turn", "stalk_r", X, 0.0, -22.0, "hold"], ["turn", "stalk_l", X, 0.0, -22.0, "hold"],
@@ -340,6 +342,10 @@ const RIGS: Dictionary = {
 			"Grind": [["spin", "bit", 6.0, "hold"], ["curl", "arch_front", X, -8.0, 6.0, "attack", "tip"], ["tremble", "front", 0.02, "hold"],
 				["fx", 0.28, "sparks", {"from": "Drill02", "color": "#ffc070", "amount": 36, "speed": 4.5}],
 				["fx", 0.3, "puff", {"from": "Drill02", "color": "#6a5a4a", "amount": 12, "size": 1.0, "rise": 0.6}]],
+			## Jam (W3, November 13, 2026): its treads grind and catch, the bit slowing, smoke pouring.
+			"Jam": [["each", "smoke", 0.0, 0.6, "hold"], ["spin", "bit", 1.0, "hold"], ["tremble", "front", 0.015, "hold"],
+				["fx", 0.25, "puff", {"from": "Smoke02", "color": "#3e3834", "amount": 16, "size": 1.3, "rise": 1.6}],
+				["fx", 0.3, "puff", {"from": "Smoke05", "color": "#3e3834", "amount": 16, "size": 1.3, "rise": 1.6}]],
 			## Rolls its whole arch side to side, heaving, the bit spinning.
 			"Roller": [["each", "smoke", 0.0, 0.4, "pulse"], ["turn", "machine", Z, -5.0, 5.0, "shake"], ["spin", "bit", 4.0, "hold"],
 				["fx", 0.3, "puff", {"from": "Smoke05", "color": "#6a625c", "amount": 12, "size": 1.0, "rise": 1.2}]],
@@ -367,7 +373,7 @@ const RIGS: Dictionary = {
 	## the party to throw their own blows back.
 	"THE_REGENT": {
 		"mouth": "Bob03",
-		"lead": {"Splinter": 0.45},
+		"lead": {"Hall of Mirrors": 0.45},
 		"groups": {
 			"all": {"parts": ["Bob", "Cylinder", "Torus", "Core", "Crystal", "Block", "Orbit"], "at": Vector3.ZERO},
 			"gown": {"parts": ["Cylinder01"], "at": Vector3.ZERO},
@@ -435,9 +441,9 @@ const RIGS: Dictionary = {
 				["fx", 0.26, "flash_light", {"from": "Bob03", "color": "#eef2ff", "energy": 3.0}], ["fx", 0.3, "flash_light", {"from": "Bob09", "color": "#eef2ff", "energy": 3.0}],
 				["fx", 0.3, "sparks", {"from": "Bob03", "color": "#f4eeff", "amount": 12, "speed": 1.5}],
 				["fx", 0.32, "sparks", {"from": "Bob09", "color": "#f4eeff", "amount": 12, "speed": 1.5}]],
-			## Draws her mirror arm back and flicks a splinter of it at the party (the hex is thrown
-			## from the mirror for her).
-			"Splinter": [["turn", "mirror_r", X, 0.0, 18.0, REGENT_FLICK], ["turn", "arm_r", Y, -25.0, 32.0, REGENT_FLICK], ["turn", "arm_r", Z, -10.0, 4.0, REGENT_FLICK],
+			## Hall of Mirrors: draws her mirror arm back and flicks its light across the party, so
+			## every die that matches another is caught in a mirror (W3, November 13, 2026).
+			"Hall of Mirrors": [["turn", "mirror_r", X, 0.0, 18.0, REGENT_FLICK], ["turn", "arm_r", Y, -25.0, 32.0, REGENT_FLICK], ["turn", "arm_r", Z, -10.0, 4.0, REGENT_FLICK],
 				["turn", "head", Y, 8.0, -6.0, REGENT_FLICK], ["lean", Y, -8.0, 10.0, Vector3.ZERO, REGENT_FLICK],
 				["fx", 0.0, "flash_light", {"from": "Bob03", "color": "#eef2ff", "energy": 3.0}],
 				["fx", 0.02, "shards", {"from": "Bob03", "color": "accent", "amount": 8, "speed": 2.5}],

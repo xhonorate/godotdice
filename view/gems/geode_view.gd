@@ -515,7 +515,9 @@ func _mark() -> void:
 	var line: StandardMaterial3D = _materials.line
 	line.emission = Color(lit.r, lit.g, lit.b)
 	var pulse: float = 0.8 + 0.2 * sin(_clock * 6.0)
-	line.emission_energy_multiplier = (0.8 if blows <= 1 else 2.4 + 2.6 * light.a * pulse) * (1.0 - clampf(_amount(), 0.0, 1.0) * 0.6)
+	## A tinted light (the rarity inside, K10) burns less hot, or its color is blown to white.
+	var hot: float = 1.0 if lit.s < 0.3 else 0.55
+	line.emission_energy_multiplier = (0.8 if blows <= 1 else (2.4 + 2.6 * light.a * pulse) * hot) * (1.0 - clampf(_amount(), 0.0, 1.0) * 0.6)
 	_redraw()
 
 func _shine() -> void:

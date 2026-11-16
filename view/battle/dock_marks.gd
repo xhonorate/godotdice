@@ -519,9 +519,35 @@ static func dim(holder: Control, edge: float, on: bool, tone: Color = Color(0, 0
 		pane.size = Vector2(edge - 4.0, edge - 4.0)
 		pane.z_index = 1
 		pane.add_theme_stylebox_override("panel", DeepUi.flat(tone, Color(0, 0, 0, 0), 10, 0, 0))
+		pane.set_meta("tone", tone)
 		holder.add_child(pane)
 	if pane != null:
 		pane.visible = on
+		## The same pane may dim for another reason next (a numbed die, then a locked one).
+		if on and Color(pane.get_meta("tone", tone)) != tone:
+			pane.set_meta("tone", tone)
+			pane.add_theme_stylebox_override("panel", DeepUi.flat(tone, Color(0, 0, 0, 0), 10, 0, 0))
+
+## A die that counts for nothing this turn (W3, November 13, 2026): "×0" on a pill at its foot,
+## so the face it shows stays in sight above it (the player may want to reroll it).
+const NUMB_INK := Color("c9a9ff")
+
+static func numb_pill(holder: Control, edge: float, on: bool) -> void:
+	var pill: Control = holder.get_node_or_null("NumbWord")
+	if on and pill == null:
+		var plate := PanelContainer.new()
+		plate.name = "NumbWord"
+		plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		plate.z_index = 2
+		plate.add_theme_stylebox_override("panel", DeepUi.capsule(plate, Color(0.05, 0.04, 0.12, 0.96), NUMB_INK, 2, 8, 1))
+		var said := DeepUi.label(plate, "×0", 12, NUMB_INK, HORIZONTAL_ALIGNMENT_CENTER)
+		said.add_theme_font_override("font", DeepUi.bold_font())
+		holder.add_child(plate)
+		plate.reset_size()
+		plate.position = Vector2((edge - plate.size.x) * 0.5, edge - plate.size.y * 0.7)
+	elif not on and pill != null:
+		pill.name = "NumbWordGone"
+		pill.queue_free()
 
 static func fly(host: Control, copy: Control, from: Vector2, to: Vector2, seconds: float = 0.5, shrink: float = 0.3, arc: float = 0.0, done: Callable = Callable()) -> void:
 	## Carries `copy` across the screen from one point to another (both host-local), along an

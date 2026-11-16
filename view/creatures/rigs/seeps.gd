@@ -309,6 +309,11 @@ const RIGS: Dictionary = {
 				["turn", "stalk_r", X, 0.0, 25.0, "hold"], ["turn", "stalk_l", X, 0.0, 25.0, "hold"], ["spin", "wheel", -1.0, "attack"],
 				["fx", 0.3, "sparks", {"from": "Gate03", "color": "#ffd08a", "amount": 18, "speed": 3.0}],
 				["fx", 0.3, "shards", {"from": "Gate03", "color": "#9a9aa4", "amount": 6, "speed": 2.0}]],
+			## High Water (W3, November 13, 2026): turns its wheel back and lets the water over the
+			## gate, a spill of bubbles toward the party.
+			"High Water": [["spin", "wheel", -3.0, "hold"], ["turn", "gate", X, 0.0, -12.0, "hold"], ["turn", "stalk_r", X, 0.0, -20.0, "hold"], ["turn", "stalk_l", X, 0.0, -20.0, "hold"],
+				["fx", 0.3, "bubbles", {"from": "spout", "color": WATER, "amount": 26}],
+				["fx", 0.35, "puff", {"from": "Gate03", "color": "#d8e8f0", "amount": 12, "size": 1.1, "rise": 0.4}]],
 			## Pulls in its eyes and head and hunkers its shell down on its foot.
 			"Brace": [["grow", "stalk_r", 0.0, Vector3(-0.5, -0.5, -0.5), "hold"], ["grow", "stalk_l", 0.0, Vector3(-0.5, -0.5, -0.5), "hold"],
 				["move", "head", Vector3.ZERO, Vector3(0, -0.03, -0.14), "hold"], ["move", "shell", Vector3.ZERO, Vector3(0, -0.1, 0), "hold"],
@@ -461,11 +466,15 @@ const RIGS: Dictionary = {
 				["curl", "neck", X, -12.0, 26.0, [[0.0, 0.0], [0.15, -1.0], [0.3, 1.0], [0.42, 1.0], [0.7, -0.6], [1.2, 0.0]], "tip"],
 				["fx", 0.45, "spiral", {"from": "feet", "off": Vector3(0, 0.3, 1.0), "color": DEEP, "amount": 30}],
 				["fx", 0.5, "ring", {"color": DEEP, "radius": 2.5}], ["fx", 0.55, "bubbles", {"from": "feet", "color": WATER, "amount": 18}]],
-			## Snatches with its jaws and yanks its head back with what it took.
-			"Drag Down": [["turn", "jaw", X, 36.0, -4.0, "snap"],
-				["turn", "head", X, -14.0, 24.0, [[0.0, 0.0], [0.2, -1.0], [0.3, 1.0], [0.38, 1.0], [0.6, -0.5], [1.0, 0.0]]],
-				["curl", "neck", X, -10.0, 22.0, [[0.0, 0.0], [0.2, -1.0], [0.3, 1.0], [0.38, 1.0], [0.6, -0.5], [1.0, 0.0]], "tip"],
-				["fx", 0.5, "bubbles", {"from": "Mouth01", "color": WATER, "amount": 12}]],
+			## High Water (W3 round 3, November 16, 2026, was Drag Down): draws itself up tall with
+			## its jaws open and brings its fluke down flat on the water; a swell rolls out over the
+			## floor toward the party, bubbles boiling up in it.
+			"High Water": [["turn", "jaw", X, 0.0, 26.0, "hold"], ["turn", "head", X, 0.0, -16.0, "hold"], ["curl", "neck", X, 0.0, -12.0, "hold", "tip"],
+				["turn", "fluke", X, -30.0, 50.0, [[0.0, 0.0], [0.18, -1.0], [0.3, 1.0], [0.42, 0.8], [1.0, 0.0]]],
+				["fx", 0.3, "splash", {"from": "Tail02", "color": WATER, "amount": 40, "speed": 3.5}],
+				["fx", 0.34, "ring", {"color": DEEP, "radius": 3.0}], ["fx", 0.46, "ring", {"color": WATER, "radius": 4.2}],
+				["fx", 0.4, "splash", {"from": "feet", "off": Vector3(0, 0.2, 1.4), "color": WATER, "amount": 50, "speed": 3.0}],
+				["fx", 0.45, "bubbles", {"from": "feet", "off": Vector3(0, 0.1, 1.0), "color": WATER, "amount": 24}]],
 			"cast": [["turn", "jaw", X, 0.0, 30.0, "hold"], ["turn", "head", X, -10.0, 20.0, "attack"], ["curl", "neck", X, -8.0, 15.0, "attack", "tip"],
 				["fx", 0.18, "spiral", {"from": "Mouth01", "color": DEEP}], ["fx", 0.26, "breath", {"kind": "water", "color": WATER, "seconds": 0.4}]],
 			## Throws its head back and calls, slapping the water with its fluke: rings roll out.

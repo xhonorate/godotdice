@@ -327,7 +327,7 @@ const RIGS: Dictionary = {
 	## its iris dilating and narrowing, blinks under its brow of crystals, the wheel turning on its
 	## face; now and then it gazes round the room, spins its wheel through a whole turn, blinks
 	## slowly, curls its tendrils. It glares (its iris pinpoint as it takes aim, then flaring wide),
-	## blinds with a white flash, and drinks colour, its wheel turning backward.
+	## fans its wheel into a hall of mirrors, and drinks colour, its wheel turning backward.
 	"THE_KALEIDOSCOPE": {
 		"mouth": "Mouth01",
 		"idle": "_idle_kaleidoscope",
@@ -370,12 +370,18 @@ const RIGS: Dictionary = {
 				["fx", 0.27, "beam", {"from": "Mouth01", "color": "accent", "width": 0.16, "size": 0.6}],
 				["fx", 0.29, "flash_light", {"from": "Mouth01", "color": "accent", "energy": 4.0}],
 				["fx", 0.3, "sparks", {"from": "Mouth01", "color": "accent", "amount": 16, "speed": 3.0, "life": 0.5}]],
-			## Screws its eye shut under its brow, then flies it wide open in a blinding white flash.
-			"Blind": [["grow", "iris", -0.3, 0.7, "attack"], ["grow", "eyeball", Vector3(0.04, -0.8, 0.04), Vector3(0.06, 0.08, 0.06), "attack"],
-				["turn", "crest", X, 14.0, -12.0, "attack"], ["grow", "petals", -0.06, 0.12, "attack"], ["whirl_own", "petals", Z, -1.0, "attack"], ["call", "_kaleido_face"],
-				["turn", "t1", X, -8.0, 14.0, KALEIDO_RECOIL], ["turn", "t2", Z, 6.0, -10.0, KALEIDO_RECOIL], ["turn", "t3", Z, -6.0, 10.0, KALEIDO_RECOIL],
-				["fx", 0.3, "flash_light", {"from": "Mouth01", "color": "#ffffff", "energy": 7.0}], ["fx", 0.3, "glow", {"from": "Mouth01", "color": "#ffffff", "size": 0.9}],
-				["fx", 0.3, "sparks", {"from": "Mouth01", "color": "#ffffff", "amount": 24, "speed": 4.0}]],
+			## Hall of Mirrors (W3 round 3, November 16, 2026, was Blind): its iris narrows and its
+			## wheel fans open and turns twice, each petal catching the eye's light and throwing it
+			## back in turn, a hall of glints round it; then one pale flash out at the party.
+			"Hall of Mirrors": [["grow", "iris", 0.0, -0.35, "hold"], ["grow", "petals", 0.0, 0.16, "hold"], ["whirl_own", "petals", Z, 2.0, "hold"], ["call", "_kaleido_face"],
+				["turn", "eye", X, 0.0, -6.0, "hold"], ["turn", "crest", X, 0.0, -8.0, "hold"],
+				["turn", "t1", X, 0.0, -22.0, "hold"], ["turn", "t2", Z, 0.0, -18.0, "hold"], ["turn", "t3", Z, 0.0, 18.0, "hold"],
+				["fx", 0.12, "sparks", {"from": "Petal02", "color": "#eef2ff", "amount": 10, "speed": 1.6, "life": 0.5}],
+				["fx", 0.18, "sparks", {"from": "Petal06", "color": "#eef2ff", "amount": 10, "speed": 1.6, "life": 0.5}],
+				["fx", 0.24, "sparks", {"from": "Petal10", "color": "#eef2ff", "amount": 10, "speed": 1.6, "life": 0.5}],
+				["fx", 0.27, "flash_light", {"from": "Mouth01", "color": "#eef2ff", "energy": 5.0}], ["fx", 0.28, "beam", {"from": "Mouth01", "color": "#eef2ff", "width": 0.12}],
+				["fx", 0.32, "ring", {"color": "#eef2ff", "radius": 2.6}],
+				["fx", 0.34, "shards", {"from": "Mouth01", "color": "accent", "amount": 8, "speed": 2.5}]],
 			## Turns its wheel backward and drinks: its iris opens like a mouth, colours spiral into
 			## it, its tendrils lift.
 			"Drink": [["grow", "iris", 0.0, 0.45, "hold"], ["turn", "eye", X, 0.0, -8.0, "hold"], ["whirl_own", "petals", Z, -1.0, "hold"], ["call", "_kaleido_face"],

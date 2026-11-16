@@ -114,7 +114,15 @@ static func _tile(home: Control, grid: GridContainer, entry: Dictionary) -> void
 			tile.add_theme_stylebox_override("panel", style)
 	tile.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	tile.gui_input.connect(func(event: InputEvent) -> void:
-		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed and not Tips.held(tile):
+		if not event is InputEventMouseButton or event.button_index != MOUSE_BUTTON_LEFT:
+			return
+		## Where the finger came down: a lift far from it ends a drag or a scroll, not a tap (X18).
+		if event.pressed:
+			tile.set_meta("press_at", event.global_position)
+			return
+		if event.global_position.distance_to(tile.get_meta("press_at", event.global_position)) > Tips.HOLD_SLIP or load("res://view/ui/swipe.gd").flicked():
+			return
+		if not Tips.held(tile):
 			DeepAudio.play("ui_tap", {"volume": 0.7})
 			home._vault_pick = key
 			if not home.redraw(["vault_stones", "vault_lamp"]):

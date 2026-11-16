@@ -3,7 +3,9 @@ extends CanvasLayer
 ## 2026): one stone given the whole screen. The table dims, the stone turns big on the lamp
 ## with rays of its grade's color behind it, its name lands, then its grade is stamped on.
 ## A new skill says which slot of the vault it lights; a stone that beats the one kept says by
-## how much; the best of a haul says what records it sets.
+## how much; the best of a haul says what records it sets. That card stands in the screen's
+## bottom-right corner, clear of the stone (F4 round 3, November 16, 2026: floating beside the
+## stone it looked out of place); in the top-right on a phone whose keys run toward that corner.
 ##
 ## On the haul's table it is one of a few in a row: a click, Space or Enter moves on, Escape
 ## closes the rest (`done` tells which). Where one stone is the whole story (a Geode cracked at
@@ -136,16 +138,11 @@ func _build_desk(frame: MarginContainer, grade: Dictionary) -> void:
 	var row := DeepUi.hbox(column, 40)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	## A gap as wide as the side card on the left, so the stone stands in the middle.
-	DeepUi.gap(row, 330.0)
 	var middle := DeepUi.vbox(row, 6)
 	middle.alignment = BoxContainer.ALIGNMENT_CENTER
 	_stage_in(middle, STAGE)
 	_words(middle, grade, 50, 15, 36)
-	var side := DeepUi.card(row, Color(DeepUi.LINE, 0.9), 18, Color(0.05, 0.065, 0.11, 0.9))
-	side.custom_minimum_size.x = 330.0
-	side.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_side(DeepUi.vbox(side, 10), 15)
+	_corner_card(15)
 	_foot = DeepUi.vbox(column, 6)
 	_foot.custom_minimum_size.y = 70.0
 	_fill_foot(_foot, 17)
@@ -164,7 +161,7 @@ func _build_phone(frame: MarginContainer, grade: Dictionary) -> void:
 	_head.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 	_head.add_theme_constant_override("outline_size", 8)
 	_words(right, grade, 32, 12, 24, false)
-	_side(DeepUi.vbox(right, int(DeepUi.pt(3))), 12)
+	_corner_card(12)
 	_foot = DeepUi.vbox(right, int(DeepUi.pt(3)))
 	_fill_foot(_foot, 13)
 
@@ -195,10 +192,62 @@ func _words(parent: Control, grade: Dictionary, name_size: int, tag_size: int, s
 	StoneCard.rarity_tag(tags, str(DeepStone.skill_of(stone).get("rarity", "COMMON")), tag_size, false)
 	DeepUi.chip(tags, StoneCard.color_words(stone), DeepUi.color(DeepStone.color(stone)), tag_size, DeepUi.is_rainbow(DeepStone.color(stone)))
 	DeepUi.chip(tags, "%d ct · %s · %s" % [int(stone.get("carat", 1)), DeepContent.cut_name(int(stone.get("cut", 0))), DeepContent.clarity_name(int(stone.get("clarity", 3)))], DeepUi.MUTED, tag_size)
+	## What it does and when it fires, so the reveal is read without a right-click (F4).
+	var lines := DeepUi.vbox(parent, int(DeepUi.pt(2)) if DeepUi.phone else 4)
+	lines.size_flags_horizontal = Control.SIZE_SHRINK_CENTER if centred else Control.SIZE_FILL
+	lines.custom_minimum_size.x = DeepUi.pt(360) if DeepUi.phone else 520.0
+	var said: Array = StoneCard.skill_lines(lines, stone, 12 if DeepUi.phone else 16)
+	if centred:
+		(said[0] as RichTextLabel).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		(said[1] as HBoxContainer).alignment = BoxContainer.ALIGNMENT_CENTER
+		(said[1] as HBoxContainer).size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	var holder := DeepUi.hbox(parent, 0)
 	holder.alignment = BoxContainer.ALIGNMENT_CENTER if centred else BoxContainer.ALIGNMENT_BEGIN
 	_stamp = DeepUi.pill(holder, "star", "%d · %s" % [int(grade.score), str(DeepStone.TIER_NAMES.get(str(grade.tier), grade.tier))], _tone, stamp_size, "Grade %d of 100" % int(grade.score))
 	_stamp.modulate.a = 0.0
+
+func _has_side() -> bool:
+	## Whether there is anything for the corner card to say.
+	return not opts.get("owned", {}).is_empty() or not opts.get("slot", {}).is_empty() or not opts.get("records", []).is_empty()
+
+func _corner_card(size: int) -> void:
+	## The card of what the stone fills or beats, in a corner of the screen inside its margins:
+	## the bottom-right (on a desk the keys stand in the middle of the foot), or the top-right
+	## on a phone whose fates run as keys along the column toward that corner.
+	if not _has_side():
+		return
+	var top: bool = DeepUi.phone and not actions.is_empty()
+	var side := DeepUi.card(_root, Color(DeepUi.LINE, 0.9), int(DeepUi.pt(8)) if DeepUi.phone else 16, Color(0.05, 0.065, 0.11, 0.9))
+	side.name = "SpotCorner"
+	side.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_side(DeepUi.vbox(side, int(DeepUi.pt(3)) if DeepUi.phone else 8), size)
+	side.anchor_left = 1.0
+	side.anchor_right = 1.0
+	side.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	if top:
+		side.anchor_top = 0.0
+		side.anchor_bottom = 0.0
+		side.grow_vertical = Control.GROW_DIRECTION_END
+		side.offset_right = -(DeepUi.safe_right + DeepUi.pt(8))
+		side.offset_top = DeepUi.safe_top + DeepUi.pt(8)
+		side.offset_bottom = side.offset_top
+	elif DeepUi.phone:
+		side.anchor_top = 1.0
+		side.anchor_bottom = 1.0
+		side.grow_vertical = Control.GROW_DIRECTION_BEGIN
+		side.offset_right = -(DeepUi.safe_right + DeepUi.pt(8))
+		side.offset_bottom = -(DeepUi.safe_bottom + DeepUi.pt(6))
+		side.offset_top = side.offset_bottom
+	else:
+		side.anchor_top = 1.0
+		side.anchor_bottom = 1.0
+		side.grow_vertical = Control.GROW_DIRECTION_BEGIN
+		side.offset_right = -40.0
+		side.offset_bottom = -30.0
+		side.offset_top = side.offset_bottom
+	side.offset_left = side.offset_right
+	side.modulate.a = 0.0
+	side.create_tween().tween_property(side, "modulate:a", 1.0, 0.3).set_delay(0.5)
 
 func _side(box: VBoxContainer, size: int) -> void:
 	## Beside the stone: the slot a new skill lights, or how it weighs against the one kept; and
@@ -212,7 +261,7 @@ func _side(box: VBoxContainer, size: int) -> void:
 		var hue: Color = DeepUi.color(color)
 		DeepUi.title(box, "%s · %d of %d" % [str(DeepContent.color(color).get("name", color.capitalize())), int(have[0]) + 1, maxi(1, int(have[1]))], size + 5, hue.lightened(0.25))
 		var meter := DeepUi.bar(box, DeepUi.pt(6) if DeepUi.phone else 8.0, hue, Color(DeepUi.INK, 0.9))
-		meter.custom_minimum_size.x = DeepUi.pt(180) if DeepUi.phone else 260.0
+		meter.custom_minimum_size.x = DeepUi.pt(150) if DeepUi.phone else 220.0
 		meter.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 		meter.call("set_values", float(int(have[0]) + 1) / float(maxi(1, int(have[1]))))
 		var vault: Array = slot.get("vault", [0, 1])

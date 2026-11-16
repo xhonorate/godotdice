@@ -2067,6 +2067,10 @@ static func number(value: int) -> String:
 
 static func float_text(parent: Control, at: Vector2, text: String, color: Color, size: int = 22, rise: float = 46.0, seconds: float = 0.9) -> Label:
 	## A number that pops, rises and fades where something happened. Bigger numbers pop harder.
+	## On the phone it keeps the text floor (review card X18: "The rock holds · 1 more" and a
+	## socket's "6 ct" drew at 8 points).
+	if phone:
+		size = maxi(size, min_text())
 	var l := Label.new()
 	l.text = text
 	l.add_theme_font_size_override("font_size", size)

@@ -360,6 +360,18 @@ func _draw_earth() -> void:
 		_glyph(canvas, "gem", chip.position + Vector2(15, 12), 12.0, Color(tone, 1.0 if open else 0.45))
 		canvas.draw_string(chip_face, chip.position + Vector2(25, 12 + chip_size * 0.36), chip_words, HORIZONTAL_ALIGNMENT_LEFT, chip.size.x - 28.0, chip_size, (DeepUi.ACCENT_HI if heavier else DeepUi.PAPER) if open else DeepUi.DIM)
 		_hotspots.append({"at": chip.get_center(), "radius": 30.0, "text": _carat_tip(key)})
+		## The mastery diamond (K3), after the chip: the delver going down, in the Birthstone they
+		## wear, lit in its color once this mine's final boss has fallen to them wearing it.
+		var mastered: Dictionary = mastery(profile, key) if open and not daily else {}
+		if not mastered.is_empty():
+			var gem_at := Vector2(chip.end.x + 16.0, mid)
+			draw_mastery(canvas, gem_at, 7.0, mastered.tint, bool(mastered.won))
+			var said: String = "%s%s" % [str(mastered.name), " · mastered" if bool(mastered.won) else ""]
+			var said_size: int = DeepUi.readable(11)
+			if gem_at.x + 12.0 + DeepUi.text_face(said_size).get_string_size(said, HORIZONTAL_ALIGNMENT_LEFT, -1, said_size).x < size.x - 8.0:
+				canvas.draw_string(DeepUi.text_face(said_size), gem_at + Vector2(12.0, said_size * 0.36), said, HORIZONTAL_ALIGNMENT_LEFT, -1, said_size,
+					Color(mastered.tint, 1.0).lightened(0.35) if bool(mastered.won) else DeepUi.MUTED)
+			_hotspots.append({"rect": Rect2(gem_at - Vector2(10, 12), Vector2(maxf(24.0, size.x - gem_at.x), 24)), "text": str(mastered.tip)})
 		if chosen_one:
 			_cage = Vector2(SHAFT_X, top + 4.0)
 	for line in outlines:
@@ -389,6 +401,56 @@ func _draw_earth() -> void:
 	canvas.draw_rect(Rect2(home + Vector2(22, -64), Vector2(10, 22)), Color("241c16"))
 	canvas.draw_string(DeepUi.caps_font(), home + Vector2(60, -10), "THE WORKSHOP", HORIZONTAL_ALIGNMENT_LEFT, -1, DeepUi.caps_size(12), DeepUi.ACCENT)
 	queue_redraw()
+
+static func mastery(of: Dictionary, mine_key: String) -> Dictionary:
+	## The mastery diamond (K3): the delver going down, in the Birthstone they wear, against this
+	## mine's final boss (DeepProfile.stone_conquests). {name, delver, tint, won, tip}; {} where
+	## there is nothing to master (an endless mine, no profile).
+	if of.is_empty() or DeepContent.is_endless(mine_key) or DeepContent.mine(mine_key).is_empty():
+		return {}
+	var who: String = str(of.get("current_character", DeepContent.starter_character()))
+	var key: String = DeepProfile.worn_birthstone(of, who)
+	var stone: Dictionary = DeepStone.birthstone(who, key)
+	if stone.is_empty():
+		return {}
+	var won: bool = DeepProfile.stone_conquests(of, who, key).has(mine_key)
+	var named: String = str(stone.get("name", ""))
+	var delver: String = str(DeepContent.character(who).get("name", who))
+	var mine_name: String = DeepContent.mine_name(mine_key)
+	var tip: String = ("Mastered: %s wearing %s has beaten %s's final boss." % [delver, named, mine_name]) if won \
+		else ("Not mastered yet: beat %s's final boss as %s wearing %s to light it. Every delver and Birthstone has its own." % [mine_name, delver, named])
+	return {"name": named, "delver": delver, "tint": GemMesh.tint(stone), "won": won, "tip": tip}
+
+static func mastered_in(of: Dictionary, character_key: String, key: String) -> String:
+	## The dossier's line for a Birthstone (K3): "Mastered in: The Quarry, The Seeps".
+	var mines: Array = DeepProfile.stone_conquests(of, character_key, key)
+	if mines.is_empty():
+		return "Mastered in: none yet. Beat a mine's final boss wearing it."
+	return "Mastered in: %s" % ", ".join(mines.map(func(m: Variant) -> String: return DeepContent.mine_name(str(m))))
+
+static func draw_mastery(canvas: CanvasItem, centre: Vector2, half: float, tint: Color, won: bool) -> void:
+	## One cut diamond: filled in the stone's color once mastered, an empty setting until then.
+	var cut := PackedVector2Array([centre + Vector2(0, -half), centre + Vector2(half, 0), centre + Vector2(0, half), centre + Vector2(-half, 0)])
+	if won:
+		canvas.draw_colored_polygon(cut, tint.lightened(0.15))
+		cut.append(cut[0])
+		canvas.draw_polyline(cut, tint.lightened(0.55), 1.5, true)
+	else:
+		cut.append(cut[0])
+		canvas.draw_polyline(cut, Color(DeepUi.LINE_HI, 0.85), 1.2, true)
+
+class MasteryMark extends Control:
+	## The diamond as a control, for rows laid out by containers (the phone's mine list).
+	var tint: Color = Color.WHITE
+	var won: bool = false
+	func _init(mastered: Dictionary, edge: float) -> void:
+		tint = mastered.get("tint", Color.WHITE)
+		won = bool(mastered.get("won", false))
+		custom_minimum_size = Vector2(edge, edge)
+		size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+	func _draw() -> void:
+		load("res://view/home/mine_map.gd").draw_mastery(self, size * 0.5, minf(size.x, size.y) * 0.45, tint, won)
 
 func _draw_track(canvas: CanvasItem, key: String, record: Dictionary, at: Vector2, width: float, chosen_one: bool) -> void:
 	## A line for the mine's depth with the deepest the player has reached lit along it, a
@@ -454,7 +516,10 @@ func _draw_track(canvas: CanvasItem, key: String, record: Dictionary, at: Vector
 				canvas.draw_texture_rect(texture, Rect2(spot - Vector2.ONE * face_r * 0.85, Vector2.ONE * face_r * 1.7), false, Color(1, 1, 1, 1.0) if known else Color(0.45, 0.45, 0.5, 0.9))
 			canvas.draw_arc(spot, face_r, 0, TAU, 32, DeepUi.ACCENT if won or known else DeepUi.BAD, 2.0, true)
 			_glyph(canvas, "crown", spot + Vector2(face_r * 0.75, -face_r * 0.75), 11.0, DeepUi.ACCENT if won else DeepUi.BAD)
-			var joins: String = "%s has joined you." % DeepContent.character_title(lapidary) if known else "%s joins when it falls." % DeepContent.character_title(lapidary)
+			## Joined only once this crown has fallen: a delver met another way (another tier) is
+			## not said to have joined from a boss still standing (review card W2).
+			var joins: String = "%s has joined you." % DeepContent.character_title(lapidary) if won and known else ("%s will join you when it falls." % DeepContent.character_title(lapidary) if not known
+				else "%s already travels with you." % DeepContent.character_title(lapidary))
 			_hotspots.append({"at": spot, "radius": face_r, "text": "Depth %d: %s%s. %s%s" % [depth, who, " (beaten)" if won else "", joins, pays]})
 			continue
 		canvas.draw_circle(spot, radius, Color(0.05, 0.05, 0.07))

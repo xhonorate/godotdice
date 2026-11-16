@@ -12,6 +12,8 @@ const Plates = preload("res://view/ui/plates.gd")
 
 const GOOD := Color("6fe3b0")
 const BAD := Color("ff7a6b")
+## A creature's meddling, as its moves are inked (creature_look.gd INK.meddle).
+const MEDDLE := Color("c9a9ff")
 
 ## What each creature's trick does, in rules words, with the mark it is shown by.
 const GIMMICKS: Dictionary = {
@@ -55,6 +57,13 @@ const TRAITS: Dictionary = {
 	"taunt": ["magnet", "Gravity", "While it stands, gems aimed at one creature hit it instead. Gems that hit every creature are not bent."],
 	"acid_armour": ["drop", "Acid Armour", "Whoever hits it takes %d Poison for every hit."],
 	"reroll_all": ["reroll", "Paradox", "Every reroll throws the whole bowl again."],
+	## W4 and W3 (November 13, 2026): a blow that costs its thrower, and the Wardens' dice rules,
+	## pinned by a face until its next action.
+	"jagged": ["thorn", "Jagged", "Every blow it takes costs whoever threw it %d health. No block stops it, and it never takes your last point."],
+	"numb_low": ["low", "Low dice out", "Until its next action your dice showing %d or less count for nothing."],
+	"numb_high": ["high", "High dice out", "Until its next action your dice showing %d or more count for nothing."],
+	"numb_small": ["die", "Small dice out", "Until its next action your smallest dice count for nothing. A bowl all of one size keeps its last die."],
+	"set_toll": ["pair", "Mirrored dice", "Until its next action every throw costs you %d health for each die that matches another."],
 	"aura": ["cloud", "Aura", "While it lives, every player is %s."]}
 
 static func trait_entry(key: String, value: Variant) -> Dictionary:
@@ -80,6 +89,10 @@ static func trait_entry(key: String, value: Variant) -> Dictionary:
 			shown = str(number)
 		"regrow_escorts":
 			text = text % [number, number]
+		"numb_low", "numb_high", "set_toll":
+			## A Warden's dice rule says its line or its price, not a bare number (W3).
+			text = text % number
+			shown = {"numb_low": "≤%d", "numb_high": "≥%d", "set_toll": "−%d"}[key] % number
 		_:
 			if text.contains("%d"):
 				text = text % number
@@ -120,10 +133,10 @@ static func for_player(unit: Dictionary, battle: Dictionary = {}) -> Array:
 	out.append_array(_statuses(statuses, false, int(battle.get("creature_damage_pct", 100)), unit))
 	var buried: int = unit.get("buried", []).size()
 	if buried > 0:
-		out.append(entry("buried", "rampart", str(buried), false, "Buried", "%s buried in rubble: %s cannot fire this turn." % [DeepUi.plural(buried, "socket"), "that gem" if buried == 1 else "those gems"]))
+		out.append(entry("buried", "rampart", str(buried), false, "Buried", "%s buried in rubble: %s cannot fire until the rubble clears (the count on the socket says when)." % [DeepUi.plural(buried, "socket"), "that gem" if buried == 1 else "those gems"]))
 	var clouded: int = unit.get("clouded", []).size()
 	if clouded > 0:
-		out.append(entry("clouded", "cloud", str(clouded), false, "Clouded", "%s fogged: %s cannot fire until you hit the creature that clouded it." % [DeepUi.plural(clouded, "socket"), "that gem" if clouded == 1 else "those gems"]))
+		out.append(entry("clouded", "cloud", str(clouded), false, "Clouded", "%s fogged: %s cannot fire until the fog lifts (the count on the socket says when) or you hit the creature that clouded it." % [DeepUi.plural(clouded, "socket"), "that gem" if clouded == 1 else "those gems"]))
 	var stolen: int = int(unit.get("stolen_dice", 0))
 	if stolen > 0:
 		out.append(entry("stolen", "die", "−%d" % stolen, false, "Dice taken", "You roll %s next turn." % DeepUi.plural(stolen, "die fewer", "dice fewer")))
@@ -141,6 +154,9 @@ static func for_player(unit: Dictionary, battle: Dictionary = {}) -> Array:
 	if not battle.is_empty() and DeepBattle.living(battle.get("enemies", [])).any(func(f: Dictionary) -> bool: return DeepCreatures.has_trait(f, "backlash")):
 		out.append(entry("backlash", "bolt", "−%d" % fired if str(battle.get("phase", "")) == "resolving" and fired > 0 else "", false, "Backlash",
 			"Every gem that fires costs you 1 health while it lives (never your last).", Color("ff8ad8")))
+	## A Warden's dice rules this turn (W3): the dice that count for nothing, and a Hall of Mirrors.
+	if not battle.is_empty():
+		out.append_array(dice_rules(unit, battle))
 	## The hot streak High Roller earned last turn, being ridden now.
 	var streak: int = clampi(int(unit.get("streak", 0)), 0, 3)
 	if streak > 0:
@@ -179,6 +195,47 @@ static func for_player(unit: Dictionary, battle: Dictionary = {}) -> Array:
 	## A gem raised mid-fight is not a chip here: the rail draws the raised ranks on the gem
 	## itself, where the player is already looking, and it grows to the carat it now counts as.
 	out.append_array(for_run(unit))
+	return out
+
+static func rule_move(foe: Dictionary, trait_key: String) -> Dictionary:
+	## The creature's move that pins this dice rule (W3: Low Ceiling, Jam, High Water, Hall of
+	## Mirrors), for a chip or a badge to name it and wear its face mark.
+	for move in DeepCreatures.moves_for(foe):
+		for effect in move.get("effects", []):
+			if effect is Dictionary and str(effect.get("kind", "")) == "pin_trait" and str(effect.get("trait", "")) == trait_key:
+				return move
+	return {}
+
+static func dice_rules(unit: Dictionary, battle: Dictionary) -> Array:
+	## The rules a Warden or boss holds over the player's dice right now (W3, November 13, 2026),
+	## one chip each, named after the face that set it: the dice it numbs, or the toll it takes.
+	var out: Array = []
+	var rule: Dictionary = DeepBattle.numbing(battle)
+	var numbed: Dictionary = {}
+	for roll in unit.get("hand", []):
+		if roll.has("numb"):
+			numbed[str(roll.numb)] = int(numbed.get(str(roll.numb), 0)) + 1
+	for part in [["small", "small", "numb_small", "die"], ["low", "low_by", "numb_low", "low"], ["high", "high_by", "numb_high", "high"]]:
+		if not rule.has(str(part[0])):
+			continue
+		var foe: Dictionary = DeepBattle.enemy(battle, str(rule[str(part[1])]))
+		var named: String = str(rule_move(foe, str(part[2])).get("name", "Its rule"))
+		var count: int = int(numbed.get(str(part[0]), 0))
+		var what: String = {"small": "Your smallest dice count for nothing this turn. A bowl all of one size keeps its last die.",
+			"low": "Your dice showing %d or less count for nothing this turn. Reroll them to bring them up." % int(rule.get("low", 0)),
+			"high": "Your dice showing %d or more count for nothing this turn. Reroll them to bring them down." % int(rule.get("high", 0))}[str(part[0])]
+		out.append(entry("numb_" + str(part[0]), str(part[3]), "%d out" % count if count > 0 else "", false, named,
+			"%s (%s): %s They count again when it acts, or the moment it falls." % [named, str(foe.get("name", "a Warden")), what], MEDDLE))
+	var toll: int = 0
+	var toller: Dictionary = {}
+	for foe in DeepBattle.living(battle.get("enemies", [])):
+		if DeepCreatures.trait_value(foe, "set_toll", 0) > 0:
+			toll += DeepCreatures.trait_value(foe, "set_toll", 0)
+			toller = foe
+	if toll > 0:
+		var named: String = str(rule_move(toller, "set_toll").get("name", "Hall of Mirrors"))
+		out.append(entry("set_toll", "pair", "−%d" % toll, false, named,
+			"%s (%s): every throw this turn costs you %d health for each die that matches another (never your last). Five different values cost nothing." % [named, str(toller.get("name", "a Warden")), toll], MEDDLE))
 	return out
 
 static func for_run(unit: Dictionary) -> Array:
@@ -380,6 +437,9 @@ static func _status_entries(statuses: Dictionary, on_enemy: bool, weight: int = 
 		if key == "burn" and not on_enemy and not unit.is_empty():
 			shown = DeepBattle.weighed_stacks(unit, "burn", value, weight)
 		var said: String = str(info[2]).replace("%d", "%s") % DeepUi.number(shown) + timing
+		## One stack loses one Cut step, not "1 Cut steps" (review card X13).
+		if key == "dulled" and shown == 1:
+			said = said.replace("1 Cut steps", "1 Cut step")
 		if key == "retain" and on_enemy:
 			said = "Keeps all its block at the next reset." if value >= DeepRules.CEILING else "Preserves up to %s unspent Block at the next reset, then is consumed." % DeepUi.number(value)
 		out.append(entry(str(key), str(info[0]), ("all" if key == "retain" and value >= DeepRules.CEILING else DeepUi.number(shown if key == "burn" else value)), good, str(info[1]), said))

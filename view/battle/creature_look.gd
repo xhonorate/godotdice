@@ -497,9 +497,11 @@ static func row(parent: Node, foe: Dictionary, move: Dictionary, pips: int, face
 	return box
 
 static func line_row(parent: Node, foe: Dictionary, move: Dictionary, pips: int, faces: int, note: String = "") -> PanelContainer:
-	## One move on one line, for the phone's ledger (docs/PHONE_UI.md): its rule and mark in its
-	## kind's ink, its name, and its words cut short at the line's end. Whatever is cut is in the
-	## creature's card, a finger held on it away.
+	## One move on two lines, for the phone's ledger (docs/PHONE_UI.md; H1, November 13, 2026):
+	## its rule and mark in its kind's ink, its name and its pips, then its words under them,
+	## the ledger's whole width, wrapped (two lines at the most). They were cut short on one line
+	## right at the condition ("4 damage for every reroll you…"). The rest is in the creature's
+	## card, a finger held on it away.
 	var kind: String = kind_of(move)
 	var box := PanelContainer.new()
 	box.mouse_filter = Control.MOUSE_FILTER_PASS
@@ -509,22 +511,19 @@ static func line_row(parent: Node, foe: Dictionary, move: Dictionary, pips: int,
 	box.set_meta("dense", true)
 	box.set_meta("idle", Color(0, 0, 0, 0))
 	parent.add_child(box)
-	var line := DeepUi.hbox(box, int(DeepUi.pt(4)))
+	var stack := DeepUi.vbox(box, 0)
+	stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var line := DeepUi.hbox(stack, int(DeepUi.pt(4)))
 	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var tint: Color = ink(kind)
 	var marked := mark(line, str(move.get("mark", "")), DeepUi.pt(12), tint)
 	marked.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var named := DeepUi.label(line, str(move.get("name", "")), 12, DeepUi.PAPER if kind != "dud" else INK.dud)
 	named.add_theme_font_override("font", DeepUi.bold_font())
+	named.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var said: String = text(foe, move)
-	var first: int = said.find(". ")
-	if first > 0:
-		said = said.substr(0, first)
-	var words := DeepUi.label(line, said.trim_suffix("."), 11, ROW_TEXT)
-	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	words.clip_text = true
-	words.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	words.custom_minimum_size.x = DeepUi.pt(20)
+	var words := _two_lines(stack, said.trim_suffix("."), ROW_TEXT)
+	words.name = "Words"
 	if pips > 0:
 		var dots := Pips.new(pips, tint)
 		dots.tooltip_text = "%d of its %d faces" % [pips, faces] if faces > 0 else ""
@@ -534,14 +533,26 @@ static func line_row(parent: Node, foe: Dictionary, move: Dictionary, pips: int,
 		aside.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	return box
 
+static func _two_lines(parent: Node, said: String, tone: Color) -> Label:
+	## Words that wrap at the width they are given and stop at two lines, the second cut with
+	## an ellipsis if they run on: a phone ledger line's move or trait text (H1).
+	var words := DeepUi.label(parent, said, 11, tone)
+	words.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	words.max_lines_visible = 2
+	words.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	words.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.custom_minimum_size.x = DeepUi.pt(20)
+	return words
+
 static func set_lit(box: Control, lit: bool) -> void:
 	if box == null or not is_instance_valid(box):
 		return
 	box.add_theme_stylebox_override("panel", row_style(str(box.get_meta("kind", "attack")), lit, bool(box.get_meta("dense", false)), box.get_meta("idle", Color(0, 0, 0, 0))))
 
 static func trait_line(parent: Node, foe: Dictionary, chip: Dictionary) -> HBoxContainer:
-	## A trait on one line, for the phone's ledger: its mark and name in violet, and what it
-	## means cut short at the line's end.
+	## A trait for the phone's ledger: its mark and name in violet on one line, and what it
+	## means under them, wrapped to two lines at the most (H1).
 	var line := DeepUi.hbox(parent, int(DeepUi.pt(4)))
 	line.mouse_filter = Control.MOUSE_FILTER_PASS
 	var glyph := DeepUi.icon(line, str(chip.get("glyph", "spark")), DeepUi.pt(12), TRAIT_INK)
@@ -552,11 +563,9 @@ static func trait_line(parent: Node, foe: Dictionary, chip: Dictionary) -> HBoxC
 	var said: String = str(chip.get("text", ""))
 	if said.is_empty():
 		said = meaning(str(chip.get("title", "")), foe)
-	var words := DeepUi.label(line, said, 11, TRAIT_TEXT)
-	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	words.clip_text = true
-	words.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	words.custom_minimum_size.x = DeepUi.pt(20)
+	## Its meaning under its name, wrapped to two lines at the most (H1, November 13, 2026).
+	var words := _two_lines(parent, said, TRAIT_TEXT)
+	words.name = "TraitWords"
 	return line
 
 static func trait_row(parent: Node, foe: Dictionary, chip: Dictionary, dense: bool = false, width: float = 0.0) -> VBoxContainer:

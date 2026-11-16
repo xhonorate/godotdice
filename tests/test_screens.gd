@@ -699,23 +699,18 @@ func _deep_start(app: Control) -> void:
 			"a teammate without one sees the %s's plain work" % str(room[0]))
 		descent.local_id = holder
 		if str(room[0]) == "carver":
-			## The better raise: up to three faces, of one die or several.
-			descent._oddity_step = "raise"
+			## The steel chisel (review card M3): three sure cuts, up to six; a face clicked is
+			## a cut sent at once as the room's choice, and the chisel stays in hand.
+			descent._oddity_step = "chisel"
 			descent.show_state(at_room)
 			var ask: Control = descent._ask
 			var dice: Array = DeepDescent.player(at_room, me_id).dice
-			check(ask.is_open() and ask.face_most() == 3, "the better raise asks for up to three faces")
-			ask.take("die", str(dice[0].id))
-			ask.pick_face("faces", [0], str(dice[0].id))
-			ask.pick_face("faces", [1], str(dice[0].id))
-			ask.take("die", str(dice[1].id))
-			ask.pick_face("faces", [0], str(dice[1].id))
-			ask.pick_face("faces", [1], str(dice[1].id))
+			check(ask.is_open() and ask.spec.has("chisel") and int(ask.spec.chisel.get("most", 0)) == 6 and float(ask.spec.chisel.odds[2]) == 0.0, "the steel chisel asks with six cuts, three sure")
 			sent.clear()
-			ask._do()
-			var faces: Array = sent[0].get("payload", {}).get("picks", []) if sent.size() == 1 else []
-			check(sent.size() == 1 and str(sent[0].get("choice", "")) == "raise" and faces.size() == 3 and faces[2] == {"die_id": str(dice[1].id), "face": 0},
-				"the three-face pick sends up to three picks, each with its die: %s" % str(sent))
+			ask._cut(str(dice[0].id), 0, 1)
+			check(sent.size() == 1 and str(sent[0].get("choice", "")) == "chisel" and sent[0].get("payload", {}) == {"die_id": str(dice[0].id), "face": 0, "way": 1} and descent._oddity_step == "chisel",
+				"a cut goes to the room at once and the chisel stays in hand: %s" % str(sent))
+			ask.close()
 		else:
 			## The better stamp: every die at once, so its ask only says so, and sends nothing to pick.
 			descent._oddity_step = "stamp"
@@ -1008,12 +1003,15 @@ func _birthstones(app: Control) -> void:
 	(home.find_child("UnlockYes", true, false) as Button).pressed.emit()
 	await _frames(2)
 	check(DeepProfile.owns_birthstone(app.profile, who, cheap) and int(app.profile.gold) == 40, "the second press unlocks it and takes the gold (%d left)" % int(app.profile.gold))
+	## A stone just bought is not put on (K9 round 3, November 16, 2026): its reveal ends on
+	## Wear it / Not now, and the dossier offers Wear until it is worn.
 	check(DeepProfile.worn_birthstone(app.profile, who).is_empty(), "unlocking a stone does not put it on")
 	check(app.saves.load_profile().characters[who].get("birthstones", []) == [cheap], "the unlocked stone is saved")
 	var wear: Button = home.find_child("Wear", true, false)
 	check(wear != null and home.find_child("Unlock", true, false) == null and home.birth_read(who) == cheap, "an unlocked stone offers Wear")
-	## Wear: one press, saved, and the party told.
-	wear.pressed.emit()
+	## Wear: one press, saved, and the party told (what the reveal's Wear it does as well).
+	if wear != null:
+		wear.pressed.emit()
 	await _frames(2)
 	check(DeepProfile.worn_birthstone(app.profile, who) == cheap, "one press on Wear puts the stone on")
 	check(str(app.saves.load_profile().characters[who].get("birthstone", "")) == cheap, "the stone worn is saved")
@@ -1038,12 +1036,10 @@ func _birthstones(app: Control) -> void:
 	var card: Node = home._overlay.find_child("SwapCard", true, false)
 	check(home._birth_swap and card != null and _count_choices(card) == 3, "a click on the tile lists the delver's three stones")
 	var locked: Node = card.find_child("Swap_" + dear, true, false) if card != null else null
-	check(locked != null and bool(locked.get_meta("disabled", false)) and _label_count(locked, "Unlock on the dossier") == 1 and _label_count(locked, "2,500") == 1, "one not bought is greyed, with its price and where it is unlocked")
-	if locked != null:
-		_press(locked)
+	check(locked != null and bool(locked.get_meta("locked", false)) and _label_count(locked, "Unlock on the dossier") == 1 and _label_count(locked, "2,500") == 1, "one not bought is greyed, with its price and where it is unlocked")
 	home.wear_birthstone(who, dear)
 	await _frames(2)
-	check(DeepProfile.worn_birthstone(app.profile, who) == cheap, "and cannot be picked there")
+	check(DeepProfile.worn_birthstone(app.profile, who) == cheap, "and cannot be worn")
 	## Escape, or a press anywhere else, closes it and leaves the page where it was.
 	home._birth_swap = true
 	home._render()
@@ -1071,6 +1067,18 @@ func _birthstones(app: Control) -> void:
 	await _frames(2)
 	check(DeepProfile.worn_birthstone(app.profile, who).is_empty() and not home._birth_swap and home._overlay.find_child("SwapCard", true, false) == null, "picking a stone they own wears it and closes the swap")
 	check(str(app.session.local_member().get("birthstone", "x")).is_empty() and _label_count(home.find_child("BirthstoneTile", true, false), cheap_name) == 0, "the party and the tile follow")
+	## A press on it goes to where it is unlocked, reading it (K9): no dead click.
+	home._birth_swap = true
+	home._render()
+	await _frames(2)
+	card = home._overlay.find_child("SwapCard", true, false)
+	locked = card.find_child("Swap_" + dear, true, false) if card != null else null
+	if locked != null:
+		_press(locked)
+	await _frames(2)
+	check(home._roster_view == "dossier" and home.birth_read(who) == dear and not home._birth_swap and DeepProfile.worn_birthstone(app.profile, who).is_empty(), "a press on it opens the dossier reading it, and wears nothing")
+	home.edit_loadout(who)
+	await _frames(2)
 	## A delver who has not joined shows their three stones and sells none.
 	home._roster_view = "dossier"
 	home._roster_pick = "FLORIN"
@@ -1368,7 +1376,10 @@ func _worn_stone(app: Control) -> void:
 			check(str(stone.get("character", "")) == str(plan.birthstone) and _worn_said(home, "LentStone") == "%s is %s's Birthstone, borrowed for the day." % [str(stone.name), lender],
 				"a borrowed stone is named by its own name: '%s'" % _worn_said(home, "LentStone"))
 			var card_words: String = "%s's %s" % [lender, str(stone.name)]
-			check(home.find_children("*", "Label", true, false).any(func(l: Node) -> bool: return (l as Label).text.ends_with(card_words)), "and the day's card names it (%s)" % card_words)
+			## The day's cards are a paragraph each (name, kind, words) since November 16, 2026.
+			check(home.find_children("*", "Label", true, false).any(func(l: Node) -> bool: return (l as Label).text.ends_with(card_words))
+				or home.find_children("*", "RichTextLabel", true, false).any(func(l: Node) -> bool: return (l as RichTextLabel).get_parsed_text().begins_with(card_words) or (l as RichTextLabel).get_parsed_text().contains(" " + card_words + " ")),
+				"and the day's card names it (%s)" % card_words)
 		else:
 			check(_worn_said(home, "LentStone") == "%s is lent for the day, whether or not you own it." % str(stone.name), "a lent variant says it is the day's: '%s'" % _worn_said(home, "LentStone"))
 	lobby.daily = ""

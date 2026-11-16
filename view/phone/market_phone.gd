@@ -7,6 +7,8 @@ extends RefCounted
 
 const MarketPage = preload("res://view/home/market_page.gd")
 const HomeParts = preload("res://view/home/home_parts.gd")
+const Tips = preload("res://view/ui/tips.gd")
+const Plates = preload("res://view/ui/plates.gd")
 
 const TABS: Array = [["case", "gem", "Cut and read"], ["geodes", "geode", "Geodes"], ["commissions", "flag", "Commissions"], ["bench", "hammer", "The bench"]]
 
@@ -41,6 +43,9 @@ static func build(home: Control, content: VBoxContainer) -> void:
 		DeepUi.priced(restock, str(price))
 		home.gold_gate(restock, price)
 	restock.disabled = done or int(home.profile.get("gold", 0)) < price
+	## Its plate (held) says what it brings, the Wheel and the Oven opened again among it (K8).
+	var said: String = MarketPage.restock_words(done)
+	Tips.attach(restock, func() -> Control: return Plates.words("Restock", said))
 	var tab: String = str(home.get_meta("market_tab", "case"))
 	var tabs := DeepUi.hbox(content, int(DeepUi.pt(3)))
 	## A sideways flick over the page turns them too (view/ui/swipe.gd).

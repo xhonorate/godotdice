@@ -198,7 +198,14 @@ func set_lit(move_name: String) -> void:
 	## The row of the face that has just landed is lit; the rest are not. Read a die at a time,
 	## the ledger turns to the die that face is on.
 	lit = move_name
-	if paged and not move_name.is_empty() and not _rows.has(move_name):
+	if paged and not move_name.is_empty() and not _rows.has(move_name) and DeepUi.phone:
+		## The phone's pages are a die's parts: the one that holds the move.
+		for at in range(_parts.size()):
+			if _parts[at].items.any(func(item: Dictionary) -> bool: return str(item.get("name", "")) == move_name):
+				page = at
+				_build()
+				break
+	elif paged and not move_name.is_empty() and not _rows.has(move_name):
 		var groups: Array = Look.groups(foe)
 		for at in range(groups.size()):
 			if groups[at].moves.any(func(m: Dictionary) -> bool: return str(m.move) == move_name):
@@ -221,7 +228,7 @@ func rows() -> Dictionary:
 const ROOMY: int = 0
 const DENSE: int = 1
 const PAGED: int = 2
-## A die at a time: which.
+## A die at a time: which (on the phone, which of `_parts`).
 var page: int = 0
 var paged: bool = false
 
@@ -230,10 +237,9 @@ func _build() -> void:
 	var room: float = max_height - 6.0
 	var mode: int = ROOMY
 	if DeepUi.phone:
-		## The phone reads every move on one line (`Look.line_row`); a creature with more dice
-		## than the room holds is read a die at a time.
-		mode = DENSE if _phone_estimate(groups) <= room or groups.size() < 2 else PAGED
-	elif _estimate(ROOMY) > room:
+		_build_phone(groups, room)
+		return
+	if _estimate(ROOMY) > room:
 		mode = DENSE if _estimate(DENSE) <= room or groups.size() < 2 else PAGED
 	dense = mode != ROOMY
 	paged = mode == PAGED
@@ -253,47 +259,228 @@ func _build() -> void:
 			var move: Dictionary = Look.move_of(foe, str(entry.move))
 			if move.is_empty():
 				move = {"name": str(entry.move), "mark": str(entry.mark), "kind": str(entry.kind)}
-			if DeepUi.phone:
-				_rows[str(entry.move)] = Look.line_row(_list, foe, move, int(entry.count), int(group.faces))
-			else:
-				_rows[str(entry.move)] = Look.row(_list, foe, move, int(entry.count), int(group.faces), "", dense)
+			_rows[str(entry.move)] = Look.row(_list, foe, move, int(entry.count), int(group.faces), "", dense)
 	for move in Look.matches(foe):
-		if DeepUi.phone:
-			_rows[str(move.get("name", ""))] = Look.line_row(_list, foe, move, 0, 0, Look.match_note(move))
-		else:
-			_rows[str(move.get("name", ""))] = Look.row(_list, foe, move, 0, 0, Look.match_note(move), dense)
+		_rows[str(move.get("name", ""))] = Look.row(_list, foe, move, 0, 0, Look.match_note(move), dense)
 	for extra in Look.extras(foe):
 		var move: Dictionary = extra.move
-		if DeepUi.phone:
-			_rows[str(move.get("name", ""))] = Look.line_row(_list, foe, move, 0, 0, str(extra.note))
-		else:
-			_rows[str(move.get("name", ""))] = Look.row(_list, foe, move, 0, 0, str(extra.note), dense)
+		_rows[str(move.get("name", ""))] = Look.row(_list, foe, move, 0, 0, str(extra.note), dense)
 	var traits: Array = Look.traits(foe)
 	if not traits.is_empty():
 		var rule := DeepUi.rule(_list, Look.PILL_LINE)
 		rule.custom_minimum_size.y = 2
 		for chip in traits:
-			if DeepUi.phone:
-				Look.trait_line(_list, foe, chip)
-			else:
-				Look.trait_row(_list, foe, chip, dense)
+			Look.trait_row(_list, foe, chip, dense)
 	if not lit.is_empty():
 		for name in _rows:
 			Look.set_lit(_rows[name], str(name) == lit)
 
-func _phone_estimate(groups: Array) -> float:
-	## How tall the phone's ledger stands: its head, then a line a move.
-	var line: float = float(DeepUi.readable(12)) * 1.25 + 6.0 + 5.0
-	var tall: float = 24.0 + float(DeepUi.readable(10)) * 1.3 + float(DeepUi.readable(17)) * 1.3 + 30.0
-	var count: int = Look.matches(foe).size() + Look.extras(foe).size()
-	for group in groups:
-		count += group.moves.size()
-		if groups.size() > 1:
-			tall += float(DeepUi.readable(10)) * 1.3 + 5.0
-	tall += float(count) * line
-	if not Look.traits(foe).is_empty():
-		tall += float(Look.traits(foe).size()) * float(DeepUi.readable(12)) * 3.0
+# --- the phone's pages ---------------------------------------------------------------------------
+
+## The phone reads a move on two lines (H1: its name, then its words wrapped under it), so a
+## Warden's die can stand the ledger taller than the room over the dock (the Drill's treads, five
+## moves, stood it over the dice tray). The phone's pages, then (November 16, 2026): every die on
+## one when it all fits; else a die at a time (its tabs); and a die whose rows still stand too
+## tall is read in parts, the key at the strip's end ("1/2 ›") turning to its next. Every page is
+## held to the room: the ledger never stands over the dock. Each part is {die (-1: every die),
+## items, at (its place among its die's parts), of (how many parts its die has)}, an item as
+## `_phone_items` gives it.
+var _parts: Array = []
+## The gap between the list's rows (its separation).
+const LIST_GAP: float = 5.0
+
+func _build_phone(groups: Array, room: float) -> void:
+	_parts = _phone_parts(groups, room)
+	paged = _parts.size() > 1
+	dense = true
+	page = clampi(page, 0, _parts.size() - 1)
+	DeepUi.clear(_list)
+	_rows.clear()
+	var part: Dictionary = _parts[page]
+	if paged:
+		_phone_strip(groups, part)
+	var ruled: bool = false
+	for item in part.items:
+		match str(item.kind):
+			"die":
+				var sub := DeepUi.label(_list, _group_words(item.group).to_upper(), 10, DeepUi.MUTED)
+				sub.add_theme_font_override("font", DeepUi.bold_font())
+			"move":
+				_rows[str(item.name)] = Look.line_row(_list, foe, item.move, int(item.pips), int(item.faces), str(item.note))
+			"trait":
+				if not ruled:
+					ruled = true
+					var rule := DeepUi.rule(_list, Look.PILL_LINE)
+					rule.custom_minimum_size.y = 2
+				Look.trait_line(_list, foe, item.chip)
+	if not lit.is_empty():
+		for name in _rows:
+			Look.set_lit(_rows[name], str(name) == lit)
+
+func _phone_parts(groups: Array, room: float) -> Array:
+	## The pages the phone's ledger is read in, each held to `room`.
+	var head: float = _phone_head_h()
+	var whole: Array = _phone_items(groups, -1)
+	if head + _items_h(whole) <= room:
+		return [{"die": -1, "items": whole, "at": 0, "of": 1}]
+	var left: float = room - head - _phone_strip_h() - LIST_GAP
+	var parts: Array = []
+	for die in range(maxi(1, groups.size())):
+		var packed: Array = _pack(_phone_items(groups, die if groups.size() > 1 else -1), left)
+		for at in range(packed.size()):
+			parts.append({"die": die if groups.size() > 1 else -1, "items": packed[at], "at": at, "of": packed.size()})
+	return parts
+
+func _phone_items(groups: Array, die: int) -> Array:
+	## What a page of the phone's ledger lists, in order, each with how tall it stands: one die's
+	## moves (`die`), or every die's under its name (-1, more than one die); then the moves no
+	## face carries (the matches, the called moves) and the traits, as every page lists them.
+	var items: Array = []
+	for at in range(groups.size()):
+		if die >= 0 and at != die:
+			continue
+		var group: Dictionary = groups[at]
+		if die < 0 and groups.size() > 1:
+			items.append({"kind": "die", "group": group, "h": _label_h(DeepUi.bold_font(), DeepUi.readable(10))})
+		for entry in group.moves:
+			var move: Dictionary = Look.move_of(foe, str(entry.move))
+			if move.is_empty():
+				move = {"name": str(entry.move), "mark": str(entry.mark), "kind": str(entry.kind)}
+			items.append({"kind": "move", "name": str(entry.move), "move": move, "pips": int(entry.count), "faces": int(group.faces), "note": "", "h": _phone_row_h(move, "")})
+	for move in Look.matches(foe):
+		items.append({"kind": "move", "name": str(move.get("name", "")), "move": move, "pips": 0, "faces": 0, "note": Look.match_note(move), "h": _phone_row_h(move, Look.match_note(move))})
+	for extra in Look.extras(foe):
+		var move: Dictionary = extra.move
+		items.append({"kind": "move", "name": str(move.get("name", "")), "move": move, "pips": 0, "faces": 0, "note": str(extra.note), "h": _phone_row_h(move, str(extra.note))})
+	for chip in Look.traits(foe):
+		items.append({"kind": "trait", "chip": chip, "h": _phone_trait_h(chip)})
+	return items
+
+func _items_h(items: Array) -> float:
+	## How tall these items stand in the list: each, the gaps between them, and the rule over
+	## the traits.
+	if items.is_empty():
+		return 0.0
+	var tall: float = LIST_GAP * float(items.size() - 1)
+	var ruled: bool = false
+	for item in items:
+		tall += float(item.h)
+		if str(item.kind) == "trait" and not ruled:
+			ruled = true
+			tall += 2.0 + LIST_GAP
 	return tall
+
+func _pack(items: Array, left: float) -> Array:
+	## The items in as few parts as hold them, each standing no taller than `left`, as even as
+	## the parts allow (three and two, not four and one).
+	var greedy: Array = []
+	var current: Array = []
+	for item in items:
+		if not current.is_empty() and _items_h(current + [item]) > left:
+			greedy.append(current)
+			current = []
+		current.append(item)
+	if not current.is_empty() or greedy.is_empty():
+		greedy.append(current)
+	if greedy.size() < 2:
+		return greedy
+	var each: int = ceili(float(items.size()) / float(greedy.size()))
+	var even: Array = []
+	for start in range(0, items.size(), each):
+		var slice: Array = items.slice(start, mini(items.size(), start + each))
+		if _items_h(slice) > left:
+			return greedy
+		even.append(slice)
+	return even if even.size() == greedy.size() else greedy
+
+func _phone_head_h() -> float:
+	## How tall the ledger's head stands, from the nodes themselves (none of them wraps): the
+	## panel's margins, whose it is, the name and its dice, the bar, and the gap under each.
+	var style: StyleBox = get_theme_stylebox("panel")
+	var tall: float = (style.get_margin(SIDE_TOP) + style.get_margin(SIDE_BOTTOM)) if style != null else 24.0
+	tall += _who.get_combined_minimum_size().y + 6.0
+	tall += _name.get_parent().get_combined_minimum_size().y + 6.0
+	tall += _bar.get_combined_minimum_size().y + 6.0
+	return tall
+
+func _phone_strip_h() -> float:
+	## The strip of tabs and the parts key: a button's text and its margins.
+	return _label_h(DeepUi.text_face(DeepUi.readable(11)), DeepUi.readable(11)) + 4.0 + 4.0
+
+func _phone_row_h(move: Dictionary, note: String) -> float:
+	## A move's row (`Look.line_row`): its name line (the mark, the name, the pips or a note),
+	## then its words wrapped at the row's width, two lines at the most, and the row's margins.
+	var line: float = maxf(DeepUi.pt(12), _label_h(DeepUi.bold_font(), DeepUi.readable(12)))
+	if not note.is_empty():
+		line = maxf(line, _label_h(DeepUi.text_face(DeepUi.readable(11)), DeepUi.readable(11)))
+	var inner: float = width() - 28.0 - float(Look.ROW_RULE + Look.ROW_PAD_LEFT + Look.ROW_PAD_RIGHT)
+	return 6.0 + line + _phone_words_h(Look.text(foe, move).trim_suffix("."), inner)
+
+func _phone_trait_h(chip: Dictionary) -> float:
+	## A trait (`Look.trait_line`): its mark and name on a line, the gap, its meaning under them.
+	var said: String = str(chip.get("text", ""))
+	if said.is_empty():
+		said = Look.meaning(str(chip.get("title", "")), foe)
+	var line: float = maxf(DeepUi.pt(12), _label_h(DeepUi.bold_font(), DeepUi.readable(12)))
+	return line + LIST_GAP + _phone_words_h(said, width() - 28.0)
+
+func _phone_words_h(said: String, across: float) -> float:
+	## Words set as `Look._two_lines` sets them: the phone's words, wrapped at `across`, two
+	## lines at the most (an empty label still stands a line tall).
+	var size: int = DeepUi.readable(11)
+	var face: Font = DeepUi.text_face(size)
+	var lines: int = mini(2, _lines([[DeepUi.phone_words(said), face]], size, across)) if not said.is_empty() else 1
+	var spacing: float = float(get_theme_constant(&"line_spacing", &"Label"))
+	return float(lines) * _label_h(face, size) + float(lines - 1) * spacing
+
+func _phone_strip(groups: Array, part: Dictionary) -> void:
+	## The phone's strip: a tab a die (more than one), the one being read lit; then, for a die
+	## read in parts, the key that turns to its next part ("1/2 ›", round to the first).
+	var strip := DeepUi.hbox(_list, 4)
+	strip.mouse_filter = Control.MOUSE_FILTER_PASS
+	strip.name = "Pages"
+	var die: int = int(part.die)
+	if groups.size() > 1:
+		for at in range(groups.size()):
+			var first: int = _parts.find_custom(func(p: Dictionary) -> bool: return int(p.die) == at)
+			_tab(strip, _group_words(groups[at]), at == die, first)
+	if int(part.of) > 1:
+		var pad := Control.new()
+		pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		strip.add_child(pad)
+		var next: int = page + 1 if int(part.at) + 1 < int(part.of) else page - int(part.at)
+		var key := _tab(strip, "%d/%d ›" % [int(part.at) + 1, int(part.of)], false, next)
+		key.name = "Parts"
+
+func _tab(strip: HBoxContainer, words: String, lit_now: bool, to: int) -> Button:
+	## One of the strip's buttons: lit for the page being read, else plain; a press turns to
+	## page `to`. A finger's reach on the phone (28 points tall) without standing any taller.
+	var button := Button.new()
+	button.text = words
+	button.focus_mode = Control.FOCUS_NONE
+	DeepUi.set_text_size(button, 11)
+	if lit_now:
+		DeepUi.ledger_primary(button)
+	else:
+		DeepUi.ledger_button(button, DeepUi.SLATE_HI, DeepUi.LEDGER_LINE, 3)
+	for side in ["normal", "hover", "pressed", "hover_pressed", "disabled"]:
+		var box: StyleBox = button.get_theme_stylebox(side)
+		if box is StyleBoxFlat:
+			(box as StyleBoxFlat).content_margin_left = 8
+			(box as StyleBoxFlat).content_margin_right = 8
+			(box as StyleBoxFlat).content_margin_top = 2
+			(box as StyleBoxFlat).content_margin_bottom = 2
+	button.pressed.connect(func() -> void:
+		page = to
+		_build()
+		reset_size())
+	strip.add_child(button)
+	if DeepUi.phone:
+		var least: float = DeepUi.pt(DeepUi.FINGER_LEAST)
+		var drawn: Vector2 = button.get_combined_minimum_size()
+		DeepUi.reach(button, Vector2(maxf(2.0, (least - drawn.x) * 0.5 + 1.0), maxf(0.0, (least - drawn.y) * 0.5 + 1.0)))
+	return button
 
 static func _group_words(group: Dictionary) -> String:
 	## "claws · d8", "d6 ×3".
@@ -305,26 +492,7 @@ func _tabs(groups: Array) -> void:
 	var strip := DeepUi.hbox(_list, 4)
 	strip.mouse_filter = Control.MOUSE_FILTER_PASS
 	for at in range(groups.size()):
-		var button := Button.new()
-		button.text = _group_words(groups[at])
-		button.focus_mode = Control.FOCUS_NONE
-		DeepUi.set_text_size(button, 11)
-		if at == page:
-			DeepUi.ledger_primary(button)
-		else:
-			DeepUi.ledger_button(button, DeepUi.SLATE_HI, DeepUi.LEDGER_LINE, 3)
-		for side in ["normal", "hover", "pressed", "hover_pressed", "disabled"]:
-			var box: StyleBox = button.get_theme_stylebox(side)
-			if box is StyleBoxFlat:
-				(box as StyleBoxFlat).content_margin_left = 8
-				(box as StyleBoxFlat).content_margin_right = 8
-				(box as StyleBoxFlat).content_margin_top = 2
-				(box as StyleBoxFlat).content_margin_bottom = 2
-		button.pressed.connect(func() -> void:
-			page = at
-			_build()
-			reset_size())
-		strip.add_child(button)
+		_tab(strip, _group_words(groups[at]), at == page, at)
 
 func _estimate(mode: int) -> float:
 	## How tall the ledger stands with its rows laid one of the three ways, worked out from the

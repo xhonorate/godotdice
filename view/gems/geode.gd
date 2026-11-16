@@ -411,18 +411,30 @@ func strike() -> void:
 		2:
 			DeepAudio.play("rock_break", {"volume": 0.8})
 			DeepAudio.play("loupe_spin", {"volume": 0.5})
-			## The light that gets out tells how good the stone is: brighter for a finer one.
+			## The light that gets out tells how good the stone is, brighter for a finer one, and
+			## in its rarity's color, the way a booster glows before it opens (K10).
 			var light: float = 0.25 + 0.55 * _tier_rank()
-			_art.light = Color(Color("fff1c4").lerp(_tier_tone, 0.25 * _tier_rank()), light)
-			_track(create_tween()).tween_property(_lamp, "modulate:a", 0.15 + 0.35 * _tier_rank(), 0.4)
-			DeepUi.burst(_root, heart, Color("fff1c4"), 30, 320.0, 0.8, 5.0)
+			var hue: Color = _rarity_light()
+			_art.light = Color(hue, maxf(light, 0.45))
+			_lamp.modulate = Color(hue, _lamp.modulate.a)
+			_track(create_tween()).tween_property(_lamp, "modulate:a", 0.25 + 0.35 * _tier_rank(), 0.4)
+			DeepUi.burst(_root, heart, hue, 30, 320.0, 0.8, 5.0)
 			_subtitle.text = "Light inside. Once more."
 		_:
 			_split()
 
+func _rarity_light() -> Color:
+	## The color of the light that leaks out after the second blow: the rarity of the stone
+	## inside (a common stone's plain warm white, an opal's every color as its pale violet).
+	var rarity: String = str(DeepStone.skill_of(stone).get("rarity", "COMMON"))
+	if rarity == "COMMON":
+		return Color("fff1c4")
+	return StoneCard._rarity_color(rarity)
+
 func _split() -> void:
 	## The halves fall away, the hollow is lit in the grade's color, the stone rises.
 	_phase = "opening"
+	_subtitle.text = "It splits."
 	var heart: Vector2 = _heart()
 	_skip.text = "Tap to skip ahead" if DeepUi.phone else "Click or press Space to skip ahead"
 	DeepAudio.play("geode_crack", {"volume": 0.95})

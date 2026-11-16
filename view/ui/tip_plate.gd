@@ -14,6 +14,12 @@ var below: bool = false
 var beside: bool = false
 ## The pointer has left the anchor: unless it is on the plate by the next frame, the plate goes.
 var leaving: bool = false
+## Brought up by the keyboard's or a gamepad's focus, not the pointer: it stays wherever the
+## pointer is.
+var by_focus: bool = false
+## Where the pointer is on the canvas, as the last mouse event said (kept by tips.gd's watch).
+static var pointer: Vector2 = Vector2.ZERO
+static var pointer_known: bool = false
 var _tone: Color = DeepUi.LEDGER_LINE
 var _fading: Tween = null
 var _gone: bool = false
@@ -105,6 +111,16 @@ func _process(_delta: float) -> void:
 		return
 	if beside:
 		return
+	## A plate the pointer brought up goes the moment the pointer is not on its anchor any
+	## more, however that came about: the page moved or changed under a resting pointer, or
+	## something (the lift's cage, a card) now stands between them (X10, November 13, 2026).
+	## A plate that takes the pointer keeps its own rule below.
+	if not keep and not by_focus and not DeepUi.phone:
+		var at: Vector2 = pointer if pointer_known else get_global_mouse_position()
+		var over: Control = get_viewport().gui_get_hovered_control() if get_viewport() != null else null
+		if not anchor.get_global_rect().has_point(at) or (over != null and over != anchor and not anchor.is_ancestor_of(over) and not over.is_ancestor_of(anchor)):
+			dismiss(0.06)
+			return
 	if leaving:
 		leaving = false
 		var pointer: Vector2 = get_global_mouse_position()

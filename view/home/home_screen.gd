@@ -487,6 +487,8 @@ func prewarm() -> void:
 	## looked at (see MarketPage.prewarm). Called once the game has started.
 	if visible and not _headless:
 		MarketPage.prewarm(self)
+		## And the day's lent Birthstone, so the Daily page never shows it as a stand-in (X9).
+		DescendPage.warm_daily(DeepEconomy.today())
 
 func let_go_kept(prefix: String = "", keep: Array = []) -> void:
 	## Frees the kept views whose keys start with `prefix`, all but those in `keep` (a Geode
@@ -783,7 +785,34 @@ func _step_back() -> bool:
 	return false
 
 func seed_value() -> int:
-	return int(_seed.text) if _seed != null and is_instance_valid(_seed) and _seed.text.is_valid_int() else 0
+	## The seed typed in Descend, or one sent from a past run while the phone's seed panel is shut.
+	if _seed != null and is_instance_valid(_seed) and _seed.text.is_valid_int():
+		return int(_seed.text)
+	var sent: String = str(get_meta("seed_next", ""))
+	if has_meta("seed_next"):
+		remove_meta("seed_next")
+	return int(sent) if sent.is_valid_int() else 0
+
+func dig_seed(run: Dictionary) -> void:
+	## A past run's seed, dug again (K5): Descend opens on its mine and its delver, the seed in.
+	var seed: int = int(run.get("seed", 0))
+	if seed == 0:
+		return
+	set_meta("seed_next", str(seed))
+	if _seed != null and is_instance_valid(_seed):
+		_seed.text = str(seed)
+	var daily: bool = bool(run.get("daily", false))
+	var character: String = str(run.get("character", ""))
+	if not daily and DeepProfile.unlocked_characters(profile).has(character):
+		choose_character(character)
+	var mine: String = str(run.get("mine", ""))
+	if not daily and is_host and bool(profile.get("mines", {}).get(mine, {}).get("unlocked", false)):
+		mine_chosen.emit(mine)
+	DeepAudio.play("ui_confirm", {"volume": 0.7})
+	open("descend")
+	## The phone keeps its seed on a panel of its own: it is opened, showing the seed.
+	if DeepUi.phone and not _headless:
+		(func() -> void: load("res://view/phone/descend_phone.gd")._seed_panel(self)).call_deferred()
 
 # --- hold Shift to compare -----------------------------------------------------------------------
 
@@ -949,7 +978,25 @@ func _cheer_purse(text: String) -> void:
 	if purse is Control:
 		## Gold spent reads red, so "-170 gold" is not mistaken for a gain.
 		var tone: Color = DeepUi.BAD if text.begins_with("-") else DeepUi.ACCENT
-		cheer_at(purse as Control, text, tone, "coin")
+		_purse_float(purse as Control, text, tone)
+
+func _purse_float(purse: Control, text: String, tone: Color) -> void:
+	## The change floats off the purse itself (X11): beside the chip in the desk's bar, over it
+	## on the phone's rail, and never down onto the page, where it landed on titles and keys.
+	if _headless or not is_instance_valid(purse) or not purse.is_inside_tree():
+		return
+	DeepUi.pulse(purse, 1.15, 0.35)
+	var rect: Rect2 = purse.get_global_rect()
+	var size_px: int = 16 if DeepUi.phone else 18
+	var face: Font = DeepUi.title_font(size_px)
+	var wide: Vector2 = face.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px)
+	var at: Vector2
+	if DeepUi.phone:
+		at = Vector2(rect.get_center().x, rect.position.y + (rect.size.y - wide.y) * 0.5)
+	else:
+		at = Vector2(rect.end.x + 10.0 + wide.x * 0.5, rect.position.y + (rect.size.y - wide.y) * 0.5)
+	DeepUi.burst(self, rect.get_center() - global_position, tone, 14, 120.0, 0.5, 4.0)
+	DeepUi.float_text(self, at - global_position, text, tone, size_px, 12.0, 1.4)
 
 func _cheer_tab(key: String, text: String, color: Color, glyph: String) -> void:
 	## Looked up by name when it lands, a frame on: the bar may have been drawn again since the
@@ -1077,9 +1124,24 @@ func buy_birthstone(character_key: String, key: String) -> void:
 	if not bool(bought.get("ok", false)):
 		_draw_birthstone()
 		return
-	## The purse counts the price out on its own; the stone coming free is the sound.
+	## The purse counts the price out on its own; the stone coming free is the sound. It is not
+	## put on: its moment ends on the choice (K9 round 3, November 16, 2026).
 	DeepAudio.play("unlock", {"volume": 0.8})
-	changed(["birthstone"])
+	_birth_of = character_key
+	_birth_pick = key
+	_birth_swap = false
+	profile_changed.emit()
+	## Then its moment: the stone turns on a lit sheet and its tiers light one by one, and two
+	## buttons end it: Wear it (put on, as Wear on the dossier does) or Not now (kept, unworn).
+	var stone: Dictionary = DeepStone.birthstone(character_key, key)
+	if not _headless and not stone.is_empty():
+		var who: String = str(DeepContent.character(character_key).get("name", character_key))
+		var worn: String = DeepProfile.worn_birthstone(profile, character_key)
+		var worn_name: String = str(DeepStone.birthstone(character_key, worn).get("name", "")) if worn != key else ""
+		load("res://view/inspect/inspector.gd").stone(stone, {"reveal": true, "fanfare": {"title": "%s is unlocked" % str(stone.get("name", "Birthstone")),
+			"subtitle": "%s's to wear from now on. Put it on now, or keep %s and change it on the dossier any time." % [who, worn_name if not worn_name.is_empty() else "what they wear"],
+			"actions": [{"label": "Wear it", "glyph": "check", "call": func() -> void: wear_birthstone(character_key, key)},
+				{"label": "Not now", "glyph": "cross_out", "primary": false, "tone": DeepUi.MUTED, "call": func() -> void: pass}]}})
 
 func wear_birthstone(character_key: String, key: String) -> void:
 	## Puts on a Birthstone the delver owns, for every run from now: saved, and the party told.

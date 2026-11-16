@@ -132,6 +132,21 @@ func _test_settle() -> void:
 	check(str(done.best.get("id", "")) == "better" or str(done.best.get("id", "")) == "fresh", "the best of the haul is named")
 	check(str(profile.get("brought", {}).get("run", "")) == "r1", "the best find is remembered for the party")
 	check(done.kept.any(func(e: Dictionary) -> bool: return bool(e.fresh) and str(e.stone.skill) == "EMBER"), "a new skill is marked fresh in the report")
+	check(int(done.worth) == DeepStone.value(better) + DeepStone.value(fresh) + int(done.gold), "the haul's worth is the stones kept at their worth and the gold the rest were paid: %d" % int(done.worth))
+	## A commission pays more than the stone's worth: the report's worth counts what it paid, so
+	## the gold card's lines add up to its total and the header says the same (November 16, 2026).
+	var commissioned: Dictionary = _profile()
+	var open: Array = DeepEconomy.open_commissions(commissioned)
+	if not open.is_empty():
+		open[0].done = false
+		open[0].skill = "STRIKE"
+		open[0].need = {"kind": "pure", "value": 0}
+		open[0].reward = 500
+		var low: Dictionary = _read("STRIKE", 1, 0, 3, "low")
+		commissioned.tray = [low]
+		var turned: Dictionary = DeepProfile.settle_tray(commissioned, {"low": "turnin"})
+		var fee: int = int(turned.turned[0].paid) if not turned.turned.is_empty() else -1
+		check(fee > DeepStone.value(low) and int(turned.worth) == fee, "a commissioned stone counts in the haul's worth at its fee (%d), not its own worth (%d): %d" % [fee, DeepStone.value(low), int(turned.worth)])
 
 func _test_records() -> void:
 	var profile: Dictionary = _profile()

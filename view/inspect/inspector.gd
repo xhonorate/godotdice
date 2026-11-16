@@ -178,6 +178,17 @@ static func conquest(view: Dictionary, actions: Array, footnote: String = "") ->
 		sheet.call("_fill_conquest", view)
 	return sheet
 
+static func past_run(run: Dictionary, dig: Callable = Callable()) -> void:
+	## A run from the ledger, opened again (K5): who dug it and how it ended, its tally, the gems
+	## taken down, and its seed with a copy key; `dig` starts the Descend page on that seed.
+	var outcome: String = str(run.get("outcome", ""))
+	var tone: Color = DeepUi.BAD if outcome == "fallen" else (DeepUi.ACCENT if outcome == "conquered" else DeepUi.GOOD)
+	if bool(run.get("daily", false)):
+		tone = DeepUi.INFO
+	var sheet := _begin(tone)
+	if sheet != null:
+		sheet.call("_fill_past_run", run, dig, tone)
+
 static func lapidary(character_key: String) -> void:
 	## Someone new comes to the workshop: their plate and their Birthstone turning beside it,
 	## and everything about them read out a line at a time rather than all at once.
@@ -827,6 +838,23 @@ func _market_buy(market: Dictionary) -> void:
 	buy.tooltip_text = ("It goes into your vault%s." % (" in place of yours, which is let go for no gold" if bool(market.get("replaces", false)) else "")) if not buy.disabled else "You have %d gold." % gold
 	DeepUi.voice(buy, "buy")
 
+func _foot_act(act: Dictionary) -> void:
+	## What the page the stone was opened from does with it, beside the way out (the socket
+	## picker's "Set in socket 2"): `act` {label, glyph, call, tip}. It closes the sheet as it acts.
+	if _close == null or not is_instance_valid(_close):
+		return
+	var call: Callable = act.get("call", Callable())
+	var foot: Node = _close.get_parent()
+	var go := DeepUi.icon_button(foot, str(act.get("glyph", "check")), str(act.get("label", "")), func() -> void:
+		_dismiss()
+		if call.is_valid():
+			call.call(), 13 if DeepUi.phone else 15, DeepUi.ACCENT)
+	foot.move_child(go, _close.get_index())
+	go.disabled = not call.is_valid()
+	if DeepUi.phone:
+		go.custom_minimum_size.y = maxf(go.custom_minimum_size.y, DeepUi.pt(DeepUi.FINGER_LEAST))
+	go.tooltip_text = str(act.get("tip", ""))
+
 func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 	var reference: bool = bool(opts.get("reference", false))
 	if reference:
@@ -898,6 +926,8 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 		DeepUi.pill(tags, "coin", "Worth · %d" % DeepStone.value(item), DeepUi.ACCENT, 13, "Worth: what a buyer would pay, in gold. The market sells at about %s times worth." % mult)
 		DeepUi.pill(tags, "chest", "Buy · %d" % int(opts.market.get("price", 0)), DeepUi.ACCENT_HI, 13, "What the case asks for it, in gold.")
 		_market_buy(opts.market)
+	if opts.get("act", {}) is Dictionary and not (opts.get("act", {}) as Dictionary).is_empty():
+		_foot_act(opts.act)
 	## The stone of this skill already at home, if there is one and this is not it: the reader
 	## is almost always deciding between the two, and the sheet says so rather than leaving
 	## them to remember what is in the vault.
@@ -986,6 +1016,9 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 	clarity_said.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	DeepUi.effect_text(clarity_said, _clarity_words(clarity), 13, DeepUi.MUTED)
 	_inclusions(item, purity, opts.get("context", {}))
+	## Fired Flawless in the Oven: what the heat took still counts in its grade and worth (K7).
+	if DeepStone.is_flawless(item) and not item.get("burnt", []).is_empty():
+		DeepUi.stat(purity, "flame", "Fired clean of %s: still counted in its grade and worth." % ", ".join(item.burnt.map(func(k: Variant) -> String: return str(DeepContent.inclusion(str(k)).get("name", k)))), DeepUi.MUTED, 12)
 
 
 func _fight_buffs(parent: Node, context: Dictionary) -> void:
@@ -1390,10 +1423,12 @@ func _fill_birthstone(item: Dictionary, opts: Dictionary = {}) -> void:
 	## Every tier: the hand it asks for, drawn and said, and what it does.
 	var box := _section("cut", "Its tiers" if tiers.size() > 1 else "Its tier")
 	var die: String = DiceIcons.ladder_die(tiers)
+	var lines: Array = []
 	for tier in tiers:
 		var penalty: bool = bool(tier.get("penalty", false))
 		var tone: Color = DeepUi.BAD if penalty else tint.lightened(0.3)
 		var line := DeepUi.panel(box, Color(tone, 0.07), Color(tone, 0.35), 8, 8)
+		lines.append(line)
 		var cells := DeepUi.hbox(line, 14)
 		var mark := DeepUi.center(cells)
 		mark.custom_minimum_size.x = 100
@@ -1413,6 +1448,23 @@ func _fill_birthstone(item: Dictionary, opts: Dictionary = {}) -> void:
 			DeepUi.chip(name_row, "Exclusive", DeepUi.ACCENT, 11)
 		## Every tier's text opens with the hand it needs, so the sentence is not said twice.
 		DeepUi.effect_text(words, str(tier.get("text", "")), 13, DeepUi.PAPER)
+	## A stone just bought (K9): it turns fast and slows, and its tiers light one by one.
+	if bool(opts.get("reveal", false)) and not DeepUi.headless():
+		view.set_spin(8.0)
+		var slow := create_tween()
+		slow.tween_method(func(spin: float) -> void:
+			if is_instance_valid(view):
+				view.set_spin(spin), 8.0, 0.35, 1.6).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		for index in range(lines.size()):
+			var line: Control = lines[index]
+			line.modulate.a = 0.18
+			var light := create_tween()
+			light.tween_interval(0.45 + 0.28 * float(index))
+			light.tween_callback(func() -> void:
+				if is_instance_valid(line):
+					DeepUi.pulse(line, 1.04, 0.3)
+					DeepAudio.play("star", {"volume": 0.55}))
+			light.tween_property(line, "modulate:a", 1.0, 0.25)
 	## The rest of what the lapidary brings down with it: the wearer's own, under a lent stone.
 	var wearer: Dictionary = DeepContent.character(wearer_key)
 	var passive: Dictionary = wearer.get("passive", {})
@@ -1901,6 +1953,83 @@ func _fill_lapidary(character_key: String, tone: Color) -> void:
 
 ## How many things a gathering sheet lays out on one page before it turns to another.
 const GATHERING_PAGE := 21
+
+func _fill_past_run(run: Dictionary, dig: Callable, tone: Color) -> void:
+	var roster: GDScript = load("res://view/home/roster.gd")
+	var character_key: String = str(run.get("character", ""))
+	var daily: bool = bool(run.get("daily", false))
+	var outcome: String = str(run.get("outcome", ""))
+	var mine_key: String = str(run.get("deepest_mine", run.get("mine", ""))) if daily else str(run.get("mine", ""))
+	_stage_hint.hide()
+	var frame := DeepUi.center(_stage)
+	frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	if not DeepContent.character(character_key).is_empty():
+		var face: Control = roster.Portrait.new(character_key, Vector2(DeepUi.pt(150), DeepUi.pt(170)) if DeepUi.phone else Vector2(300, 340), false, false, true, roster.record_stone(run))
+		face.mood = "bloodied" if outcome == "fallen" else ("victory" if outcome == "conquered" else "idle")
+		frame.add_child(face)
+	else:
+		DeepUi.icon(frame, "calendar" if daily else "pick", 160, tone.lightened(0.2))
+	var heads: Dictionary = {"fallen": "Fallen in %s", "conquered": "Conquered %s", "extracted": "Back from %s"}
+	DeepUi.title(_head, ("Daily dig · %s" if daily else str(heads.get(outcome, "%s"))) % DeepContent.mine_name(mine_key), 28, tone.lightened(0.25))
+	var tags := _tag_row(_head)
+	DeepUi.pill(tags, "calendar", str(run.get("date", "")), DeepUi.MUTED, 13)
+	DeepUi.pill(tags, "stairs", "depth %d" % int(run.get("depth", 0)), DeepUi.INFO, 13)
+	if int(run.get("hazard", 0)) > 0:
+		DeepUi.pill(tags, "skull", "Hazard %d" % int(run.hazard), DeepUi.BAD, 13)
+	if not DeepContent.character(character_key).is_empty():
+		DeepUi.pill(tags, "person", roster.named(character_key, roster.record_stone(run)), DeepUi.PAPER, 13)
+	if daily:
+		DeepUi.pill(tags, "star", "score %d" % int(run.get("score", 0)), DeepUi.ACCENT_HI, 13)
+	else:
+		DeepUi.pill(tags, "gem", DeepUi.plural(int(run.get("stones", 0)), "stone") + " home", DeepUi.ACCENT, 13)
+	_page("", "")
+	var ended := _section("flag", "How it ended")
+	DeepUi.wrap(ended, str(run.get("cause", "")) if not str(run.get("cause", "")).is_empty() else ("Lost at depth %d" % int(run.get("depth", 0)) if outcome == "fallen" else "Rode up at depth %d" % int(run.get("depth", 0))), 15, DeepUi.PAPER)
+	var tally: Dictionary = run.get("stats", {})
+	if not tally.is_empty():
+		var numbers := _section("star", "The run")
+		var grid := GridContainer.new()
+		grid.columns = 4
+		grid.add_theme_constant_override("h_separation", int(DeepUi.pt(10)) if DeepUi.phone else 22)
+		grid.add_theme_constant_override("v_separation", 4)
+		numbers.add_child(grid)
+		for entry in [["target", "fights", "fights won"], ["skull", "slain", "slain"], ["hit", "damage", "damage"], ["shield", "block", "block"],
+				["heart", "healed", "healed"], ["ore", "ore", "pyrite"], ["reroll", "rerolls", "rerolls"], ["hourglass", "turns", "turns"]]:
+			var cell := DeepUi.hbox(grid, 6)
+			DeepUi.icon(cell, str(entry[0]), DeepUi.glyph_px(13), DeepUi.MUTED)
+			DeepUi.label(cell, DeepUi.number(int(tally.get(str(entry[1]), 0))), 14, DeepUi.PAPER)
+			DeepUi.label(cell, str(entry[2]), 11, DeepUi.DIM)
+	var rail: Array = run.get("rail", [])
+	if not rail.is_empty():
+		var down := _section("gem", "Taken down")
+		var flow := HFlowContainer.new()
+		flow.add_theme_constant_override("h_separation", 10)
+		flow.add_theme_constant_override("v_separation", 4)
+		down.add_child(flow)
+		for skill in rail:
+			var def: Dictionary = DeepContent.skill(str(skill))
+			var tag := DeepUi.hbox(flow, 4)
+			DeepUi.icon(tag, GemIcons.emblem(str(skill)), DeepUi.glyph_px(14), DeepUi.color(str(def.get("color", ""))))
+			DeepUi.label(tag, str(def.get("name", skill)), 13, DeepUi.PAPER)
+	var seed: int = int(run.get("seed", 0))
+	var seeded := _section("spark", "The seed")
+	if seed == 0:
+		DeepUi.label(seeded, "Not kept for this run.", 13, DeepUi.DIM)
+		return
+	var row := DeepUi.hbox(seeded, 10)
+	var said := DeepUi.title(row, str(seed), 20, DeepUi.ACCENT_HI)
+	said.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var copy := DeepUi.icon_button(row, "copy", "Copy", func() -> void:
+		DisplayServer.clipboard_set(str(seed))
+		DeepAudio.play("ui_tap"), 13, DeepUi.PAPER)
+	copy.tooltip_text = "Copies the seed, to share it or type it into Descend."
+	if DeepUi.phone:
+		copy.custom_minimum_size.y = DeepUi.pt(DeepUi.FINGER_LEAST)
+	if daily:
+		DeepUi.wrap(seeded, "The day's seam: everyone dug it that day. A seed dug again is an ordinary run.", 12, DeepUi.DIM)
+	if dig.is_valid():
+		_foot_act({"glyph": "descend", "label": "Dig this seed", "tip": "Opens Descend set to %s, this seed, as %s." % [DeepContent.mine_name(str(run.get("mine", ""))) if not daily else DeepContent.mine_name(DeepContent.starter_mine()),
+			str(DeepContent.character(character_key).get("name", "you"))], "call": dig})
 
 func _fill_gathering(title: String, text: String, glyph: String, stones: Array, dice: Array, captions: Array) -> void:
 	_stage_hint.hide()

@@ -177,9 +177,10 @@ func _ready() -> void:
 	var checkpoint: Dictionary = saves.load_checkpoint()
 	if bool(checkpoint.get("ok", false)):
 		session.resume_run(checkpoint.run, checkpoint.lobby)
-		## The run is only saved at a tunnel or a landing, so say so: a room under way starts over.
+		## The run is saved at a tunnel, a landing and the door of every room, so say so: a room
+		## under way starts over from its door, with the same creatures and the same dice.
 		## A frame later, so it stands over the run and not under its dock.
-		toast.call_deferred("Picked up where the expedition was saved, at the last tunnel or landing. A room you were in starts over.", DeepUi.MUTED, "lift")
+		toast.call_deferred("Picked up where the expedition was saved. A room you were in starts over from its door.", DeepUi.MUTED, "lift")
 	else:
 		_refresh_home()
 	_prewarm.call_deferred()
@@ -417,6 +418,9 @@ func _on_run_started(state: Dictionary) -> void:
 	## half a second before anything answered.
 	var caged: bool = home.visible and not DeepUi.headless()
 	if caged:
+		## Whatever a plate said about the workshop goes with it (X10: the fare's plate stayed
+		## over the ride down).
+		Tips.hide_all()
 		Lift.ride(self, true, str(state.get("mine", "")))
 		_behind_cage = true
 		await get_tree().process_frame
@@ -506,21 +510,27 @@ func _process(delta: float) -> void:
 		DeepMusic.follow(DeepMusic.where_now(run, str(session.lobby.get("mine", ""))))
 	## A locked-in turn plays at the fight speed, bolts, numbers and all; everything else,
 	## planning included, runs at 1×.
-	var resolving: bool = session.in_run() and DeepDescent.in_battle(session.run) and str(DeepDescent.battle(session.run).get("phase", "")) == "resolving"
+	var fight: Dictionary = DeepDescent.battle(session.run) if session.in_run() and DeepDescent.in_battle(session.run) else {}
+	var resolving: bool = str(fight.get("phase", "")) == "resolving"
+	## A won fight whose closing step is still playing (the last rail's count, a Second Wind)
+	## is settled: the rules say it is over, and the rest plays at hurry speed (P3, Nov 13).
+	var settled: bool = str(fight.get("phase", "")) == "over" and str(fight.get("outcome", "")) == "victory" and not bool(fight.get("announced", false))
 	## The host's clock paces every step of a turn, so a guest plays it at the host's speed.
 	var pace: float = session.effective_speed() if session.is_host else session.host_speed
 	## A turn is hurried while it is held, and never past its end.
 	if not resolving:
 		session.hurried = false
-	var want: float = clampf(pace, 1.0, 8.0) if resolving and not session.paused else 1.0
-	## With the last creature down, what is left of the rail runs out at three times the pace.
-	## It waits out a beat first: the blow that won the fight (a gem counted out over its socket, then landing twenty times over)
+	var want: float = clampf(pace, 1.0, 8.0) if (resolving or settled) and not session.paused else 1.0
+	## With the last creature down, what is left of the rail runs out at hurry speed at the
+	## least (three times the pace, never under DeepSession.HURRY_SPEED), its gems that only
+	## attack not played at all (DeepBattle `unopposed`). It waits out a beat first: the blow
+	## that won the fight (a gem counted out over its socket, then landing twenty times over)
 	## is still being thrown when the state says everything is dead, and speeding that up
 	## turned the finisher into a blur.
-	if resolving and not session.paused and DeepBattle.living(DeepDescent.battle(session.run).get("enemies", [])).is_empty():
+	if (resolving or settled) and not session.paused and DeepBattle.living(fight.get("enemies", [])).is_empty():
 		_won_for += delta
 		if _won_for > WON_BEAT:
-			want = clampf(want * 3.0, 3.0, 8.0)
+			want = clampf(maxf(want * 3.0, DeepSession.HURRY_SPEED), 3.0, 8.0)
 	else:
 		_won_for = 0.0
 	## A rail that keeps firing plays out faster and faster, past the fight speed's own top:
@@ -636,6 +646,7 @@ func _back_home() -> void:
 	session.leave_run()
 	## The run changed the purse (the fare, a conquest, the day's seam): the party hears what is in it now.
 	session.update_member(_kit(member()))
+	Tips.hide_all()
 	Lift.ride(self, false, "")
 	descent.visible = false
 	home.visible = true

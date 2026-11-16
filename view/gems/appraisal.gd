@@ -819,7 +819,9 @@ class Sheet extends VBoxContainer:
 		DeepUi.chip(tags, StoneCard.color_words(stone), DeepUi.color(color_key), 11, DeepUi.is_rainbow(color_key) or DeepStone.skill_of(stone).get("colors", []).size() > 1)
 		var shown: Array = [tags]
 		if bool(opts.get("skill_text", false)):
+			## What it does and when it fires (F4): the trigger, not only the words.
 			shown.append(DeepUi.effect_text(name_box, DeepStone.text(stone), 13, DeepUi.MUTED))
+			shown.append(StoneCard.fires_line(name_box, stone, 12, DeepUi.MUTED))
 		var hue: Color = GemMesh.tint(stone).lightened(0.35)
 		var skill_name: String = str(skill.get("name", stone.get("skill", "")))
 		var named := func() -> void:

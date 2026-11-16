@@ -40,9 +40,12 @@ var _heat: float = 0.0
 var _flash: float = 0.0
 var _flash_tone: Color = Color.WHITE
 
-func _init(new_stone: Dictionary, which: String, edge: float = 120.0, beside: bool = false) -> void:
+func _init(new_stone: Dictionary, which: String, edge: float = 120.0, beside: bool = false, apart: bool = false) -> void:
 	## `beside` stands the stone to the left of the ladder rather than over it, for a page with
-	## more width than height to spare (a result page on the phone).
+	## more width than height to spare (a result page on the phone). `apart` leaves the stone
+	## out of the ladder altogether: the page takes it (`holder()`) and stands it where it likes,
+	## small beside the stone's name (the phone's Oven and Wheel, K7 round 3); it still heats,
+	## throws sparks and shatters there.
 	stone = new_stone
 	kind = which
 	_was = int(stone.get(kind, 0))
@@ -63,7 +66,8 @@ func _init(new_stone: Dictionary, which: String, edge: float = 120.0, beside: bo
 	_holder.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_holder.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	outer.add_child(_holder)
+	if not apart:
+		outer.add_child(_holder)
 	if beside:
 		column = VBoxContainer.new()
 		column.add_theme_constant_override("separation", 8)
@@ -100,13 +104,27 @@ func _init(new_stone: Dictionary, which: String, edge: float = 120.0, beside: bo
 		_rungs.append(rung)
 	_line = DeepUi.label(column, "", 18, DeepUi.ACCENT_HI, HORIZONTAL_ALIGNMENT_CENTER)
 	_line.add_theme_font_override("font", DeepUi.display_font())
-	if beside:
+	if apart:
+		custom_minimum_size = Vector2((Rung.edge().x + 6.0) * names.size(), Rung.edge().y + float(DeepUi.readable(18)) + 14.0)
+	elif beside:
 		custom_minimum_size = Vector2(edge + 12.0 + (Rung.edge().x + 6.0) * names.size(), maxf(edge, Rung.edge().y + float(DeepUi.readable(18)) + 16.0))
 	elif DeepUi.phone:
 		custom_minimum_size = Vector2(maxf(edge, (Rung.edge().x + 6.0) * names.size()), edge + Rung.edge().y + float(DeepUi.readable(18)) + 30.0)
 	else:
-		custom_minimum_size = Vector2(maxf(edge, 70.0 * names.size()), edge + 90.0)
+		custom_minimum_size = Vector2(maxf(edge, (Rung.edge().x + 6.0) * names.size()), edge + 90.0)
 	_light(_was)
+
+func holder() -> Control:
+	## The stone's own place (its picture, its heat and its shards), for a page that stands it
+	## apart from the ladder (`apart`). Add it to the page before playing.
+	return _holder
+
+func _centre() -> Vector2:
+	## Where the stone stands, in this control's own space: over the ladder, beside it, or
+	## apart from it in a row of the page's.
+	if _holder.get_parent() != null and _holder.is_inside_tree() and is_inside_tree():
+		return _holder.get_global_rect().get_center() - get_global_rect().position
+	return _holder.position + _holder.size * 0.5
 
 func _names() -> Array:
 	return DeepContent.cuts() if kind == "cut" else DeepContent.clarities()
@@ -189,7 +207,7 @@ func _set_heat(value: float) -> void:
 func _sparks(oven: bool) -> void:
 	if not is_inside_tree():
 		return
-	var centre: Vector2 = _holder.position + _holder.size * 0.5
+	var centre: Vector2 = _centre()
 	if oven:
 		## Embers off a hot stone: few, slow, orange.
 		DeepUi.burst(self, centre, Color("ff9a3c").lerp(Color("ffe2a0"), _heat), int(5 + 8 * _heat), 90.0 + 90.0 * _heat, 0.55, 3.5)
@@ -283,7 +301,7 @@ func _flourish(gain: float, top: bool) -> void:
 	## As loud as the result is good. Worse: a dull flash and a puff of ash. Level: a soft
 	## chime. Better: a flash, a chime and a spray of light, wider the further it climbed. The
 	## top of the ladder: all of that in the grade's color, a jackpot and the ladder shaken.
-	var centre: Vector2 = _holder.position + _holder.size * 0.5
+	var centre: Vector2 = _centre()
 	var tier_tone: Color = DeepUi.tier_color(str(DeepStone.grade(_with(_now)).tier))
 	var live: bool = is_inside_tree() and not DeepUi.headless()
 	if gain < -0.001:
@@ -330,35 +348,40 @@ func _with(rung: int) -> Dictionary:
 	return copy
 
 class Rung extends Control:
-	## One rung of the ladder: a bar that lights, and its name under it.
+	## One rung of the ladder: a bar that lights, and its name under it. Every name stands under
+	## its own bar (round 3: they took turns over and under on the phone), the rung as wide as
+	## the longest name at the text floor, so neighbours never touch.
 	var words: String
 	var was: bool
 	var lit: bool = false
-	## On the phone the names take turns over and under the bars, so each has two rungs'
-	## width to read at the text floor in.
-	var above: bool = false
+	static func font_size() -> int:
+		return DeepUi.readable(11) if DeepUi.phone else DeepUi.readable(12)
 	static func edge() -> Vector2:
 		## A rung's size: on the phone in points, so its name reads at the text floor.
-		return Vector2(DeepUi.pt(42), DeepUi.pt(36)) if DeepUi.phone else Vector2(64, 30)
-	func _init(text: String, start: bool, index: int = 0) -> void:
+		var font: Font = DeepUi.body_font()
+		var widest: float = 0.0
+		for entry in DeepContent.cuts() + DeepContent.clarities():
+			widest = maxf(widest, font.get_string_size(str(entry.get("name", "")), HORIZONTAL_ALIGNMENT_LEFT, -1, font_size()).x)
+		if DeepUi.phone:
+			return Vector2(maxf(DeepUi.pt(42), widest + DeepUi.pt(2)), DeepUi.pt(10) + font.get_height(font_size()) + DeepUi.pt(1))
+		return Vector2(maxf(64.0, widest + 6.0), maxf(30.0, 15.0 + font.get_height(font_size())))
+	func _init(text: String, start: bool, _index: int = 0) -> void:
 		words = text
 		was = start
-		above = DeepUi.phone and index % 2 == 1
 		custom_minimum_size = edge()
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
 	func _draw() -> void:
 		var bar := Rect2(Vector2(4, 2), Vector2(size.x - 8, 8))
 		if DeepUi.phone:
-			bar = Rect2(Vector2(3, size.y * 0.5 - DeepUi.pt(2.5)), Vector2(size.x - 6, DeepUi.pt(5)))
+			bar = Rect2(Vector2(3, DeepUi.pt(2)), Vector2(size.x - 6, DeepUi.pt(5)))
 		draw_style_box(DeepUi.flat(DeepUi.ACCENT_HI if lit else Color(1, 1, 1, 0.12), Color(0, 0, 0, 0), 3, 0), bar)
 		if lit:
 			draw_texture_rect(DeepUi.glow_texture(), bar.grow(10), false, Color(DeepUi.ACCENT, 0.35))
 		if was:
 			draw_rect(bar.grow(3), Color(DeepUi.MUTED, 0.6), false, 1.0)
 		var font: Font = DeepUi.body_font()
-		var font_size: int = DeepUi.readable(11) if DeepUi.phone else 12
+		var font_size: int = font_size()
 		var width: float = font.get_string_size(words, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-		var baseline: float = size.y - 3.0
-		if DeepUi.phone:
-			baseline = bar.position.y - DeepUi.pt(3) if above else size.y - DeepUi.pt(1)
+		## Under the bar, a little clear of the marker round the rung it started on.
+		var baseline: float = bar.end.y + (DeepUi.pt(3) if DeepUi.phone else 5.0) + font.get_ascent(font_size)
 		draw_string(font, Vector2((size.x - width) * 0.5, baseline), words, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, DeepUi.ACCENT_HI if lit else DeepUi.MUTED)

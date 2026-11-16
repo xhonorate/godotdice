@@ -80,7 +80,8 @@ static func _head(home: Control, content: VBoxContainer) -> void:
 static func _numbers(home: Control, content: VBoxContainer, records: Dictionary) -> void:
 	## The seven numbers, in one row.
 	var row := DeepUi.hbox(content, int(DeepUi.pt(4)))
-	for entry in [["pick", "runs", "runs"], ["lift", "extractions", "extractions"], ["crown", "conquests", "conquests"], ["skull", "falls", "falls"],
+	## The mines' runs are expeditions: the daily digs are counted on their own tile (X8).
+	for entry in [["pick", "runs", "expeditions"], ["lift", "extractions", "extractions"], ["crown", "conquests", "conquests"], ["skull", "falls", "falls"],
 			["flag", "commissions", "commissions"], ["contract", "contracts", "contracts"], ["calendar", "best_daily", "best daily"]]:
 		var cell := DeepUi.vbox(row, 0)
 		cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -92,7 +93,7 @@ static func _numbers(home: Control, content: VBoxContainer, records: Dictionary)
 		if str(entry[1]) == "best_daily":
 			var bests: Array = records.get("daily_bests", []).duplicate()
 			bests.reverse()
-			var said: Array = ["Your best score on each day's seam:"]
+			var said: Array = ["%s dug. Your best score on each day's seam:" % DeepUi.plural(int(records.get("dailies", 0)), "daily dig")]
 			for day in bests.slice(0, 10):
 				said.append("%s: %d (%d gold)" % [str(day.get("date", "")), int(day.get("score", 0)), int(day.get("gold", 0))])
 			var text: String = "\n".join(said) if not bests.is_empty() else "No daily digs yet."
@@ -190,11 +191,13 @@ static func _runs(home: Control, body: VBoxContainer) -> void:
 		var daily: bool = bool(run.get("daily", false))
 		var tone: Color = DeepUi.BAD if outcome == "fallen" else (DeepUi.ACCENT if outcome == "conquered" else DeepUi.GOOD)
 		var panel := DeepUi.panel(box, Color(1, 1, 1, 0.025 if shown % 2 == 0 else 0.0), Color(0, 0, 0, 0), 6, int(DeepUi.pt(3)))
+		## A tap reopens the run, with its seed (K5).
+		ProfilePage.opens_run(home, panel, run)
+		panel.custom_minimum_size.y = DeepUi.pt(DeepUi.FINGER_LEAST)
 		var row := DeepUi.hbox(panel, int(DeepUi.pt(6)))
 		DeepUi.icon(row, "calendar" if daily else {"fallen": "skull", "conquered": "crown"}.get(outcome, "lift"), DeepUi.glyph_px(12), DeepUi.INFO if daily else tone)
-		DeepUi.label(row, "Daily dig" if daily else outcome.capitalize(), 12, DeepUi.INFO if daily else tone).custom_minimum_size.x = DeepUi.pt(70)
 		DeepUi.label(row, str(run.get("date", "")), 11, DeepUi.DIM).custom_minimum_size.x = DeepUi.pt(70)
-		var where := DeepUi.label(row, DeepContent.mine_name(str(run.get("deepest_mine", run.get("mine", ""))) if daily else str(run.get("mine", ""))), 12, DeepUi.PAPER)
+		var where := DeepUi.label(row, ProfilePage.run_where(run), 12, DeepUi.PAPER)
 		where.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		where.clip_text = true
 		where.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
@@ -205,7 +208,7 @@ static func _runs(home: Control, body: VBoxContainer) -> void:
 			row.add_child(Roster.Portrait.new(character, Vector2(DeepUi.pt(18), DeepUi.pt(18)), false, false, false, stone))
 			var who := DeepUi.label(row, Roster.named(character, stone, false), 11, DeepUi.MUTED if Roster.is_first(character, stone) else Roster.stone_tone(stone))
 			who.name = "DugAs"
-			who.custom_minimum_size.x = DeepUi.pt(130)
+			who.custom_minimum_size.x = DeepUi.pt(96)
 			who.clip_text = true
 			who.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		var depth := DeepUi.bar(row, DeepUi.pt(4), DeepUi.INFO, Color(DeepUi.LINE, 0.5))

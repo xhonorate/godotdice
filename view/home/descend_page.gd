@@ -41,7 +41,9 @@ static func build(home: Control, content: VBoxContainer) -> void:
 		DeepAudio.play("ui_confirm", {"volume": 0.7})
 		home.hazard_chosen.emit(picked))
 	home.enter(map)
-	var side := DeepUi.vbox(columns, 12)
+	## The day's seam stands its cards a little closer (10, not 12): with the K4 par lines it
+	## runs nearly to the foot of the screen (November 16, 2026).
+	var side := DeepUi.vbox(columns, 10 if daily else 12)
 	side.custom_minimum_size.x = SIDE_WIDTH
 	_mode_switch(home, side, daily)
 	if daily:
@@ -220,11 +222,15 @@ static func _going_down(home: Control, side: VBoxContainer) -> void:
 		if index < loadout.rail.size() and not loadout.rail[index] is Dictionary:
 			empty += 1
 	DeepUi.spacer(dice)
-	## Travelling light or heavy: the stars the map shows, and what they do.
+	## Travelling light or heavy: the stars the map shows, and what they do, why and how to lose
+	## it, on a line of its own under the dice (S3).
 	var light: float = _loadout_luck(home, current)
+	var luck: Dictionary = luck_said(loaded(home, current))
 	if light != 0.0:
-		var said := DeepUi.stat(dice, "gem", "travelling %s %s %+d luck" % ["light" if light > 0.0 else "heavy", MineMap.luck_stars(light).strip_edges(), int(light)], DeepUi.GOOD if light > 0.0 else DeepUi.BAD, 12)
-		said.tooltip_text = MineMap.luck_words(light).strip_edges()
+		var said := DeepUi.stat(dice, "gem", "%s %s" % [str(luck.short), MineMap.luck_stars(light).strip_edges()], DeepUi.GOOD if light > 0.0 else DeepUi.BAD, 12)
+		said.tooltip_text = str(luck.tip)
+		var why := DeepUi.wrap(box, str(luck.why), 12, DeepUi.MUTED)
+		why.name = "LuckWhy"
 	elif empty > 0:
 		DeepUi.stat(dice, "gem", "%s empty" % DeepUi.plural(empty, "socket"), DeepUi.ACCENT, 12)
 	else:
@@ -233,12 +239,53 @@ static func _going_down(home: Control, side: VBoxContainer) -> void:
 
 static func _loadout_luck(home: Control, character: String) -> float:
 	## The luck the delver's loadout puts on every stone found: see DeepDescent.loadout_luck.
+	return DeepDescent.loadout_luck(loaded(home, character))
+
+static func loaded(home: Control, character: String) -> int:
+	## How many stones the delver's loadout sets in their open sockets.
 	var rail: Array = DeepProfile.loadout(home.profile, character).rail
 	var stones: int = 0
 	for index in range(mini(rail.size(), DeepProfile.open_sockets(home.profile, character))):
 		if rail[index] is Dictionary:
 			stones += 1
-	return DeepDescent.loadout_luck(stones)
+	return stones
+
+static func luck_key(parent: Node, stones: int, size: int = 11, short: bool = false) -> Button:
+	## The phone's word for it: "4 loaded · -2 luck" as a key whose tap (or hold) brings up the
+	## card that says why and how to lose it (S3). Null for a loadout of three.
+	var luck: Dictionary = luck_said(stones)
+	if luck.is_empty():
+		return null
+	var Tips: Script = load("res://view/ui/tips.gd")
+	var Plates: Script = load("res://view/ui/plates.gd")
+	var light: bool = DeepDescent.loadout_luck(stones) > 0.0
+	var words: String = ("%+d luck" if short else "%d loaded · %+d luck") % ([int(DeepDescent.loadout_luck(stones))] if short else [stones, int(DeepDescent.loadout_luck(stones))])
+	var key := DeepUi.icon_button(parent, "gem", words, Callable(), size, DeepUi.GOOD if light else DeepUi.BAD)
+	key.flat = true
+	key.custom_minimum_size.y = DeepUi.pt(DeepUi.FINGER_LEAST)
+	key.name = "LuckKey"
+	Tips.attach(key, func() -> Control: return Plates.words(str(luck.short), str(luck.tip)))
+	key.pressed.connect(func() -> void: Tips.open_sheet(key))
+	return key
+
+static func luck_said(stones: int) -> Dictionary:
+	## Travelling light or heavy, said with its cause and its cure (S3, November 13, 2026):
+	## {short: "Travelling heavy · -2 luck", why: "4 stones loaded (3 travel light): -2 luck.
+	## Take one out to lose it.", tip: the same, longer}. {} for a loadout of three.
+	var luck: float = DeepDescent.loadout_luck(stones)
+	if luck == 0.0:
+		return {}
+	var base: int = int(DeepContent.constant("loadout_luck_base", 3))
+	var per: int = int(DeepContent.constant("loadout_luck_per_stone", 2))
+	var loaded_words: String = "%s loaded" % DeepUi.plural(stones, "stone")
+	if luck < 0.0:
+		var over: int = stones - base
+		return {"short": "Travelling heavy · %+d luck" % int(luck), "word": "Travelling heavy",
+			"why": "%s (%d travel light): %+d luck. Take %s out to lose it." % [loaded_words, base, int(luck), "one" if over == 1 else str(over)],
+			"tip": "%s, and %d travel light: every stone the mine gives you rolls %d luck worse, %d for each stone over %d. Take %s out to lose it." % [loaded_words, base, -int(luck), per, base, "one" if over == 1 else str(over)]}
+	return {"short": "Travelling light · %+d luck" % int(luck), "word": "Travelling light",
+		"why": "%s (%d is even): %+d luck, %d for each socket left empty." % [loaded_words, base, int(luck), per],
+		"tip": "%s, and %d is even: every stone the mine gives you rolls %d luck better, %d for each socket left empty." % [loaded_words, base, int(luck), per]}
 
 static func _daily_tone(kind: String) -> Color:
 	match kind:
@@ -280,32 +327,34 @@ static func _daily_view(home: Control, side: VBoxContainer) -> void:
 	var plan: Dictionary = DeepEconomy.daily_plan(date)
 	var mine: Dictionary = DeepContent.mine(str(plan.mine))
 	var seam := DeepUi.card(side, Color(DeepUi.ACCENT, 0.4), 14)
-	var box := DeepUi.vbox(seam, 6)
+	var box := DeepUi.vbox(seam, 4)
 	var head := DeepUi.hbox(box, 8)
 	DeepUi.section(head, "calendar", "The daily dig").size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var left: int = DeepEconomy.seconds_to_tomorrow()
-	DeepUi.stat(head, "hourglass", "%dh %02dm left" % [left / 3600, (left % 3600) / 60], DeepUi.MUTED, 12, "A new seam opens every day at midnight UTC.")
-	var title := DeepUi.title(box, "%s, and on down" % str(mine.get("name", plan.mine)), 22, DeepUi.PAPER)
+	var clock := DeepUi.stat(head, "hourglass", "%dh %02dm left" % [left / 3600, (left % 3600) / 60], DeepUi.MUTED, 12, "A new seam opens every day at midnight UTC.")
+	countdown(home, clock, date, " left")
+	## The seam's name, and that it is everyone's, on one line; each card's name, kind and words
+	## in one paragraph (November 16, 2026). Laid name over words, with the par lines, the streak
+	## and the last seven days (K4) under them, the page ran up to 100 points past the foot of the
+	## screen on most days (the Descend button out of sight); every word is still here.
+	var title_row := DeepUi.hbox(box, 8)
+	var title := DeepUi.title(title_row, "%s, and on down" % str(mine.get("name", plan.mine)), 22, DeepUi.PAPER)
 	title.tooltip_text = "It starts at the top of the Quarry and goes on through every mine, as deep as you want to go."
 	title.mouse_filter = Control.MOUSE_FILTER_PASS
-	DeepUi.label(box, "The same seam for everyone today.", 12, DeepUi.MUTED)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	DeepUi.label(title_row, "Same for everyone today", 12, DeepUi.MUTED).size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	for key in [str(plan.rail)] + plan.get("mods", []):
 		var mod: Dictionary = DeepEconomy.daily_mod(str(key))
 		var kind: String = str(mod.get("kind", "hazard"))
 		var hue: Color = _daily_tone(kind)
 		var line := DeepUi.hbox(box, 8)
 		DeepUi.icon(line, str(mod.get("glyph", "spark")), 20, hue, str(DAILY_KIND_WORDS.get(kind, ""))).size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		var words := DeepUi.vbox(line, 0)
-		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var name: String = str(mod.get("name", key))
 		if str(key) == "DROUGHT" and plan.has("drought"):
 			name = "%s: no %s" % [name, str(DeepContent.color(str(plan.drought)).get("name", plan.drought))]
 		if str(key) == "BORROWED_BIRTHSTONE" and plan.has("birthstone"):
 			name = borrowed_words(name, plan)
-		var title_line := DeepUi.hbox(words, 6)
-		DeepUi.label(title_line, name, 14, hue.lightened(0.1))
-		DeepUi.label(title_line, str(DAILY_KIND_WORDS.get(kind, "")), 11, DeepUi.DIM)
-		DeepUi.wrap(words, str(mod.get("text", "")), 12, DeepUi.MUTED)
+		line.add_child(_card_words(name, str(DAILY_KIND_WORDS.get(kind, "")), str(mod.get("text", "")), hue.lightened(0.1)))
 	var knee: int = int(DeepContent.constant("daily_score_knee", 1000))
 	var best: Dictionary = DeepEconomy.daily_best(home.profile, date)
 	var standing := DeepUi.hbox(box, 8)
@@ -323,11 +372,12 @@ static func _daily_view(home: Control, side: VBoxContainer) -> void:
 			DeepUi.pill(standing, "star", "Best today %d" % int(best.score), DeepUi.GOOD, 11, "Paid %d gold. Another dig today pays only the gold its score adds." % int(best.gold))
 		_:
 			DeepUi.pill(standing, "star", "Not dug yet today", DeepUi.ACCENT, 11)
+	par_block(home, box, date)
 	home.enter(seam)
 	var seat: int = maxi(0, home.lobby.get("order", []).find(home.local_id))
 	var character: String = DeepEconomy.daily_lapidary(plan)
 	var lent := DeepUi.card(side, DeepUi.LINE, 14)
-	var lent_box := DeepUi.vbox(lent, 8)
+	var lent_box := DeepUi.vbox(lent, 6)
 	DeepUi.section(lent_box, "person", "Lent for the day")
 	var row := DeepUi.hbox(lent_box, 12)
 	## The Birthstone the day lends with them: one of their three, or a borrowed one.
@@ -347,6 +397,141 @@ static func _daily_view(home: Control, side: VBoxContainer) -> void:
 		home.kit_socket(rail, str(sockets[index]), stone if stone is Dictionary else {}, 40.0)
 	home.kit_socket(rail, "BIRTHSTONE", day_stone, 40.0)
 	home.enter(lent, 0.05)
+
+static func _card_words(name: String, kind_words: String, said: String, tone: Color) -> RichTextLabel:
+	## One of the day's cards as a paragraph: its name in its kind's colour, the kind, then what
+	## it does, wrapped at the side column's width.
+	var words := RichTextLabel.new()
+	words.fit_content = true
+	words.scroll_active = false
+	words.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	words.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	## A wrapping rich text beside a sized sibling stands no width (and draws nothing) unless it
+	## is given one: the column's inside, less the card's margins and the mark.
+	words.custom_minimum_size.x = SIDE_WIDTH - 28.0 - 28.0
+	DeepUi.set_text_size(words, 12)
+	words.push_font_size(DeepUi.readable(14))
+	words.push_color(tone)
+	words.add_text(name)
+	words.pop()
+	words.pop()
+	if not kind_words.is_empty():
+		words.push_font_size(DeepUi.readable(11))
+		words.push_color(DeepUi.DIM)
+		words.add_text("  " + kind_words)
+		words.pop()
+		words.pop()
+	words.push_color(DeepUi.MUTED)
+	words.add_text("  " + said)
+	words.pop()
+	return words
+
+static func countdown(home: Control, clock: HBoxContainer, date: String, after: String) -> void:
+	## Keeps the day's countdown true while the page stands, and when the day turns, turns the
+	## page with it (X9): the new seam chosen for the party, its lent delver's picture taken
+	## first so it never shows as a blank stand-in, then the page drawn again.
+	var ticker := Timer.new()
+	ticker.wait_time = 15.0
+	ticker.autostart = true
+	clock.add_child(ticker)
+	var value: Node = clock.get_node_or_null("Value")
+	ticker.timeout.connect(func() -> void:
+		if not is_instance_valid(home) or not is_instance_valid(clock):
+			return
+		var left: int = DeepEconomy.seconds_to_tomorrow()
+		if value is Label:
+			(value as Label).text = "%dh %02dm%s" % [left / 3600, (left % 3600) / 60, after]
+		var today: String = DeepEconomy.today()
+		if today == date:
+			return
+		ticker.stop()
+		warm_daily(today, func() -> void:
+			if not is_instance_valid(home):
+				return
+			DeepEconomy.roll_day(home.profile)
+			if home.is_host:
+				home.daily_chosen.emit(today)
+			home._render()))
+
+static func warm_daily(date: String, then: Callable = Callable()) -> void:
+	## Takes the picture of the day's lent Birthstone ahead of the page that shows it (X9: Ill
+	## Omen drew as a blank cushion right after the day turned). `then` once it is ready.
+	var stone: Dictionary = Roster.daily_stone(DeepEconomy.daily_plan(date))
+	if stone.is_empty() or DeepUi.headless():
+		if then.is_valid():
+			then.call()
+		return
+	var called: Array = [false]
+	var once := func(_texture: Variant = null) -> void:
+		if called[0]:
+			return
+		called[0] = true
+		if then.is_valid():
+			then.call()
+	if Thumbs.request(Thumbs.gem_key(stone), "gem", {"stone": stone}, once) != null:
+		once.call()
+		return
+	## Never held up for long by a slow picture.
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree != null:
+		tree.create_timer(2.0).timeout.connect(once)
+
+## The par lines' own colors: bronze, silver and gold.
+const MEDAL_TONES: Dictionary = {"BRONZE": Color("d39a62"), "SILVER": Color("c9d3e2"), "GOLD": Color("ffcf5a")}
+
+static func par_block(home: Control, box: VBoxContainer, date: String) -> void:
+	## The day's par lines with the gold each pays, how far the day's best is from the next one,
+	## the streak of days dug, and the last seven days (K4, November 13, 2026). Local: a Steam
+	## board comes later (Todo.md).
+	var phone: bool = DeepUi.phone
+	var best: int = int(DeepEconomy.daily_best(home.profile, date).score)
+	var played: bool = DeepEconomy.daily_played(home.profile, date)
+	var lines := DeepUi.hbox(box, int(DeepUi.pt(4)) if phone else 6)
+	lines.name = "ParLines"
+	var next: Dictionary = {}
+	for line in DeepEconomy.daily_par(date):
+		var medal: String = str(line.medal)
+		var reached: bool = played and best >= int(line.score)
+		if not reached and next.is_empty():
+			next = line
+		var tone: Color = MEDAL_TONES.get(medal, DeepUi.ACCENT)
+		var chip := DeepUi.pill(lines, "check" if reached else "crown", "%s %d · +%d" % [str(DeepEconomy.DAILY_MEDAL_NAMES.get(medal, medal)), int(line.score), int(line.gold)],
+			tone if reached else tone.darkened(0.25), 11, "%s par: a day's best of %d pays %d gold more, once." % [str(DeepEconomy.DAILY_MEDAL_NAMES.get(medal, medal)), int(line.score), int(line.gold)])
+		if not reached:
+			chip.modulate.a = 0.8
+	var standing := DeepUi.hbox(box, int(DeepUi.pt(6)) if phone else 8)
+	standing.name = "ParStanding"
+	if played and not next.is_empty():
+		DeepUi.label(standing, "%d to %s" % [int(next.score) - best, str(DeepEconomy.DAILY_MEDAL_NAMES.get(str(next.medal), "")).to_lower()], 11, DeepUi.MUTED)
+	elif played:
+		DeepUi.label(standing, "Every par line reached today", 11, MEDAL_TONES.GOLD)
+	var streak: int = DeepEconomy.daily_streak(home.profile, date)
+	DeepUi.stat(standing, "flame", "%d-day streak" % streak if streak > 0 else "No streak yet", DeepUi.ACCENT_HI if streak > 0 else DeepUi.DIM, 11,
+		"Days in a row with the day's seam dug. Dig today to keep it.")
+	DeepUi.spacer(standing)
+	## The last seven days dug: a dot in the colour of the best line reached, the score under it.
+	var recent: Array = DeepEconomy.daily_recent(home.profile, 7)
+	if recent.is_empty():
+		return
+	## On the phone a row of their own, under the streak: beside "Every par line reached today"
+	## and the streak, seven scores ran the page past the screen's right edge (November 16, 2026).
+	var days_row: HBoxContainer = standing
+	if phone:
+		days_row = DeepUi.hbox(box, 0)
+		days_row.name = "LastDaysRow"
+		DeepUi.spacer(days_row)
+	var days := DeepUi.hbox(days_row, int(DeepUi.pt(3)) if phone else 4)
+	days.name = "LastDays"
+	recent.reverse()
+	for day in recent:
+		var cell := DeepUi.vbox(days, 0)
+		cell.mouse_filter = Control.MOUSE_FILTER_PASS
+		var medal: String = str(day.medal)
+		DeepUi.icon(cell, "crown" if not medal.is_empty() else "calendar", DeepUi.glyph_px(10), MEDAL_TONES.get(medal, DeepUi.DIM)).size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		DeepUi.label(cell, str(int(day.score)), 11, DeepUi.PAPER if not medal.is_empty() else DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		cell.tooltip_text = "%s: best %d%s, %d gold" % [str(day.date), int(day.score), (" · " + str(DeepEconomy.DAILY_MEDAL_NAMES.get(medal, ""))) if not medal.is_empty() else "", int(day.gold)]
 
 static func _go(home: Control, box: VBoxContainer) -> void:
 	## The way down, or for a guest, the word that they are ready; how ready the party is; and
@@ -414,6 +599,10 @@ static func _go(home: Control, box: VBoxContainer) -> void:
 	DeepUi.gap(seed_row, 4)
 	DeepUi.label(seed_row, "Seed", 12, DeepUi.DIM)
 	var typed: String = home._seed.text if home._seed != null and is_instance_valid(home._seed) else ""
+	## A seed sent from a past run (K5) is typed in for the player.
+	if home.has_meta("seed_next"):
+		typed = str(home.get_meta("seed_next"))
+		home.remove_meta("seed_next")
 	home._seed = LineEdit.new()
 	home._seed.placeholder_text = "blank for a new one"
 	home._seed.text = typed

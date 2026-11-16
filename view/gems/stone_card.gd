@@ -311,6 +311,8 @@ static func tile(parent: Node, stone: Dictionary, size: float = 72.0, caption: b
 	frame.custom_minimum_size = Vector2(size, size)
 	var thumb := picture(frame, stone, size * 0.86)
 	thumb.tooltip_text = DeepUi.stone_name(stone) + ("\n" + str(grade.name) if appraised else "") + "\nRight-click for details"
+	## The picture, for a page that gives the tile a plate or a close look of its own.
+	box.set_meta("thumb", thumb)
 	## Its carat, Cut and Clarity over the picture, the same on every tile in the game.
 	var tags := TileTags.new(stone, size)
 	box.add_child(tags)
@@ -330,6 +332,33 @@ static func mini(parent: Node, stone: Dictionary, size: float = 56.0, tooltip: S
 	parent.add_child(thumb)
 	return thumb
 
+static func fires_line(parent: Node, stone: Dictionary, size: int = 12, tone: Color = DeepUi.MUTED, width: float = 0.0, context: Dictionary = {}) -> HBoxContainer:
+	## When it fires, at the Cut it stands on: the pictograph and the words, the way a gem's plate
+	## and the elite's drop say it. Every reveal shows this under the skill's words (F4), so a
+	## result never needs a right-click to be understood.
+	var described: Dictionary = DeepPatterns.describe(DeepStone.skill_of(stone).get("trigger", {"kind": "always"}), int(DeepStone.effective(stone, context).cut_step))
+	var fires := DeepUi.hbox(parent, 8)
+	fires.mouse_filter = Control.MOUSE_FILTER_PASS
+	DiceIcons.build(fires, described, DeepUi.glyph_px(size, 3.0) if DeepUi.phone else float(size + 3), tone)
+	var said := DeepUi.vbox(fires, 0)
+	said.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var words: String = str(described.get("words", ""))
+	var rtl := DeepUi.effect_text(said, words, size, tone, false, width)
+	if width <= 0.0:
+		## A wrapping rich text in a row that only shrinks has no width of its own and would
+		## stand one letter wide: it is given the width its words need, to a line's worth.
+		var px: int = DeepUi.readable(size) if DeepUi.phone else size
+		var need: float = rtl.get_theme_font("normal_font").get_string_size(words, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x * 1.06 + 4.0
+		rtl.custom_minimum_size.x = minf(need, DeepUi.pt(300) if DeepUi.phone else 440.0)
+	return fires
+
+static func skill_lines(parent: Node, stone: Dictionary, size: int = 13, width: float = 0.0, context: Dictionary = {}) -> Array:
+	## What it does and when it fires, as two lines under a revealed stone's name: the one shared
+	## line every reveal card uses (F4). Returns the two controls.
+	var does := DeepUi.effect_text(parent, DeepStone.text(stone, context), size, DeepUi.PAPER, false, width)
+	var fires := fires_line(parent, stone, maxi(11, size - 1), DeepUi.MUTED, maxf(0.0, width - float(size) * 3.0), context)
+	return [does, fires]
+
 static func carat_lines(parent: Node, stone: Dictionary, context: Dictionary = {}, size: int = 12) -> void:
 	## What a heavy stone buys an effect that cannot take a multiplier: more goes at it. What
 	## is certain reads green, what is only likely reads in the carat's own gold.
@@ -341,6 +370,10 @@ static func staked_mark(parent: Node, stone: Dictionary, field: String, size: in
 	## What the Grubstake did to this stone, marked beside the figure it changed the way a
 	## buff is marked in a fight. The rail is a copy of the vault for the length of a run, so
 	## every one of these is borrowed: the stone that goes home is the stone that came down.
+	## A Polish lasts the run as well (review cards R3 and B1): marked beside the carat.
+	if field == "carat" and DeepStone.polished(stone) > 0:
+		DeepUi.pill(parent, "buff_wheel", "+%d" % DeepStone.polished(stone), Color("b8f0d8"), size,
+			"Polished: +%d carat for this run only. It goes home at its own weight." % DeepStone.polished(stone))
 	var moved: int = int(stone.get("staked", {}).get(field, 0))
 	if moved == 0:
 		return
@@ -485,6 +518,11 @@ class TileTags extends Control:
 		edge = picture
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
 
+	static func badge_px() -> int:
+		## The carat badge's words: 11 on a desk, the text floor on the phone (review card X18:
+		## "4ct" drew at under 6 points there).
+		return DeepUi.min_text() if DeepUi.phone else 11
+
 	func _draw() -> void:
 		if not bool(stone.get("appraised", false)) or DeepStone.is_birthstone(stone):
 			return
@@ -492,10 +530,11 @@ class TileTags extends Control:
 		## The facet cuts the tile's corners: everything sits inside them.
 		var inset: float = 7.0
 		var words: String = "%dct" % int(stone.get("carat", 1))
-		var width: float = font.get_string_size(words, HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x
-		var plate := Rect2(Vector2(inset, 3), Vector2(width + 8, 15))
+		var px: int = badge_px()
+		var width: float = font.get_string_size(words, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
+		var plate := Rect2(Vector2(inset, 3), Vector2(width + 8, float(px) + 4.0))
 		draw_style_box(DeepUi.flat(Color(0, 0, 0, 0.62), Color(0, 0, 0, 0), 3, 0), plate)
-		draw_string(font, plate.position + Vector2(4, 11.5), words, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, DeepUi.PAPER)
+		draw_string(font, plate.position + Vector2(4, float(px) * 0.5 + 2.0 + float(px) * 0.36), words, HORIZONTAL_ALIGNMENT_LEFT, -1, px, DeepUi.PAPER)
 		## The foot of the picture: Cut pips on the left, the Clarity mark on the right.
 		var foot: float = edge - 2.0
 		var pip := Vector2(maxf(4.0, edge * 0.07), 3.0)

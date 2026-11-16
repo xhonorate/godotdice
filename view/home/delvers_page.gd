@@ -12,6 +12,15 @@ const DiceIcons = preload("res://view/dice/dice_icons.gd")
 const Thumbs = preload("res://view/gems/thumbs.gd")
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
 const BattleScreen = preload("res://view/battle/battle_screen.gd")
+const Plates = preload("res://view/ui/plates.gd")
+const Tips = preload("res://view/ui/tips.gd")
+const DescendPage = preload("res://view/home/descend_page.gd")
+const MineMap = preload("res://view/home/mine_map.gd")
+
+## The order the socket picker last laid its stones out in, and what for: {key (the delver and
+## the browser's sort), socket, order (skills)}. Setting a stone does not move the rest under
+## the pointer; only picking another socket (or another sort) lays them out again (K1).
+static var _pick_order: Dictionary = {}
 
 ## How many vault stones the socket picker shows a page: three rows.
 const PICK_PAGE: int = 42
@@ -79,6 +88,7 @@ static func _loadout_head(home: Control, content: VBoxContainer, key: String) ->
 	var back := DeepUi.way_out("Delvers", func() -> void:
 		home._roster_view = "dossier"
 		home._bench_socket = -1
+		_pick_order = {}
 		home._render(), true, "Back to the delvers (Esc)", "person")
 	back.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	left_slot.add_child(back)
@@ -213,6 +223,17 @@ static func _birth_card(home: Control, holder: Control, key: String, unlocked: b
 	birth_names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	DeepUi.label(birth_names, "Birthstone", 11, DeepUi.DIM)
 	DeepUi.title(birth_names, str(stone.get("name", "")), 22, HomeParts.birth_name_tone(stone))
+	## Where it has been mastered: the mines whose final boss fell to them wearing it (K3). Under
+	## its name, beside the stones, so the card stands no taller for it.
+	if unlocked:
+		var won: bool = not DeepProfile.stone_conquests(home.profile, key, read).is_empty()
+		var mastered := DeepUi.label(birth_names, MineMap.mastered_in(home.profile, key, read) if won else "Mastered in: none yet", 11, DeepUi.ACCENT_HI if won else DeepUi.DIM)
+		mastered.name = "MasteredIn"
+		mastered.clip_text = true
+		mastered.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		mastered.custom_minimum_size.x = 120
+		mastered.mouse_filter = Control.MOUSE_FILTER_PASS
+		mastered.tooltip_text = MineMap.mastered_in(home.profile, key, read) + "\nEvery delver and Birthstone has a diamond of its own on each mine's row of the Descend map, lit once its final boss falls to them."
 	HomeParts.stone_words(birth_box, str(stone.get("text", "")), stone, 12, DeepUi.MUTED)
 	HomeParts.birth_ladder(birth_box, stone)
 	DeepUi.spacer(birth_box, false)
@@ -241,11 +262,6 @@ static func _sockets_view(home: Control, content: VBoxContainer, character_key: 
 	DeepUi.section(rail_head, "gem", "Sockets").size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var price: int = DeepEconomy.socket_price(home.profile, character_key)
 	DeepUi.label(rail_head, "%d of %d set%s" % [filled, rail_cap, "" if price < 0 else "; locked sockets are filled in the mine until bought"], 13, DeepUi.GOOD if filled >= rail_cap else DeepUi.MUTED)
-	## Travelling light or heavy: what the count does to the luck of every stone found.
-	var luck: float = DeepDescent.loadout_luck(filled)
-	if luck != 0.0:
-		var light := DeepUi.label(rail_head, "travelling %s: %+d luck on every stone found" % ["light" if luck > 0.0 else "heavy", int(luck)], 13, DeepUi.GOOD if luck > 0.0 else DeepUi.BAD)
-		light.tooltip_text = "Three stones is the mine as it is. Every socket left empty adds %d luck to every stone the mine gives you; every stone over three takes %d off." % [int(DeepContent.constant("loadout_luck_per_stone", 2)), int(DeepContent.constant("loadout_luck_per_stone", 2))]
 	DeepUi.gap(rail_head, 10)
 	DeepUi.label(rail_head, "Drag a stone onto a socket, or click a socket then a stone." if home._bench_socket < 0 else "Choose a stone for socket %d." % (home._bench_socket + 1), 13, DeepUi.MUTED if home._bench_socket < 0 else DeepUi.ACCENT)
 	var fill := DeepUi.icon_button(rail_head, "spark", "Fill empty sockets", func() -> void: fill_empty(home, character_key), 13, DeepUi.ACCENT)
@@ -257,10 +273,19 @@ static func _sockets_view(home: Control, content: VBoxContainer, character_key: 
 		var skill: String = home.rail_skill(record, index)
 		var stone: Dictionary = DeepProfile.owned(home.profile, skill) if DeepProfile.fillable_socket(home.profile, character_key, index) and skill != "" else {}
 		home.enter(_socket_slot(home, rail_row, index, str(sockets[index]), stone, character_key), 0.05 + 0.04 * index)
+	## An opal set where it cannot reach the gem beside or behind it says so (B2).
+	RailWarnings.loadout(home, rail_row, character_key)
 	## The Birthstone they wear, at the end of the rail: a click swaps it for another they own.
 	var birth_tile := HomeParts.BirthstoneCard.new(rail_row, character_key, 150.0, false, DeepProfile.worn_birthstone(home.profile, character_key), true)
 	home.enter(birth_tile, 0.05 + 0.04 * sockets.size())
 	HomeParts.swap_tile(home, birth_tile, character_key)
+	## Travelling light or heavy: what the count does to the luck of every stone found, why,
+	## and how to lose it (S3), under the sockets it is counted from.
+	var luck: Dictionary = DescendPage.luck_said(filled)
+	if not luck.is_empty():
+		var light := DeepUi.stat(rail_box, "gem", "%s · %s" % [str(luck.word), str(luck.why)], DeepUi.GOOD if DeepDescent.loadout_luck(filled) > 0.0 else DeepUi.BAD, 13, str(luck.tip))
+		light.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		light.name = "LuckWhy"
 	## The vault to set from, through the stone browser.
 	var tray_card := DeepUi.card(content, DeepUi.LINE, 14)
 	tray_card.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -282,17 +307,8 @@ static func _sockets_view(home: Control, content: VBoxContainer, character_key: 
 	flow.add_theme_constant_override("h_separation", 10)
 	flow.add_theme_constant_override("v_separation", 10)
 	flow.mouse_filter = Control.MOUSE_FILTER_PASS
-	var stones: Array = StoneBrowser.sorted(home, home.profile.get("vault", {}).values(), "sockets")
 	## Stones that fit the picked socket come first; the rest are dimmed after them.
-	if home._bench_socket >= 0:
-		var fits: Array = []
-		var rest: Array = []
-		for s in stones:
-			if DeepProfile.rail_refusal(home.profile, character_key, home._bench_socket, str(s.skill)).is_empty():
-				fits.append(s)
-			else:
-				rest.append(s)
-		stones = fits + rest
+	var stones: Array = pick_order(home, character_key, StoneBrowser.sorted(home, home.profile.get("vault", {}).values(), "sockets"))
 	## A stone the Vault sent ("Socket it") goes first, on the first page.
 	if not home._socket_ready.is_empty():
 		for at in range(stones.size()):
@@ -321,6 +337,7 @@ static func _sockets_view(home: Control, content: VBoxContainer, character_key: 
 			home.tile_mark(tile, "spark", DeepUi.ACCENT, ("From the vault: click it to set it in socket %d" % (home._bench_socket + 1)) if home._bench_socket >= 0 else "From the vault: double-click it to set it")
 		var shown_stone: Dictionary = stone
 		tile.mouse_entered.connect(func() -> void: home.hover_stone(tile, shown_stone, against))
+		dress_pick(home, tile, character_key, shown_stone, fits)
 		home.wire(tile, {"kind": "loadout_stone", "skill": chosen_key, "from_socket": -1}, func() -> Control: return Thumbs.GemThumb.new(shown_stone, 64), Callable(), Callable())
 		## A double-click sets it: in the picked socket, or the first empty one it fits.
 		tile.gui_input.connect(func(event: InputEvent) -> void:
@@ -341,6 +358,90 @@ static func _sockets_view(home: Control, content: VBoxContainer, character_key: 
 	DeepUi.spacer(pager_row)
 	DeepUi.label(pager_row, "Double-click a stone to set it · hold Shift to compare", 12, DeepUi.DIM)
 	home.enter(tray_card, 0.1)
+
+static func pick_order(home: Control, character_key: String, stones: Array) -> Array:
+	## The picker's stones in the order to lay them out: those that fit the picked socket first,
+	## the rest after them. The order is kept once laid out, so setting a stone (or putting the
+	## socket down) leaves every other tile where it was; another socket or sort lays it out again.
+	var key: String = "%s|%s" % [character_key, str(StoneBrowser.settings(home, "sockets"))]
+	var socket: int = int(home._bench_socket)
+	if str(_pick_order.get("key", "")) == key and (socket < 0 or socket == int(_pick_order.get("socket", -1))):
+		var left: Dictionary = {}
+		for stone in stones:
+			left[str(stone.skill)] = stone
+		var out: Array = []
+		for skill in _pick_order.get("order", []):
+			if left.has(skill):
+				out.append(left[skill])
+				left.erase(skill)
+		for stone in stones:
+			if left.has(str(stone.skill)):
+				out.append(stone)
+		return out
+	if socket >= 0:
+		var fits: Array = []
+		var rest: Array = []
+		for stone in stones:
+			if DeepProfile.rail_refusal(home.profile, character_key, socket, str(stone.skill)).is_empty():
+				fits.append(stone)
+			else:
+				rest.append(stone)
+		stones = fits + rest
+	_pick_order = {"key": key, "socket": socket, "order": stones.map(func(stone: Dictionary) -> String: return str(stone.skill))}
+	return stones
+
+static func pick_target(home: Control, character_key: String, skill: String, fits: bool) -> int:
+	## The socket a click (or the close look's Set) puts this stone in: the picked one if it
+	## fits there, else the first empty one it fits; -1 for none.
+	return int(home._bench_socket) if home._bench_socket >= 0 and fits else _empty_fit(home, character_key, skill)
+
+static func dress_pick(home: Control, tile: Control, character_key: String, stone: Dictionary, fits: bool) -> void:
+	## A picker tile's plate (the stone's own plate: what it does and when it fires) and its close
+	## look's "Set in socket N". The plate is on the picture: hovered on a desk, held on a phone
+	## (its card's Details is the close look). No comparison with the stone in the socket (K1
+	## round 3, November 16, 2026: the owner found it cluttered).
+	var thumb: Variant = tile.get_meta("thumb", null)
+	if not thumb is Control:
+		return
+	var skill: String = str(stone.get("skill", ""))
+	Tips.attach(thumb, func() -> Control: return pick_plate(home, character_key, stone, fits), {"tone": DeepUi.color(DeepStone.color(stone))})
+	var target: int = pick_target(home, character_key, skill, fits)
+	if target < 0 or not "inspect_opts" in thumb:
+		return
+	var record: Dictionary = home.profile.characters.get(character_key, {})
+	if home.rail_skill(record, target) == skill:
+		return
+	thumb.inspect_opts = {"act": {"glyph": "gem", "label": "Set in socket %d" % (target + 1),
+		"tip": "Sets it in socket %d of %s's loadout." % [target + 1, str(DeepContent.character(character_key).get("name", character_key))],
+		"call": func() -> void: home.set_socket(character_key, target, skill, "dice_lock")}}
+
+static func pick_plate(home: Control, character_key: String, stone: Dictionary, fits: bool) -> Control:
+	## The picker's plate: the plain plate of the stone (its trigger, what it does, its weight),
+	## and on a desk the footer saying what a click does.
+	if not bool(stone.get("appraised", false)):
+		return null
+	var box: Control = Plates.gem(stone, {}, [], {}, [])
+	if not DeepUi.phone:
+		var target: int = pick_target(home, character_key, str(stone.get("skill", "")), fits)
+		var how: String = ("Click to set it in socket %d" % (target + 1)) if home._bench_socket >= 0 and fits else "Double-click to set"
+		Plates.footer(box, how + " · Right-click · everything")
+	return box
+
+static func heavy_tag(index: int) -> String:
+	## The socket card's short word for it: "filled: -2 luck" on a socket past the third.
+	var base: int = int(DeepContent.constant("loadout_luck_base", 3))
+	if index + 1 <= base:
+		return ""
+	return "filled: %+d luck" % -int(DeepContent.constant("loadout_luck_per_stone", 2))
+
+static func _heavy_note(index: int) -> String:
+	## What filling a socket past the third does to the luck of every stone found, for the card
+	## that sells it (S3): an empty socket costs nothing, a loaded fourth stone does.
+	var base: int = int(DeepContent.constant("loadout_luck_base", 3))
+	if index + 1 <= base:
+		return ""
+	return "\nA stone set here is your %s: past %d you travel heavy, %d luck off every stone the mine gives you for each stone over. Leave it empty and it costs nothing." % [
+		["first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth"][mini(index, 7)], base, int(DeepContent.constant("loadout_luck_per_stone", 2))]
 
 static func _empty_fit(home: Control, character_key: String, skill: String) -> int:
 	## The first open, empty socket a stone fits, or -1.
@@ -409,8 +510,13 @@ static func _socket_slot(home: Control, parent: Node, index: int, socket_color: 
 			buy.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 			buy.disabled = int(home.profile.get("gold", 0)) < price
 			buy.tooltip_text = ("Open this socket for good: it is filled from the vault before every run, in every mine." if not buy.disabled
-				else "You have %d gold. This socket costs %d." % [int(home.profile.get("gold", 0)), price])
+				else "You have %d gold. This socket costs %d." % [int(home.profile.get("gold", 0)), price]) + _heavy_note(index)
 			DeepUi.voice(buy, "buy")
+			var heavy: String = heavy_tag(index)
+			if not heavy.is_empty():
+				var tag := DeepUi.label(box, heavy, 11, DeepUi.BAD, HORIZONTAL_ALIGNMENT_CENTER)
+				tag.mouse_filter = Control.MOUSE_FILTER_PASS
+				tag.tooltip_text = _heavy_note(index).strip_edges()
 		else:
 			DeepUi.label(box, "open socket %d first" % (DeepProfile.open_sockets(home.profile, character_key) + 1), 11, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 		return card

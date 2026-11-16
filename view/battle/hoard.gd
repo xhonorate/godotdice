@@ -11,9 +11,22 @@ const GemView = preload("res://view/gems/gem_view.gd")
 const GeodeView = preload("res://view/gems/geode_view.gd")
 
 const SPREAD := 2.6
+## How tall a pedestal stands, to the top of its cap. Taller since review card R2 (it was 1.2):
+## round 3 raised it to 2.0 / 3.35 to stand each stone in the middle of the open room, and the
+## owner split the difference in round 4 (November 16, 2026). On the phone the even split puts
+## the stones partly behind the cards, which the owner allowed: the cards carry the hoard there.
+const RISE_DESK := 1.6
+const RISE_PHONE := 2.3
+## Where a stone turns over its cap, and the light just in front of it.
+const STONE_OVER := 0.55
+## How far below the floor a business starts as it comes up (`MineStage.set_business`): a
+## taller pedestal rises that much further on its own, so its stone never shows over the
+## floor before its column does.
+const BURIED := 2.6
 
 var _stands: Dictionary = {}
 var _clock: float = 0.0
+var _rise: float = RISE_DESK
 
 func build(biome: Dictionary, stones: Array, seed_value: int) -> void:
 	var rng := RandomNumberGenerator.new()
@@ -21,6 +34,9 @@ func build(biome: Dictionary, stones: Array, seed_value: int) -> void:
 	var rock := StandardMaterial3D.new()
 	rock.vertex_color_use_as_albedo = true
 	rock.roughness = 0.85
+	_rise = RISE_PHONE if DeepUi.phone else RISE_DESK
+	## What the columns stand above the old 1.2: buried that much deeper as they come up.
+	var extra: float = maxf(0.0, _rise - 1.2)
 	for index in range(stones.size()):
 		var stone: Dictionary = stones[index]
 		var x: float = (float(index) - float(stones.size() - 1) * 0.5) * SPREAD
@@ -28,13 +44,13 @@ func build(biome: Dictionary, stones: Array, seed_value: int) -> void:
 		stand.position = Vector3(x, 0, 0)
 		add_child(stand)
 		var column := MeshInstance3D.new()
-		column.mesh = Lowpoly.column(rng, Color(biome.rock).lightened(0.2), 8, 0.42, 1.15)
+		column.mesh = Lowpoly.column(rng, Color(biome.rock).lightened(0.2), 8, 0.42, _rise - 0.05)
 		column.material_override = rock
 		stand.add_child(column)
 		var cap := MeshInstance3D.new()
 		cap.mesh = Lowpoly.slab(Vector3(1.0, 0.12, 1.0), Color(biome.rock).lightened(0.3), rng, 0.02)
 		cap.material_override = rock
-		cap.position = Vector3(0, 1.2, 0)
+		cap.position = Vector3(0, _rise, 0)
 		stand.add_child(cap)
 		## Its size class and its color, cut into the pedestal's face: all there is to see of a
 		## raw stone, so it is shown without having to point at it, and the color is written out
@@ -44,22 +60,25 @@ func build(biome: Dictionary, stones: Array, seed_value: int) -> void:
 		## canvas the room is drawn at.
 		var sealed_geode: bool = DeepStone.is_geode(stone)
 		var size := Node3D.new()
-		size.position = Vector3(0, 0.78, 0.47)
-		size.set_meta("text", "Geode" if sealed_geode else DeepStone.raw_name(stone).trim_suffix(" stone"))
+		size.position = Vector3(0, _rise * 0.65, 0.47)
+		## A read stone (every plain pedestal since November 2026) is named by its skill.
+		size.set_meta("text", "Geode" if sealed_geode else (DeepUi.skill_name(stone) if bool(stone.get("appraised", false)) else DeepStone.raw_name(stone).trim_suffix(" stone")))
 		size.set_meta("tone", Color("f1e6d2"))
 		size.set_meta("font_size", 18)
-		size.set_meta("alpha", 1.0)
+		## Unsaid since November 2026: a card along the bottom of the room names each pedestal's
+		## stone (descent_screen.gd `_hoard_card`), and the word showed through the card's glass.
+		size.set_meta("alpha", 0.0)
 		size.add_to_group("stage_name")
 		stand.add_child(size)
-		## Nothing on a Warden's pile has been read, so the beam is the stone's own color: a
-		## grade color over an unopened stone would say what is inside it before the lens does.
+		## A read stone's beam is its grade's color; the opal, still in its rock, shows only its
+		## own: a grade color over an unopened stone would say what is inside it before the lens does.
 		var read: bool = bool(stone.get("appraised", false))
 		var tone: Color = DeepUi.tier_color(str(DeepStone.grade(stone).tier)) if read else GemMesh.tint(stone)
 		if sealed_geode:
 			## A Geode is a rock of its mine's, or of one color: its own glow, not a stone's.
 			tone = load("res://view/gems/geode.gd").theme_tone(stone.geode)
 		var spinner := Node3D.new()
-		spinner.position = Vector3(0, 1.75, 0)
+		spinner.position = Vector3(0, _rise + STONE_OVER, 0)
 		stand.add_child(spinner)
 		var gem: Node3D = null
 		if sealed_geode:
@@ -102,10 +121,15 @@ func build(biome: Dictionary, stones: Array, seed_value: int) -> void:
 		shine.light_color = tone.lerp(Color("ffe2c4"), 0.45)
 		shine.light_energy = 1.0
 		shine.omni_range = 2.0
-		shine.position = Vector3(0, 1.8, 0.6)
+		shine.position = Vector3(0, _rise + STONE_OVER + 0.05, 0.6)
 		shine.shadow_enabled = false
 		stand.add_child(shine)
 		_stands[str(stone.get("id", ""))] = {"stand": stand, "spinner": spinner, "beam": beam, "shine": shine, "hover": false, "phase": float(index) * 2.1, "out": false}
+		if extra > 0.0 and DisplayServer.get_name() != "headless":
+			## The stage brings the hoard up BURIED from under the floor in 0.75 s; each column
+			## comes the rest of its way up with it.
+			stand.position.y = - extra
+			stand.create_tween().tween_property(stand, "position:y", 0.0, 0.75).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 
 static func _extent(root: Node3D) -> float:
 	## How far across a prop's meshes reach, corner to corner of the box round them all: the
@@ -159,7 +183,7 @@ func collapse(fx: Node3D) -> float:
 		if spot.is_in_group("stage_name"):
 			spot.set_meta("alpha", 0.0)
 	var tween := create_tween()
-	tween.tween_property(self, "position:y", position.y - 2.6, 1.0).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tween.tween_property(self, "position:y", position.y - BURIED - maxf(0.0, _rise - 1.2), 1.0).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	tween.tween_callback(queue_free)
 	return 0.8
 
@@ -182,6 +206,6 @@ func _process(delta: float) -> void:
 			continue
 		var spinner: Node3D = entry.spinner
 		spinner.rotation.y += delta * (1.2 if bool(entry.hover) else 0.5)
-		spinner.position.y = 1.75 + sin(_clock * 1.4 + float(entry.phase)) * 0.06 + (0.12 if bool(entry.hover) else 0.0)
+		spinner.position.y = _rise + STONE_OVER + sin(_clock * 1.4 + float(entry.phase)) * 0.06 + (0.12 if bool(entry.hover) else 0.0)
 		spinner.scale = spinner.scale.lerp(Vector3.ONE * (1.2 if bool(entry.hover) else 1.0), clampf(delta * 8.0, 0.0, 1.0))
 		(entry.shine as OmniLight3D).light_energy = (0.3 if bool(entry.out) else 1.0) * (2.0 if bool(entry.hover) else 1.0)

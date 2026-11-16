@@ -453,6 +453,25 @@ func _screen() -> void:
 	battle.show_state(party_state, 1)
 	await process_frame
 	check(fogged.get_node_or_null("Fog") == null, "the fog goes when the socket clears")
+	## Rubble and fog that hold for 3 turns count them down on the socket (W1, F6).
+	hero.rubble = [{"socket": 2, "laid": int(party_state.turn), "turns": 3}]
+	hero.clouded = [0]
+	hero.fog = [{"socket": 0, "by": "e1", "laid": int(party_state.turn) - 1, "turns": 3}]
+	battle.show_state(party_state, 1)
+	await process_frame
+	var count: Control = buried_slot.get_node_or_null("HoldCount")
+	check(count != null and str(count.get_meta("key", "")).begins_with("3|") and badge_key(buried_slot).contains("for 3 turns") and badge_key(buried_slot).contains("after 3 more turns"),
+		"rubble for 3 turns counts them on the socket and its plate says so: %s" % badge_key(buried_slot))
+	var fog_count: Control = fogged.get_node_or_null("HoldCount")
+	check(fog_count != null and str(fog_count.get_meta("key", "")).begins_with("3|") and badge_key(fogged).contains("lifts on its own after 3 more turns"),
+		"fog for 3 turns counts them too: %s" % badge_key(fogged))
+	hero.rubble = []
+	hero.buried = []
+	hero.clouded = []
+	hero.fog = []
+	battle.show_state(party_state, 1)
+	await process_frame
+	check(buried_slot.get_node_or_null("HoldCount") == null and fogged.get_node_or_null("HoldCount") == null, "the count goes with the rubble and the fog")
 	## A Star Leech on the finest gem; a die a Paradox Moth left blank.
 	party_state = fight(["STAR_LEECH", "PARADOX_MOTH"], 1).state
 	battle.show_state(party_state, 1)

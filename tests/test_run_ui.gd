@@ -47,6 +47,7 @@ func _init() -> void:
 	await _close_look(app, descent)
 	await _carver(descent)
 	await _three_faces(descent)
+	await _chisel(descent)
 	await _round5(app, descent)
 	await _round6(app, descent)
 	await _worn_stone(app, descent)
@@ -419,13 +420,11 @@ func _three_faces(descent: Control) -> void:
 	## chosen, and the answer sent as {"picks": [{die_id, face}, ...]}.
 	var ask: Control = descent._ask
 	var dock: Control = descent._run_dock
-	var improved: Dictionary = {}
-	for choice in DeepContent.oddity("CARVER").get("choices", []):
-		if str(choice.get("id", "")) == "raise":
-			improved = choice.improved.duplicate(true)
-			improved.id = "raise"
-			improved.improved = true
-	check(str(improved.get("needs", "")) == "die_faces" and int(improved.get("most", 0)) == 3, "the carver's better raise wants up to three faces")
+	## The carver's card is the chisel now (review card M3, Nov 13 2026); the three-face picker
+	## stays for any work that wants it, tried here on a raise laid out by hand.
+	var improved: Dictionary = {"id": "raise", "label": "Raise **three** faces", "text": "Pick up to **three** die faces and raise each by 1.",
+		"needs": "die_faces", "most": 3, "action": {"kind": "raise_face", "amount": 1, "faces": 3}, "improved": true}
+	check(str(improved.get("needs", "")) == "die_faces" and int(improved.get("most", 0)) == 3, "a three-face raise wants up to three faces")
 	var d6: Dictionary = DeepDice.make("D6", "ui3_d6")
 	var d20: Dictionary = DeepDice.make("D20", "ui3_d20")
 	var unit: Dictionary = descent.me().duplicate(true)
@@ -476,6 +475,73 @@ func _three_faces(descent: Control) -> void:
 		await _frames(1)
 	check(ask.chosen_faces().size() == 1, "a chosen face's chip under the count puts it back")
 	ask.close()
+
+func _chisel(descent: Control) -> void:
+	## The carver's chisel (review card M3): the die already in the slot, every face on show, a
+	## face clicked is one cut sent at once with the sheet left up, a Raise/Lower switch, the
+	## wear over the faces, and once it has cut, only "Put the chisel down".
+	var ask: Control = descent._ask
+	var choice: Dictionary = {}
+	for candidate in DeepContent.oddity("CARVER").get("choices", []):
+		if str(candidate.get("id", "")) == "chisel":
+			choice = candidate.duplicate(true)
+			choice.erase("improved")
+	check(str(choice.get("needs", "")) == "chisel", "the carver's card is the chisel")
+	var unit: Dictionary = descent.me().duplicate(true)
+	unit.dice = [DeepDice.make("D6", "ch_d6"), DeepDice.make("D8", "ch_d8")]
+	var spec: Dictionary = descent._ask_spec(choice, unit, DeepUi.ACCENT, "CARVER", false)
+	check(spec.has("chisel") and int(spec.chisel.get("most", 0)) == 5 and str(spec.slots[0].get("pick", "")) == "ch_d6", "its ask holds the first die and a wear of five cuts")
+	## A key of the test's own: the room hears nothing of these cuts.
+	spec.key = "ui_chisel"
+	var answers: Array = []
+	var heard := func(key: String, payload: Dictionary) -> void: answers.append([key, payload])
+	ask.confirmed.connect(heard)
+	ask.open(spec)
+	await _frames(2)
+	var chips: Array = _face_chips(ask)
+	check(chips.size() == 6 and ask._block.find_child("ChiselWear", true, false) != null and ask._block.find_child("ChiselWay", true, false) != null,
+		"a d6's six faces under the wear and the Raise/Lower switch (got %d)" % chips.size())
+	## Round 3 (review card M3): the wear stands over the die, and the way out is the room's
+	## corner key, outside the sheet, not a button in it.
+	var wear: Control = ask._block.find_child("ChiselWear", true, false)
+	var ring: Control = ask._slot_boxes.get(str(spec.slots[0].key), null)
+	check(wear != null and ring != null and wear.get_global_rect().end.y <= ring.get_global_rect().position.y + 1.0, "the chisel's wear and its words stand over the die")
+	var corner := func() -> String:
+		var key: Button = ask.corner_key()
+		return str(key.name) if key != null else ""
+	var in_sheet := func() -> int: return ask._block.find_children("*", "Button", true, false).filter(func(b: Button) -> bool: return b.text.contains("Never mind") or b.text.contains("chisel down") or str(b.get_meta("way_out", "")) != "").size()
+	check(str(corner.call()) == "NeverMind" and str(ask.corner_key().get_meta("way_out", "")) == "Never mind" and int(in_sheet.call()) == 0, "before a cut it can still be put back: Never mind, in the room's corner")
+	var key_rect: Rect2 = ask.corner_key().get_global_rect()
+	var sheet_rect: Rect2 = ask._block.get_global_rect()
+	check(key_rect.end.x > sheet_rect.end.x and key_rect.end.y <= ask.get_global_rect().end.y - ask.floor_height + 1.0 and not key_rect.intersects(sheet_rect), "the key stands at the bottom right, over the dock and clear of the sheet")
+	_click(chips[0])
+	await _frames(1)
+	check(answers.size() == 1 and answers[0][1] == {"die_id": "ch_d6", "face": 0, "way": 1} and ask.is_open(), "a face clicked is a cut sent at once, the sheet left up: %s" % str(answers))
+	_click(_face_chips(ask)[1])
+	check(answers.size() == 1, "the next cut waits on the answer to the last")
+	## The answer: the sheet opened again with the cut die and the chisel's count.
+	unit.dice[0].faces[0] = DeepDice.face(2, "plain")
+	spec.chisel.cuts = 1
+	spec.chisel.last = {"die_id": "ch_d6", "face": 0, "way": 1}
+	ask.open(spec)
+	await _frames(2)
+	check(str(corner.call()) == "PutDown" and str(ask.corner_key().get_meta("way_out", "")) == "Put the chisel down" and int(in_sheet.call()) == 0, "after a cut the only way on is Put the chisel down, the corner key")
+	ask.extras["way"] = -1
+	ask._build()
+	await _frames(1)
+	var lowered: Array = _face_chips(ask)
+	_click(lowered[5])
+	await _frames(1)
+	check(answers.size() == 2 and int(answers[1][1].get("way", 0)) == -1 and int(answers[1][1].get("face", -1)) == 5, "lowering, a face clicked is cut down: %s" % str(answers))
+	## The corner key puts the chisel down, every cut kept.
+	spec.chisel.cuts = 2
+	ask.open(spec)
+	await _frames(1)
+	ask.corner_key().pressed.emit()
+	await _frames(1)
+	check(answers.size() == 3 and answers[2][1] == {"done": true} and not ask.is_open() and ask.corner_key() == null, "the corner key puts the chisel down: %s" % str(answers.back()))
+	ask.close()
+	ask.confirmed.disconnect(heard)
 
 func _round5(app: Control, descent: Control) -> void:
 	## Nov 5 round 5, on the owner's window: a Hammered card's charge page stands clear of the

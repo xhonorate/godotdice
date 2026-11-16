@@ -43,6 +43,9 @@ static func plate(width: float = WIDTH) -> VBoxContainer:
 
 # --- gems --------------------------------------------------------------------------------------
 
+## A polished gem's line and mark (a rest stop's Polish, review card B1): a pale jade.
+const POLISHED := Color("b8f0d8")
+
 static func gem_small(stone: Dictionary, context: Dictionary = {}) -> String:
 	## "RED · 6 ct · GOOD": its color, its weight as the rail counts it, and its cut as judged.
 	var eff: Dictionary = DeepStone.effective(stone, context)
@@ -93,10 +96,17 @@ static func gem(stone: Dictionary, context: Dictionary, hand: Array, entry: Dict
 	if fired > 0 and is_growth(stone):
 		DeepUi.label(box, "Fired %s this run." % DeepUi.plural(fired, "time"), 12, DeepUi.MUTED)
 	_weight_line(box, stone, context, eff)
+	## A Polish (a rest stop's cloth) lasts the run: said, so the weight it
+	## stands at is not taken for its own (review cards R3 and B1).
+	if DeepStone.polished(stone) > 0:
+		DeepUi.stat(box, "buff_wheel", "Polished: +%d carat until the run ends" % DeepStone.polished(stone), POLISHED, 11)
 	for line in DeepStone.proc_lines(stone, context):
 		DeepUi.stat(box, "carat", str(line.text), DeepUi.GOOD if bool(line.sure) else DeepUi.MUTED, 11)
 	if opts.has("riders"):
 		_rider_row(box, stone, opts.riders, int(opts.get("socket", 0)), bool(opts.get("rider_of", false)))
+	## What an opal cannot reach beside or behind it (opals never copy opals).
+	for line in opts.get("cant", []):
+		DeepUi.stat(box, "broken_chain", str(line), DeepUi.ACCENT, 12)
 	if not str(opts.get("note", "")).is_empty():
 		DeepUi.stat(box, "cross_out", str(opts.note), DeepUi.BAD, 12)
 	if not hand.is_empty() and not entry.is_empty():
@@ -218,8 +228,11 @@ static func _rider_mark(row: Control, rider: Dictionary, here: bool) -> void:
 
 static func outcome(entry: Dictionary) -> Array:
 	## What a firing gem lands, as [text, color] pairs by kind, biggest first: 12 damage, 6
-	## block, 3 healing, 2 poison, 5 pyrite, Resonance.
+	## block, 3 healing, 2 poison, 5 pyrite, Resonance. Damage that lands in several blows says
+	## so, "24 damage (3 × 8)": a creature that splits or caps a single blow reads each blow,
+	## not the total (F8, November 13, 2026).
 	var sums: Dictionary = {}
+	var blows: Array = []
 	for effect in entry.get("effects", []):
 		if not effect is Dictionary:
 			continue
@@ -228,7 +241,10 @@ static func outcome(entry: Dictionary) -> Array:
 		if kind in ["appraise", "invert_previous"]:
 			for hit in effect.get("hits", []):
 				sums["damage"] = int(sums.get("damage", 0)) + int(hit.get("raw", hit.get("amount", 0)))
+				blows.append(int(hit.get("raw", hit.get("amount", 0))))
 			continue
+		if kind == "damage" and amount > 0:
+			blows.append(amount)
 		if kind in ["arpeggio", "prize", "quilt"]:
 			## A Birthstone's notes, prizes and gifts, each by what it was.
 			for hit in effect.get("hits", []):
@@ -244,8 +260,18 @@ static func outcome(entry: Dictionary) -> Array:
 		"gold": ["+%s pyrite", DeepUi.ORE], "reroll": ["+%s reroll", DeepUi.INFO], "phantom": ["%s phantom", DeepUi.INFO], "stun": ["%s stun", Color("ffe27a")]}
 	for kind in ["damage", "block", "heal", "poison", "gold", "reroll", "phantom", "stun"]:
 		if int(sums.get(kind, 0)) > 0:
-			out.append([str(looks[kind][0]) % DeepUi.number(int(sums[kind])), looks[kind][1]])
+			var said: String = str(looks[kind][0]) % DeepUi.number(int(sums[kind]))
+			if kind == "damage" and blows.size() > 1:
+				said += " " + blow_words(blows)
+			out.append([said, looks[kind][1]])
 	return out
+
+static func blow_words(blows: Array) -> String:
+	## "(3 × 8)" for three blows of 8, "(3 blows)" when they differ.
+	for each in blows:
+		if int(each) != int(blows[0]):
+			return "(%d blows)" % blows.size()
+	return "(%d × %s)" % [blows.size(), DeepUi.number(int(blows[0]))]
 
 static func badge(entry: Dictionary) -> Array:
 	## The one figure a lit socket wears: [text, color], or ["", _] for a gem whose work has no
@@ -257,8 +283,9 @@ static func badge(entry: Dictionary) -> Array:
 	if parts.is_empty():
 		return ["", DeepUi.PAPER]
 	var first: Array = parts[0]
-	var text: String = str(first[0]).split(" ")[0]
-	return [text, first[1]]
+	## The plain total ("24"), even when it lands in several blows: the plate says how it
+	## splits, "24 damage (3 × 8)" (owner, round 3 of F8, November 16, 2026).
+	return [str(first[0]).split(" ")[0], first[1]]
 
 static func birth_badge(tiers: Array, defs: Array) -> Array:
 	## The figure a Birthstone wears while the hand is planned, like a gem's: the Resonance
@@ -535,7 +562,8 @@ static func grade(stone: Dictionary, footer_words: String = "") -> Control:
 	head(box, "Grade %d of 100" % int(graded.score), "%s · %s" % [DeepUi.skill_name(stone), str(graded.name)], tone)
 	DeepUi.label(box, "Where its points come from", 12, DeepUi.MUTED)
 	var clear: bool = int(stone.get("clarity", DeepContent.clear_index())) == DeepContent.clear_index()
-	var held: int = stone.get("inclusions", []).size()
+	## A stone fired Flawless counts what the heat took (DeepStone.counted_inclusions, K7).
+	var held: int = DeepStone.counted_inclusions(stone).size()
 	var rarity: String = str(DeepStone.skill_of(stone).get("rarity", "COMMON"))
 	var rows: Array = [
 		["Carat", "%d ct" % int(stone.get("carat", 1)), float(parts.get("carat_pts", 0.0)), 45.0, DeepUi.MUTED],

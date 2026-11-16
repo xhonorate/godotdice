@@ -404,11 +404,15 @@ const RIGS: Dictionary = {
 				["fx", 0.3, "shards", {"from": "Hammer02", "color": "#e8f0ff", "amount": 18, "speed": 5.5}],
 				["fx", 0.3, "shards", {"from": "Hammer02", "color": "#3a2a24", "amount": 12, "speed": 4.0}],
 				["fx", 0.3, "flash_light", {"from": "Hammer02", "color": "#e8f0ff", "energy": 6.0}]],
-			## Its pillar of fire leans back and roars out at the party.
-			"Forge-fire": [["each", "flames", Vector3(0.2, 0.4, 0.2), Vector3(0.4, 1.2, 0.4), "breath"], ["turn", "flames", X, -12.0, 30.0, "breath"],
-				["turn", "helm", X, -6.0, 10.0, "breath"],
-				["fx", 0.26, "breath", {"from": "Head01", "kind": "fire", "seconds": 0.55, "size": 1.0}],
-				["fx", 0.3, "sparks", {"from": "Head01", "color": "#ffb050", "amount": 16, "speed": 3.0}]],
+			## Flatten (W3 round 3, November 16, 2026, was Forge-fire): swings its hammer up and
+			## brings it down flat on the floor, crouching low into it, its fire pressed down flat
+			## too; a flat ring of heat and grit skids out along the floor at the party.
+			"Flatten": [["turn", "hammer", X, -150.0, -2.0, "big"], ["turn", "torso", X, -5.0, 11.0, "big"],
+				["hop", Vector3(0, 0.04, -0.04), Vector3(0, -0.1, 0.06), "big"], ["each", "flames", Vector3(0.1, 0.2, 0.1), Vector3(0.35, -0.45, 0.35), "big"],
+				["turn", "leg_l", Z, 0.0, 4.0, "big"], ["turn", "leg_r", Z, 0.0, -4.0, "big"],
+				["fx", 0.3, "shock", {"from": "Hammer02", "size": 0.8}], ["fx", 0.31, "ring", {"color": "#ffb050", "radius": 3.6}],
+				["fx", 0.32, "puff", {"from": "Hammer02", "color": "#5a4a40", "amount": 16, "size": 1.3, "rise": 0.08}],
+				["fx", 0.3, "sparks", {"from": "Hammer02", "color": "#ffb050", "amount": 24, "speed": 4.0, "life": 0.4}]],
 			## Holds the hammer up as its fire gutters with a hiss of steam, then flares back hotter.
 			"Quench": [["each", "flames", Vector3(-0.3, -0.5, -0.3), Vector3(0.35, 1.0, 0.35), QUENCH], ["turn", "hammer", X, 0.0, -65.0, "hold"],
 				["fx", 0.2, "puff", {"from": "Hammer02", "color": "#e8e0d8", "amount": 18, "size": 1.3, "rise": 1.4}],

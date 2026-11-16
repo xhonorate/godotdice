@@ -960,6 +960,27 @@ func _run(app: Control) -> void:
 	descent.show_state(run)
 	await _fits(screen, "what a stake did")
 	descent._hold = {}
+	## A won fight's spoils (review cards R1 and R4): three cards in one row along the bottom,
+	## Skip in the corner; an elite's, a read stone first.
+	for elite in [false, true]:
+		var won: Dictionary = run.duplicate(true)
+		won.phase = "tunnels"
+		var winner: Dictionary = DeepDescent.player(won, app.session.local_id)
+		DeepDescent._offer_spoils(won, winner, DeepDescent.streams_of(won), elite, true, 44, 0, 0)
+		descent.show_state(won)
+		await _fits(screen, "the spoils of %s" % ("an elite" if elite else "a fight"))
+		var spoils_row: Node = descent._page_holder.find_child("SpoilsRow", true, false)
+		check(spoils_row != null and spoils_row.get_children().filter(func(c: Node) -> bool: return c is PanelContainer).size() == 3, "the spoils lay out three cards in one row")
+		check(descent._way_out_key != null and is_instance_valid(descent._way_out_key) and str(descent._way_out_key.get_meta("way_out", "")) == "Skip", "and Skip in the corner")
+	## The Warden's hoard (review card R2): read stones as cards along the bottom, the opal raw.
+	var hall: Dictionary = run.duplicate(true)
+	hall.depth = 8
+	DeepDescent._offer_hoard(hall)
+	descent.show_state(hall)
+	await _fits(screen, "the Warden's hoard, read")
+	var hoard_row: Node = descent._page_holder.find_child("HoardRow", true, false)
+	check(hoard_row != null and hoard_row.get_child_count() >= 3, "the hoard lays out a card per pedestal")
+	descent.show_state(run)
 	## A fall with the haul still in hand: every stone rolls.
 	var fallen: Dictionary = run.duplicate(true)
 	fallen.phase = "salvage"
@@ -1240,13 +1261,12 @@ func _deep_pages(app: Control, descent: Control, run: Dictionary) -> void:
 		descent.show_state(at_room)
 		await _fits(screen, ("a lucky %s" if bool(room[3]) else "a voucher holder's %s") % str(room[0]))
 		if str(room[0]) == "carver":
+			## The steel chisel (review card M3) on a d20: its wear, its switch, twenty faces.
 			holder.dice[0] = DeepDice.make("D20", "fit_d20")
-			descent._oddity_step = "raise"
+			descent._oddity_step = "chisel"
 			descent.show_state(at_room)
 			descent._ask.take("die", "fit_d20")
-			descent._ask.pick_face("faces", [19], "fit_d20")
-			descent._ask.pick_face("faces", [18], "fit_d20")
-			await _fits(screen, "the carver's three-face ask on a d20, two chosen")
+			await _fits(screen, "the carver's steel chisel on a d20")
 			descent._ask.close()
 		descent._oddity_step = ""
 	descent.show_state(run)

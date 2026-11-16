@@ -39,6 +39,7 @@ func _init() -> void:
 	_test_look()
 	_test_effects()
 	_test_plates()
+	_test_counts()
 	_test_mine()
 	_test_faces()
 	print("View keepers: %d assertions, %d failures" % [checks, failures.size()])
@@ -728,6 +729,30 @@ func _test_plates() -> void:
 	check(said.has("Fizzles: The socket is buried."), "a fizzle for any other reason says the reason: %s" % str(said))
 	check(not said.any(func(t: String) -> bool: return t.begins_with("Fired")), "a gem that does not grow wears no count")
 	box.free()
+
+func _test_counts() -> void:
+	## F8 (round 3): the figure over a socket is the plain total; the plate says how it splits.
+	var three: Dictionary = {"effects": [{"kind": "damage", "amount": 8, "raw": 8}, {"kind": "damage", "amount": 8, "raw": 8}, {"kind": "damage", "amount": 8, "raw": 8}]}
+	check(str(Plates.badge(three)[0]) == "24", "three blows of 8 wear the plain total over the socket: %s" % str(Plates.badge(three)[0]))
+	check(str(Plates.outcome(three)[0][0]) == "24 damage (3 × 8)", "and the plate says how it lands: %s" % str(Plates.outcome(three)[0][0]))
+	var mixed: Dictionary = {"effects": [{"kind": "damage", "amount": 8, "raw": 8}, {"kind": "damage", "amount": 5, "raw": 5}]}
+	check(str(Plates.badge(mixed)[0]) == "13" and str(Plates.outcome(mixed)[0][0]) == "13 damage (2 blows)", "uneven blows: %s / %s" % [str(Plates.badge(mixed)[0]), str(Plates.outcome(mixed)[0][0])])
+	## X11 (round 3): every Flawless multiplier is one more box of the count, not a chip flown in:
+	## the carat box keeps the weight's ×2, the gold box the clarity's ×1.5 and a line's own ×2.
+	var plate: Control = load("res://view/battle/tally.gd").new()
+	root.add_child(plate)
+	plate.show_sum({"kind": "damage", "base": 4, "link": {}, "amount": 36, "adds": [],
+		"mults": [{"what": "carat", "x": 2.0, "weight": 5.0}, {"what": "clarity", "x": 1.5}, {"what": "flawless", "x": 2.0}]})
+	var mult: Label = plate.get("_mult_label")
+	var gold: Label = plate.get("_flawless_label")
+	check(mult != null and mult.text == "2", "the carat box holds the weight alone: %s" % (mult.text if mult != null else "none"))
+	check(gold != null and gold.text == "3", "the Flawless box holds the clarity's ×1.5 and the line's ×2: %s" % (gold.text if gold != null else "none"))
+	plate.free()
+	plate = load("res://view/battle/tally.gd").new()
+	root.add_child(plate)
+	plate.show_sum({"kind": "damage", "base": 4, "link": {}, "amount": 8, "adds": [], "mults": [{"what": "carat", "x": 2.0, "weight": 5.0}]})
+	check(plate.get("_flawless_box") == null, "a stone that is not Flawless has no gold box")
+	plate.free()
 
 func _test_effects() -> void:
 	## Every lasting effect a unit can carry is shown, and shown the right way round.

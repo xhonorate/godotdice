@@ -169,7 +169,10 @@ func _desk() -> void:
 		fire.text = "+48,291,500"
 		fire.reset_size()
 		battle._settle_figures()
-		check(not name_label.visible and fire.get_theme_font_size(&"font_size") == battle.FIGURE_ALONE_PX, "a figure too long for the room before the next name takes the name's place alone")
+		## Review card X13 (Nov 13 2026): it sits on the ring's top edge and the name stays, as on the
+		## phone (Anchor's "+10" took its name's place and read as a socket with no name).
+		check(name_label.visible and fire.get_theme_font_size(&"font_size") == battle.FIGURE_PX and fire.position.y > 0.0,
+			"a figure too long for the room before the next name sits on the ring's top edge, the name staying")
 		fire.text = "3"
 		fire.reset_size()
 		battle._settle_figures()

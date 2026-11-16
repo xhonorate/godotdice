@@ -34,6 +34,12 @@ func _init() -> void:
 	check(DeepUi.phone, "the phone form is on with DEEPCUT_FORM=phone")
 	check(DeepUi.safe_left > 0.0 and DeepUi.safe_bottom > 0.0, "a desk window in the phone form takes an iPhone's safe insets (%d, %d)" % [int(DeepUi.safe_left), int(DeepUi.safe_bottom)])
 	check(DeepUi.min_text() == int(DeepUi.PHONE_LEAST * DeepUi.PT), "the phone's text floor is %d points" % DeepUi.PHONE_LEAST)
+	## Drawn marks keep the floor too (review card X18): a word floated over the room (a vein's
+	## "The rock holds · 1 more", a socket's "6 ct") and a stone tile's carat badge ("4ct").
+	var floated: Label = DeepUi.float_text(app, Vector2.ZERO, "The rock holds · 1 more", DeepUi.ORE, 20)
+	check(floated.get_theme_font_size("font_size") >= DeepUi.min_text(), "a word floated over the room stands at the text floor (%d px)" % floated.get_theme_font_size("font_size"))
+	floated.queue_free()
+	check(load("res://view/gems/stone_card.gd").TileTags.badge_px() >= DeepUi.min_text(), "a stone tile's carat badge stands at the text floor")
 	_fill(app.profile)
 	app._profile_changed()
 	await _workshop(app)
@@ -419,6 +425,12 @@ func _run(app: Control) -> void:
 			seen.tunnels = true
 			while descent.walking():
 				await process_frame
+			## A won fight's spoils come first (review card R1): three cards in a row, then Skip.
+			if not DeepDescent.spoils_of(run, app.session.local_id).is_empty():
+				descent._hold = {}
+				descent.show_state(run)
+				await _fits(screen, "the spoils of a fight")
+				app.session.send({"kind": "spoils", "pick": -1})
 			descent.show_state(run)
 			await _fits(screen, "the crossroads")
 			descent._run_dock.set_drawer(true)
@@ -462,6 +474,47 @@ func _run(app: Control) -> void:
 		_advance(app)
 		await process_frame
 	check(seen.size() == 3, "the run reached the crossroads, a fight and a landing (%s)" % str(seen.keys()))
+	## The Warden's hoard (review card R2): a read card per pedestal, the opal in its rock.
+	var hall: Dictionary = app.session.run.duplicate(true)
+	hall.depth = 8
+	DeepDescent._offer_hoard(hall)
+	descent.show_state(hall)
+	await _fits(screen, "the Warden's hoard, read")
+	## An elite's spoils: a read stone of a rail color first.
+	var won: Dictionary = app.session.run.duplicate(true)
+	won.phase = "tunnels"
+	DeepDescent._offer_spoils(won, DeepDescent.player(won, app.session.local_id), DeepDescent.streams_of(won), true, true, 44, 0, 0)
+	descent.show_state(won)
+	await _fits(screen, "the spoils of an elite")
+	## The in-run Oven (review card F5, round 4): the ladder alone with Continue, then what the
+	## stone does now at its new grade, each inside the room. The heaviest reading: a firing that
+	## froze a Grain and a Void into a gem.
+	var fired: Dictionary = (DeepDescent.player(won, app.session.local_id).rail[0] as Dictionary).duplicate(true)
+	var was_clarity: int = int(fired.clarity)
+	fired.clarity = DeepContent.clear_index() - 2
+	fired.inclusions = ["GRAIN", "VOID"]
+	fired.inclusions_revealed = true
+	descent._hold_page("oddity", {"oddity": "ANNEALING_OVEN", "room": "oddity", "result": {"choice": "reroll",
+		"message": "The Clarity goes from Clear to Etched. Inside it now: Grain, Void.", "made": [], "lost": [], "changed": [fired], "dice": [],
+		"verdict": {"field": "clarity", "was": was_clarity, "now": int(fired.clarity), "better": 1}}})
+	descent.show_state(won)
+	await _fits(screen, "the Oven's ladder")
+	_in_room(descent, "the Oven's ladder")
+	var more: Node = descent._page_holder.find_child("Continue", true, false)
+	check(more is BaseButton and descent._page_holder.find_child("Reading", true, false) == null, "the phone's Oven shows the ladder first, with Continue (F5)")
+	if more is BaseButton:
+		(more as BaseButton).pressed.emit()
+		await _frames(3)
+		var reading: Node = descent._page_holder.find_child("Reading", true, false)
+		check(reading is Control and descent._page_holder.find_child("Continue", true, false) == null, "Continue reads the stone at its new grade")
+		await _fits(screen, "the Oven's stone, read")
+		_in_room(descent, "the Oven's stone, read")
+		var onward: Variant = descent._main_button
+		if reading is Control and onward is Control and is_instance_valid(onward):
+			var low: float = (reading as Control).get_global_rect().end.y
+			check(low <= (onward as Control).get_global_rect().position.y + 1.0, "the read stone stands clear above Onward (%.0f over %.0f)" % [low, (onward as Control).get_global_rect().position.y])
+	descent._hold = {}
+	descent.show_state(app.session.run)
 	## The way out: the run abandoned, its end read.
 	app.session.send({"kind": "abandon"})
 	for i in range(240):

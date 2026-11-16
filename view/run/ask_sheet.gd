@@ -66,6 +66,26 @@ var _faces_job: Dictionary = {}
 var _key: String = ""
 ## The scrim easing in or out.
 var _fade: Tween = null
+## The carver's chisel (review card M3): a cut sent and not yet answered (the faces wait on
+## it), and the cut count whose face was last made to kick, so it kicks once.
+var _cut_pending: bool = false
+var _kicked_cuts: int = -1
+## The phone's face chips while cutting: a finger wide with their padding (`DeepUi.FINGER_LEAST`).
+const CHISEL_PHONE_EDGES: Array = [24.0, 22.0]
+## The chisel's way out (review card M3, round 3): "Never mind" before a cut, "Put the chisel
+## down" after, as the room's corner key (`DeepUi.way_out`) where its "Leave it" stands, not a
+## button in the sheet. It stands over the scrim, so it is a child of this sheet and not of the
+## room's page; the room says where its corner is (`corner_inset`, the open bag's width on
+## the right, and `corner_foot`, the gap over the dock) and the sheet keeps clear of it.
+var corner_inset: float = 0.0:
+	set(value):
+		corner_inset = value
+		_place()
+var corner_foot: float = 6.0:
+	set(value):
+		corner_foot = value
+		_place()
+var _corner: Button = null
 
 func _init() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -103,6 +123,8 @@ func open(new_spec: Dictionary) -> void:
 	## a Callable(picks) -> String: a warning line under the slots for the current pick ("" for none).
 	var same: bool = str(new_spec.get("key", "")) == _key and is_open()
 	spec = new_spec
+	## Whatever answer a chisel's cut was waiting on, this is it.
+	_cut_pending = false
 	_key = str(new_spec.get("key", ""))
 	if same:
 		## Opened again with the room as it stands now: a pick of something no longer offered goes.
@@ -140,6 +162,7 @@ func open(new_spec: Dictionary) -> void:
 
 func close() -> void:
 	hp_preview.emit(0)
+	_drop_corner()
 	spec = {}
 	_key = ""
 	picks = {}
@@ -389,9 +412,14 @@ func _build() -> void:
 		words.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	## What is dimmed on the dock, and why, when one reason covers all of it. Each dimmed
 	## thing also says its own reason on its plate (run_dock.gd).
+	## Said while there is still a slot to fill, and quietly: in red over a valid pick it read as
+	## the pick being refused (review card X13, the Tumbler's "Dimmed: nobody has read it yet").
 	var shared: String = _shared_refusal()
-	if not shared.is_empty():
-		DeepUi.stat(box, "cross_out", "Dimmed: " + shared, DeepUi.BAD, 13).alignment = BoxContainer.ALIGNMENT_CENTER
+	if not shared.is_empty() and spec.get("slots", []).any(func(slot: Dictionary) -> bool: return _empty(slot)):
+		DeepUi.stat(box, "cross_out", "Dimmed on the dock: " + shared, DeepUi.MUTED, 12 if DeepUi.phone else 13).alignment = BoxContainer.ALIGNMENT_CENTER
+	## The chisel's wear and its words stand over the die it cuts (review card M3, round 3).
+	if spec.has("chisel"):
+		_chisel_wear(box, tone)
 	var slots := DeepUi.hbox(box, 22)
 	slots.alignment = BoxContainer.ALIGNMENT_CENTER
 	for slot in spec.get("slots", []):
@@ -411,18 +439,27 @@ func _build() -> void:
 		var said: String = str(warn.call(picks))
 		if not said.is_empty():
 			DeepUi.stat(box, "chest", said, DeepUi.BAD, 13).alignment = BoxContainer.ALIGNMENT_CENTER
-	var buttons := DeepUi.hbox(box, 12)
-	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
-	var never := DeepUi.icon_button(buttons, "cross_out", "Never mind", cancel, 13 if DeepUi.phone else 14, DeepUi.MUTED)
-	DeepUi.ledger_button(never, DeepUi.SLATE_LOW, DeepUi.LEDGER_LINE, 9, DeepUi.MUTED)
-	never.custom_minimum_size = Vector2(0, DeepUi.pt(36) if DeepUi.phone else 40.0)
-	_confirm = DeepUi.primary(buttons, str(spec.get("confirm_glyph", "check")), str(spec.get("confirm", "Do it")), _do, 14 if DeepUi.phone else 16, tone)
-	DeepUi.ledger_primary(_confirm, tone)
-	_confirm.custom_minimum_size = Vector2(DeepUi.pt(130), DeepUi.pt(36)) if DeepUi.phone else Vector2(180, 40)
-	_confirm.disabled = payload().is_empty() or not str(spec.get("blocked", "")).is_empty()
-	_confirm.mouse_entered.connect(func() -> void: hp_preview.emit(_hp_cost()))
-	_confirm.mouse_exited.connect(func() -> void: hp_preview.emit(0))
-	_confirm.tree_exiting.connect(func() -> void: hp_preview.emit(0))
+	## A chisel in hand is cut with at the faces themselves, and its way out is the room's
+	## corner key (`_chisel_key`): before its first cut it can still be put back (Never mind);
+	## after it, the only way on is to put it down, keeping every cut.
+	var chisel: Dictionary = spec.get("chisel", {})
+	_drop_corner()
+	if chisel.is_empty():
+		var buttons := DeepUi.hbox(box, 12)
+		buttons.alignment = BoxContainer.ALIGNMENT_CENTER
+		var never := DeepUi.icon_button(buttons, "cross_out", "Never mind", cancel, 13 if DeepUi.phone else 14, DeepUi.MUTED)
+		DeepUi.ledger_button(never, DeepUi.SLATE_LOW, DeepUi.LEDGER_LINE, 9, DeepUi.MUTED)
+		never.custom_minimum_size = Vector2(0, DeepUi.pt(36) if DeepUi.phone else 40.0)
+		_confirm = DeepUi.primary(buttons, str(spec.get("confirm_glyph", "check")), str(spec.get("confirm", "Do it")), _do, 14 if DeepUi.phone else 16, tone)
+		DeepUi.ledger_primary(_confirm, tone)
+		_confirm.custom_minimum_size = Vector2(DeepUi.pt(130), DeepUi.pt(36)) if DeepUi.phone else Vector2(180, 40)
+		_confirm.disabled = payload().is_empty() or not str(spec.get("blocked", "")).is_empty()
+		_confirm.mouse_entered.connect(func() -> void: hp_preview.emit(_hp_cost()))
+		_confirm.mouse_exited.connect(func() -> void: hp_preview.emit(0))
+		_confirm.tree_exiting.connect(func() -> void: hp_preview.emit(0))
+	else:
+		_confirm = null
+		_chisel_key(int(chisel.get("cuts", 0)) > 0)
 	_lay_faces()
 	_block.reset_size()
 	_place()
@@ -463,7 +500,28 @@ func _place() -> void:
 	var y: float = maxf(DeepUi.pt(4) if DeepUi.phone else 12.0, room - want.y - (DeepUi.pt(4) if DeepUi.phone else 16.0))
 	## Centred in the room the bag leaves, when it is open on the right.
 	var across: float = maxf(want.x, size.x - side_width)
-	_block.position = Vector2((across - want.x) * 0.5, y).round()
+	var x: float = (across - want.x) * 0.5
+	var key: Rect2 = _place_corner()
+	if key.size != Vector2.ZERO:
+		## A sheet that would stand against the corner key (the phone's, as wide as its room)
+		## steps left of it, as far as the room's left edge allows.
+		var gap: float = DeepUi.pt(8) if DeepUi.phone else 12.0
+		var least: float = DeepUi.safe_left if DeepUi.phone else 16.0
+		if x + want.x + gap > key.position.x and y + want.y > key.position.y:
+			x = maxf(least, minf(x, key.position.x - gap - want.x))
+	_block.position = Vector2(x, y).round()
+
+func _place_corner() -> Rect2:
+	## The chisel's corner key where the room's way-out key stands: bottom right, its foot the
+	## room's page foot over the dock, clear of the open bag. Returns where it stands.
+	if _corner == null or not is_instance_valid(_corner):
+		return Rect2()
+	var want: Vector2 = _corner.get_combined_minimum_size()
+	var inset: float = maxf(DeepUi.safe_right if DeepUi.phone else 16.0, corner_inset)
+	var at := Vector2(size.x - inset - want.x, size.y - floor_height - corner_foot - want.y).round()
+	_corner.size = want
+	_corner.position = at
+	return Rect2(at, want)
 
 func _slot(parent: Control, slot: Dictionary, tone: Color) -> void:
 	## One big slot: the ring, the thing in it, and its name on a capsule under it.
@@ -613,7 +671,11 @@ func _extras(tone: Color) -> void:
 			if str(slot.key) == str(faces.of):
 				die = _item(slot, die_id)
 		if not die.is_empty():
-			DeepUi.label(_extras_box, str(faces.get("label", "Which face?")), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+			## The chisel's switch for which way a cut goes stands where the question would.
+			if spec.has("chisel"):
+				_chisel_switch(tone)
+			else:
+				DeepUi.label(_extras_box, str(faces.get("label", "Which face?")), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 			## Laid once the rest of the sheet is built (`_lay_faces`), when the room it has is known.
 			var rows := DeepUi.vbox(_extras_box, int(FACE_GAP))
 			rows.name = "Faces"
@@ -742,15 +804,21 @@ func _lay_faces() -> void:
 	var die: Dictionary = job.die
 	var tone: Color = job.tone
 	var list: Array = die.get("faces", [])
-	var lowering: bool = bool(faces.get("lowering", false))
+	## Cutting with the chisel: every face stays on show, the ones this cut cannot take dimmed.
+	var cutting: bool = spec.has("chisel")
+	var way: int = int(extras.get("way", 1))
+	var lowering: bool = bool(faces.get("lowering", false)) and not cutting
 	var blanks: bool = bool(faces.get("blanks", true))
 	var chips: Array = face_groups(list, lowering, blanks, false)
 	var wide: float = face_room_width()
 	var tall: float = face_room_height()
-	var layout: Dictionary = face_layout(chips.size(), wide, tall)
+	var edges: Array = FACE_EDGES
+	if cutting and DeepUi.phone:
+		edges = CHISEL_PHONE_EDGES.map(func(e: float) -> float: return DeepUi.pt(e))
+	var layout: Dictionary = face_layout(chips.size(), wide, tall, edges)
 	if layout.is_empty():
 		chips = face_groups(list, lowering, blanks, true)
-		layout = face_layout(chips.size(), wide, tall)
+		layout = face_layout(chips.size(), wide, tall, edges)
 	if layout.is_empty():
 		## Past anything the mine makes: the smallest face, as many rows as it takes.
 		var least: float = float(FACE_EDGES[FACE_EDGES.size() - 1])
@@ -762,6 +830,11 @@ func _lay_faces() -> void:
 	var multi: bool = face_most() > 1
 	var chosen: int = -1 if multi else int(extras.get(str(faces.key), -1))
 	var die_id: String = str(die.get("id", ""))
+	## The face the chisel last cut, on this die: lit, and made to kick once as it comes back.
+	var last: Dictionary = spec.get("chisel", {}).get("last", {})
+	var cuts_now: int = int(spec.get("chisel", {}).get("cuts", 0))
+	if cutting:
+		chosen = int(last.get("face", -1)) if str(last.get("die_id", "")) == die_id else -1
 	## Faces chosen several at a time: this die's, by index.
 	var chosen_here: Array = []
 	if multi:
@@ -804,6 +877,40 @@ func _lay_faces() -> void:
 			said.append("%d faces of %s" % [indices.size(), text])
 		if face_kind != "plain":
 			said.append("%s: %s" % [DeepDice.etching_name(face_kind), str(DeepContent.etching(face_kind).get("text", ""))])
+		if cutting:
+			## A click is a cut, at once: up or down as the switch says (a right-click always
+			## lowers). A face the cut cannot take (a blank or a 1, lowering) stays, dimmed.
+			var lowerable: bool = face_kind != "blank" and value > 1
+			var takes: bool = way > 0 or lowerable
+			if not takes:
+				pick.modulate = Color(1, 1, 1, 0.35)
+				pick.mouse_default_cursor_shape = Control.CURSOR_ARROW
+			said.push_front(("Raise it: %s → %d" % [text, value + 1]) if way > 0 else (("Lower it: %s → %d" % [text, value - 1]) if lowerable else "A %s cannot be lowered" % ("blank face" if face_kind == "blank" else "1")))
+			if not DeepUi.phone and way > 0 and lowerable:
+				said.append("Right-click: lower it to %d" % (value - 1))
+			pick.tooltip_text = "\n".join(said)
+			var first: int = int(indices[0])
+			pick.gui_input.connect(func(event: InputEvent) -> void:
+				if not (event is InputEventMouseButton and event.pressed):
+					return
+				if event.button_index == MOUSE_BUTTON_LEFT and takes:
+					_cut(die_id, first, way)
+					pick.accept_event()
+				elif event.button_index == MOUSE_BUTTON_RIGHT and lowerable:
+					_cut(die_id, first, -1)
+					pick.accept_event())
+			if lit and cuts_now != _kicked_cuts and not DeepUi.headless() and is_inside_tree():
+				## Kicked once it is laid out, with the cut's +1 (or -1) rising off it.
+				_kicked_cuts = cuts_now
+				var step: int = int(last.get("way", 1))
+				var held: WeakRef = weakref(pick)
+				get_tree().create_timer(0.05).timeout.connect(func() -> void:
+					var cut_face: Control = held.get_ref() as Control
+					if cut_face == null or not cut_face.is_inside_tree():
+						return
+					DeepUi.pulse(cut_face, 1.25, 0.35)
+					DeepUi.float_text(self, cut_face.get_global_rect().get_center() - get_global_rect().position - Vector2(0, cut_face.size.y * 0.6), "+1" if step > 0 else "-1", DeepUi.GOOD if step > 0 else DeepUi.ACCENT, 16, 22.0, 0.9))
+			continue
 		pick.tooltip_text = "\n".join(said)
 		pick.gui_input.connect(func(event: InputEvent) -> void:
 			if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
@@ -860,13 +967,13 @@ func pick_face(key: String, indices: Array, die_id: String = "") -> void:
 	extras[key] = int(indices[0])
 	_build()
 
-static func face_layout(count: int, wide: float, tall: float) -> Dictionary:
+static func face_layout(count: int, wide: float, tall: float, edges: Array = FACE_EDGES) -> Dictionary:
 	## {edge, across, rows} for `count` chips in a room `wide` × `tall`, or {} when they fit at
 	## no edge of `FACE_EDGES`. At each edge, largest first: rows of up to `FACES_PREFERRED`
 	## while that is no more than `ROWS_PREFERRED` rows, else `ROWS_PREFERRED` wider rows (or
 	## as few as the width allows); if the height does not hold those, the fewest rows the width
 	## allows. The chips are then shared evenly between the rows.
-	for size_now in FACE_EDGES:
+	for size_now in edges:
 		var edge: float = float(size_now)
 		var step: float = edge + FACE_PAD * 2.0 + FACE_GAP
 		var across_most: int = int(floor((wide + FACE_GAP) / step))
@@ -904,6 +1011,143 @@ static func face_groups(list: Array, lowering: bool, blanks: bool, grouped: bool
 		by_key[key] = out.size()
 		out.append({"value": value, "kind": kind, "indices": [index]})
 	return out
+
+# --- the chisel ------------------------------------------------------------------------------------
+##
+## The carver's chisel (review card M3): the die in the slot, a switch for which way a cut goes,
+## and every face a button that cuts at once. Over them, the chisel's wear: a notch for each cut
+## it can make, the next lit in the colour of how likely it is to be the last.
+
+func _cut(die_id: String, face: int, way: int) -> void:
+	## One cut sent: the faces wait on its answer (the sheet is opened again with the new die).
+	if _cut_pending or die_id.is_empty():
+		return
+	_cut_pending = true
+	DeepAudio.play("dice_lock", {"volume": 0.8})
+	confirmed.emit(_key, {"die_id": die_id, "face": face, "way": way})
+
+func _chisel_down() -> void:
+	## Put down after a cut or more: the work is done with every cut it made.
+	if not is_open():
+		return
+	DeepAudio.play("ui_confirm", {"volume": 0.8})
+	var was: String = _key
+	close()
+	confirmed.emit(was, {"done": true})
+
+func _chisel_key(cut_already: bool) -> void:
+	## The chisel's way out, in the room's corner: "Never mind" puts it back before a cut,
+	## "Put the chisel down" ends the work after one, every cut kept.
+	_corner = DeepUi.way_out("Put the chisel down" if cut_already else "Never mind", _chisel_down if cut_already else cancel, false,
+		"The work is done with every cut it made." if cut_already else "Put the chisel back: nothing is cut.", "chisel")
+	_corner.name = "PutDown" if cut_already else "NeverMind"
+	add_child(_corner)
+	## Its words know how wide they stand only once laid out: placed again then, the sheet too.
+	_corner.minimum_size_changed.connect(_place, CONNECT_DEFERRED)
+	if not DeepUi.headless() and is_inside_tree():
+		DeepUi.pop_in(_corner, 0.06, 0.9, 0.16)
+
+func _drop_corner() -> void:
+	if _corner != null and is_instance_valid(_corner):
+		_corner.queue_free()
+	_corner = null
+
+func corner_key() -> Button:
+	## The chisel's corner key while one stands, else null (for the room and the tests).
+	return _corner if _corner != null and is_instance_valid(_corner) else null
+
+func _chisel_switch(tone: Color) -> void:
+	## Which way the next cut goes, as two keys over the faces; and what a click (a tap) does.
+	var way: int = int(extras.get("way", 1))
+	var row := DeepUi.hbox(_extras_box, 8)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.name = "ChiselWay"
+	for entry in [[1, "rise", "Raise"], [-1, "fall", "Lower"]]:
+		var on: bool = int(entry[0]) == way
+		var to: int = int(entry[0])
+		var button := DeepUi.icon_button(row, str(entry[1]), str(entry[2]), func() -> void:
+			if int(extras.get("way", 1)) == to:
+				return
+			DeepAudio.play("ui_toggle", {"volume": 0.6})
+			extras["way"] = to
+			_build(), 13 if DeepUi.phone else 14, tone if on else DeepUi.MUTED)
+		DeepUi.ledger_button(button, Color(tone, 0.22) if on else DeepUi.SLATE_LOW, tone if on else DeepUi.LEDGER_LINE, 8, DeepUi.PAPER if on else DeepUi.MUTED)
+		button.custom_minimum_size = Vector2(DeepUi.pt(84), DeepUi.pt(30)) if DeepUi.phone else Vector2(120, 36)
+	## The phone says what a tap does beside the keys, in a short room; the desk under them.
+	if DeepUi.phone:
+		DeepUi.label(row, "then tap a face", 12, DeepUi.MUTED).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		return
+	var said: String = "Click a face to raise it by 1. Right-click lowers it." if way > 0 else "Click a face to lower it by 1."
+	DeepUi.label(_extras_box, said, 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+
+func _chisel_wear(parent: Control, tone: Color) -> void:
+	## The chisel's wear over the faces: its notches and a line for the cut to come.
+	var chisel: Dictionary = spec.get("chisel", {})
+	var cuts: int = int(chisel.get("cuts", 0))
+	var odds: Array = chisel.get("odds", [])
+	var most: int = maxi(1, int(chisel.get("most", odds.size())))
+	var row := DeepUi.hbox(parent, 8)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.name = "ChiselWear"
+	DeepUi.icon(row, "chisel", DeepUi.glyph_px(13) if DeepUi.phone else 20.0, tone).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var meter := ChiselMeter.new(cuts, most, odds, tone)
+	meter.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(meter)
+	var risk: float = float(odds[cuts]) if cuts < odds.size() else 100.0
+	var words: String
+	if risk <= 0.0:
+		words = "Cut %d of up to %d · it cannot break on this one" % [cuts + 1, most]
+	elif risk >= 100.0:
+		words = "Cut %d · its last: it breaks on this one" % (cuts + 1)
+	else:
+		words = "Cut %d of up to %d · %d%% it breaks on this one" % [cuts + 1, most, int(round(risk))]
+	if DeepUi.phone:
+		## Shorter in the phone's short room.
+		words = ("Cut %d of %d · sure" % [cuts + 1, most]) if risk <= 0.0 else (("Cut %d · its last" % (cuts + 1)) if risk >= 100.0 else "Cut %d of %d · %d%% it breaks" % [cuts + 1, most, int(round(risk))])
+	DeepUi.label(row, words, 12 if DeepUi.phone else 13, risk_tone(risk)).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+
+static func risk_tone(risk: float) -> Color:
+	## Sure is green, a fair chance gold, likely red.
+	if risk <= 0.0:
+		return DeepUi.GOOD
+	return DeepUi.ACCENT if risk < 50.0 else DeepUi.BAD
+
+class ChiselMeter extends Control:
+	## A notch for every cut the chisel can make, slanted like its edge: the cuts made worn grey,
+	## the next lit in the colour of its risk, the rest waiting dim in theirs.
+	var cuts: int = 0
+	var most: int = 5
+	var odds: Array = []
+	var tone: Color = DeepUi.ACCENT
+	var _notch: Vector2
+	var _gap: float
+	func _init(made: int, total: int, chances: Array, in_tone: Color) -> void:
+		cuts = made
+		most = total
+		odds = chances
+		tone = in_tone
+		_notch = Vector2(DeepUi.pt(13), DeepUi.pt(9)) if DeepUi.phone else Vector2(20, 14)
+		_gap = DeepUi.pt(3) if DeepUi.phone else 4.0
+		custom_minimum_size = Vector2(float(most) * _notch.x + float(most - 1) * _gap, _notch.y)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+	func _draw() -> void:
+		var lean: float = _notch.y * 0.35
+		for index in range(most):
+			var x: float = float(index) * (_notch.x + _gap)
+			var shape := PackedVector2Array([Vector2(x + lean, 0), Vector2(x + _notch.x, 0), Vector2(x + _notch.x - lean, _notch.y), Vector2(x, _notch.y)])
+			var risk: float = float(odds[index]) if index < odds.size() else 100.0
+			var hue: Color = DeepUi.GOOD if risk <= 0.0 else (DeepUi.ACCENT if risk < 50.0 else DeepUi.BAD)
+			var rim := shape.duplicate()
+			rim.append(shape[0])
+			if index < cuts:
+				draw_colored_polygon(shape, Color(0.42, 0.44, 0.48, 0.9))
+				draw_polyline(rim, Color(0.62, 0.64, 0.68), 1.0, true)
+			elif index == cuts:
+				draw_colored_polygon(shape, Color(hue, 0.85))
+				draw_polyline(rim, DeepUi.PAPER, 1.5, true)
+			else:
+				draw_colored_polygon(shape, Color(hue, 0.12))
+				draw_polyline(rim, Color(hue, 0.55), 1.0, true)
 
 class SlotRing extends Control:
 	## The ring a slot is: dashed and dim while empty, whole and lit in the room's color once

@@ -905,7 +905,11 @@ static func birth_swap(home: Control, tile: Control, character_key: String) -> C
 		var stone: Dictionary = DeepStone.birthstone(character_key, key)
 		var state: String = birth_state(home.profile, character_key, key)
 		var tint: Color = birth_tone(stone)
-		var choice := DeepUi.choice_card(box, tint, func() -> void: home.wear_birthstone(character_key, key), int(DeepUi.pt(4)) if DeepUi.phone else 8)
+		## One not bought is unlocked on the dossier: a press on it goes there, reading it (K9).
+		var pick: Callable = func() -> void: home.wear_birthstone(character_key, key)
+		if state == "locked":
+			pick = func() -> void: open_on_dossier(home, character_key, key)
+		var choice := DeepUi.choice_card(box, tint, pick, int(DeepUi.pt(4)) if DeepUi.phone else 8)
 		choice.name = "Swap_" + (key if not key.is_empty() else "FIRST")
 		choice.set_meta("birthstone", key)
 		choice.custom_minimum_size = Vector2(DeepUi.pt(196), DeepUi.pt(44)) if DeepUi.phone else Vector2(286, 0)
@@ -927,10 +931,29 @@ static func birth_swap(home: Control, tile: Control, character_key: String) -> C
 			"locked":
 				var cost := DeepUi.hbox(words, int(DeepUi.pt(3)) if DeepUi.phone else 6)
 				DeepUi.stat(cost, "coin", gold_words(DeepContent.birthstone_price(character_key, key)), DeepUi.ACCENT_HI, 11).mouse_filter = Control.MOUSE_FILTER_IGNORE
-				DeepUi.label(cost, "Unlock on the dossier", 11, DeepUi.MUTED)
-				DeepUi.disable_choice(choice)
+				DeepUi.label(cost, "Unlock on the dossier ›", 11, DeepUi.ACCENT)
+				## Greyed, as a stone not theirs yet, but not deaf: it is the way to where it is sold.
+				choice.self_modulate = Color(0.62, 0.62, 0.66, 1.0)
+				thumb.modulate.a = 0.6
+				named.modulate.a = 0.7
+				choice.set_meta("locked", true)
+				## Said on the kit's own plate, not the engine's tooltip window (which took Escape).
+				var said: String = "Not theirs yet: %s is unlocked on %s's page. %s to go there and read it." % [str(stone.get("name", "It")),
+					str(DeepContent.character(character_key).get("name", character_key)), "Tap" if DeepUi.phone else "Click"]
+				Tips.attach(choice, func() -> Control: return load("res://view/ui/plates.gd").words(str(stone.get("name", "")), said))
 	swap.place()
 	return swap
+
+static func open_on_dossier(home: Control, character_key: String, key: String) -> void:
+	## The delver's page, reading one of their Birthstones (where a stone not bought is unlocked).
+	home._birth_swap = false
+	home._roster_pick = character_key
+	home._roster_view = "dossier"
+	home._bench_socket = -1
+	home._birth_of = character_key
+	home._birth_pick = key
+	home._birth_sure = ""
+	home.open("delvers", true)
 
 class BirthSwap extends Control:
 	## What stands behind the rail's Birthstone swap: the catch a press off the card lands on

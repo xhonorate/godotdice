@@ -361,6 +361,18 @@ const RIGS: Dictionary = {
 			"Thorns": [["move", "shell", Vector3.ZERO, Vector3(0, -0.07, 0), "hold"], ["turn", "stalk_r", X, 0.0, 30.0, "hold"], ["turn", "stalk_l", X, 0.0, 30.0, "hold"],
 				["turn", "spade_l", X, 0.0, -18.0, "hold"], ["each", "sprouts", 0.0, 0.7, "hold"], ["each", "plants", 0.0, 0.2, "hold"],
 				["fx", 0.3, "shards", {"from": "Core02", "color": "#9ad35a", "amount": 10, "speed": 2.5}]],
+			## Thin Out (W3 round 3, November 16, 2026), Jam's rule as a gardener's move: bends its
+			## eyes down over the seedlings on its back and snips three times with its spade, quick
+			## as shears; the smallest sprouts shrink away and green cuttings fly at the party. Not
+			## on its dice: built and benched, then held back (Vesper's four d4s lose ~16 points
+			## against it, build/pt_nov13/impl/r3_creatures.md); ready if the owner wants it.
+			"Thin Out": [["turn", "stalk_r", X, 0.0, 24.0, "hold"], ["turn", "stalk_l", X, 0.0, 24.0, "hold"],
+				["turn", "spade_l", X, -24.0, 22.0, "thrice"], ["each", "sprouts", 0.0, -0.55, "hold"], ["turn", "garden", Z, 0.0, 3.0, "hold"],
+				["fx", 0.29, "swipe", {"about": "spade_l", "axis": X, "start": Vector3(0, 0.5, 1), "radius": 0.9, "sweep": 80.0}],
+				["fx", 0.3, "shards", {"from": "ClawL05", "color": "#9ad35a", "amount": 5, "speed": 2.4}],
+				["fx", 0.52, "shards", {"from": "ClawL05", "color": "#9ad35a", "amount": 5, "speed": 2.4}],
+				["fx", 0.74, "shards", {"from": "ClawL05", "color": "#9ad35a", "amount": 6, "speed": 2.8}],
+				["fx", 0.5, "puff", {"from": "Core02", "color": "#6a5440", "amount": 6, "size": 0.5, "rise": 0.3}]],
 		},
 		"heavy": {
 			## Ram held: it rears higher, eyes flat, legs scrabbling and kicking dirt up behind, and

@@ -10,6 +10,9 @@ signal vote(offer_id: String)
 signal light
 
 const GemIcons = preload("res://view/gems/gem_icons.gd")
+const WardenPlate = preload("res://view/run/warden_plate.gd")
+const Plates = preload("res://view/ui/plates.gd")
+const Tips = preload("res://view/ui/tips.gd")
 
 const STEP := 84.0
 const NODE := 16.0
@@ -88,6 +91,17 @@ var _flows: Array = []
 var _run_serial: int = 0
 var _layout_key: Array = []
 var _laid: Dictionary = {}
+## Over the hall of the Warden (or the final boss) the stretch ends at: pointing at it, or a
+## finger held on it, brings up its name, face and two signature moves (review card W2).
+var _hall_hot: Control
+## Where the hall was drawn last frame and how deep it stands, or a depth of -1 for none.
+var _hall_drawn: Dictionary = {"depth": -1}
+## The header's line naming the Warden ahead ("The Foreman · depth 8"), there from the
+## stretch's first floor even while its hall is still below the chart's edge, and its hot spot.
+var _head_hot: Control
+var _head_drawn: Dictionary = {"depth": -1}
+## The Warden's baked faces, by creature key, read once.
+var _faces: Dictionary = {}
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -104,6 +118,18 @@ func _ready() -> void:
 	_lamp.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_lamp.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	_lamp.visible = false
+	_hall_hot = Control.new()
+	_hall_hot.name = "WardenHot"
+	_hall_hot.visible = false
+	_hall_hot.mouse_filter = Control.MOUSE_FILTER_PASS
+	add_child(_hall_hot)
+	Tips.attach(_hall_hot, func() -> Control: return _warden_plate(int(_hall_drawn.get("depth", -1))), {"tone": DeepUi.CHAMBER_colorS.warden})
+	_head_hot = Control.new()
+	_head_hot.name = "WardenLineHot"
+	_head_hot.visible = false
+	_head_hot.mouse_filter = Control.MOUSE_FILTER_PASS
+	add_child(_head_hot)
+	Tips.attach(_head_hot, func() -> Control: return _warden_plate(int(_head_drawn.get("depth", -1))), {"tone": DeepUi.CHAMBER_colorS.warden, "below": true})
 
 func show_run(state: Dictionary) -> void:
 	var first: bool = run.is_empty()
@@ -145,6 +171,60 @@ func _process(delta: float) -> void:
 		queue_redraw()
 		if not _painted.is_equal_approx(Vector2(_shown, _nudge)):
 			_mark()
+	_place_hall_hot()
+
+func _place_hall_hot() -> void:
+	## The hall's hot spot follows the hall as the chart scrolls; it goes with it.
+	if _hall_hot == null:
+		return
+	var depth: int = int(_hall_drawn.get("depth", -1))
+	var at: Vector2 = _hall_drawn.get("at", Vector2.ZERO)
+	var shown: bool = depth > 0 and is_visible_in_tree() and _fade(at.y) > 0.3
+	if shown:
+		var edge: float = 40.0
+		_hall_hot.size = Vector2(edge, edge)
+		_hall_hot.position = at - Vector2(edge, edge) * 0.5
+	if _hall_hot.visible != shown:
+		_hall_hot.visible = shown
+	var line: bool = int(_head_drawn.get("depth", -1)) > 0 and is_visible_in_tree()
+	if line:
+		var rect: Rect2 = _head_drawn.get("rect", Rect2())
+		_head_hot.position = rect.position
+		_head_hot.size = rect.size
+	if _head_hot.visible != line:
+		_head_hot.visible = line
+
+func _warden_ahead() -> int:
+	## The depth of the Warden (or the final boss) the party is to meet next on this stretch:
+	## the hall under the landing it stands at, or the one under the landing it ends at. -1 for none.
+	var map: Dictionary = _map()
+	if map.is_empty():
+		return -1
+	var from: int = int(map.get("from", 0))
+	if from > 0 and DeepDescent.run_is_warden(run, from) and not _hall_beaten(from):
+		return from
+	var to: int = int(map.get("to", 0))
+	if to > 0 and DeepDescent.run_is_warden(run, to) and not _hall_beaten(to):
+		return to
+	return -1
+
+func _warden_plate(depth: int) -> Control:
+	## The Warden's plate: its face, its name, what it guards, its two signature moves.
+	if depth <= 0 or run.is_empty():
+		return null
+	var key: String = DeepDescent.warden_key(run, depth)
+	if key.is_empty():
+		return null
+	var plate: Control = Plates.plate(300.0)
+	WardenPlate.fill(plate, key, run, depth, 276.0)
+	if _hall_beaten(depth):
+		DeepUi.label(plate, "Beaten.", 12, DeepUi.GOOD)
+	return plate
+
+func _warden_face(key: String) -> Texture2D:
+	if not _faces.has(key):
+		_faces[key] = WardenPlate.portrait(key) if DisplayServer.get_name() != "headless" else null
+	return _faces[key]
 
 # --- layout -----------------------------------------------------------------------------------
 
@@ -231,7 +311,10 @@ func _in_hall() -> bool:
 
 func _hall_words(depth: int) -> String:
 	var boss: bool = DeepDescent.run_is_boss(run, depth)
+	var key: String = DeepDescent.warden_key(run, depth)
 	var words: String = "Depth %d: %s, past the landing." % [depth, "the final boss's hall" if boss else "a Warden's hall"]
+	if not key.is_empty():
+		words += " " + WardenPlate.short_line(key) + "."
 	if _hall_beaten(depth):
 		return words + (" The boss is dead." if boss else " Its Warden is dead.")
 	return words + (" The boss guards the bottom of the mine." if boss else " Its Warden guards the way on down.")
@@ -362,6 +445,7 @@ func _draw() -> void:
 	_canvas = self
 	_live_spots.clear()
 	_spots = _live_spots
+	_hall_drawn = {"depth": -1}
 	if run.is_empty():
 		return
 	_fit_step()
@@ -424,6 +508,19 @@ func _draw_header(map: Dictionary, depth: int) -> void:
 	_canvas.draw_string(DeepUi.text_face(small), Vector2(size.x - width - 18, 46), words, HORIZONTAL_ALIGNMENT_LEFT, -1, small, tone)
 	_spots.append({"at": Vector2(size.x - width * 0.5 - 24, 40), "radius": 14.0,
 		"text": "The next floor is lit, including its dark mouths." if lit else "Your lantern shows two floors ahead."})
+	## The Warden this stretch leads to, named from its first floor (review card W2).
+	var ahead: int = _warden_ahead()
+	_head_drawn = {"depth": -1}
+	if ahead > 0:
+		var key: String = DeepDescent.warden_key(run, ahead)
+		var guard: String = str(DeepContent.creature(key).get("name", "")) if not key.is_empty() else ""
+		if not guard.is_empty():
+			var said: String = "%s · depth %d" % [guard, ahead]
+			var tone_w: Color = DeepUi.CHAMBER_colorS.warden
+			_glyph("crown", Vector2(26, 62), 14.0, tone_w)
+			_canvas.draw_string(DeepUi.text_face(small), Vector2(38, 67), said, HORIZONTAL_ALIGNMENT_LEFT, size.x - 56, small, tone_w.lightened(0.2))
+			var said_w: float = minf(size.x - 56, DeepUi.text_face(small).get_string_size(said, HORIZONTAL_ALIGNMENT_LEFT, -1, small).x)
+			_head_drawn = {"depth": ahead, "rect": Rect2(Vector2(16, 52), Vector2(said_w + 28, 22))}
 
 func _draw_depths() -> void:
 	## Depth numbers down the gutter, and a faint rule across the rock at each.
@@ -452,7 +549,8 @@ func _medallion(at: Vector2, radius: float, kind: String, strength: float, ring:
 	var fade: float = _fade(at.y) * strength
 	_canvas.draw_circle(at, radius, Color(tone.darkened(0.62), 0.96 * fade))
 	_canvas.draw_arc(at, radius, 0, TAU, 32, Color(ring if ring.a > 0.0 else tone, 0.95 * fade), 2.0, true)
-	var glyph: String = mark if not mark.is_empty() else str(DeepUi.CHAMBER_GLYPHS.get(kind, "arch"))
+	## A dark mouth wears the "?" its tunnel shows in the room, not an arch (review card X15).
+	var glyph: String = mark if not mark.is_empty() else ("question" if kind == "hidden" else str(DeepUi.CHAMBER_GLYPHS.get(kind, "arch")))
 	_glyph(glyph, at, radius * 1.12, Color(tone.lightened(0.35), fade))
 
 func _face(kind: String, oddity: String, entered: bool) -> Dictionary:
@@ -462,7 +560,7 @@ func _face(kind: String, oddity: String, entered: bool) -> Dictionary:
 	if entered and kind == "oddity" and not oddity.is_empty():
 		return {"tone": "oddity", "mark": str(DeepUi.ODDITY_GLYPHS.get(oddity, "swirl")),
 			"words": "%s, an oddity" % str(DeepContent.oddity(oddity).get("name", "something odd"))}
-	return {"tone": kind, "mark": str(DeepUi.CHAMBER_GLYPHS.get(kind, "arch")), "words": _kind_words(kind)}
+	return {"tone": kind, "mark": "question" if kind == "hidden" else str(DeepUi.CHAMBER_GLYPHS.get(kind, "arch")), "words": _kind_words(kind)}
 
 func _draw_trail(positions: Dictionary) -> void:
 	## The way the party came, above the stretch it is in now.
@@ -698,7 +796,7 @@ func _kind_words(kind: String) -> String:
 		"well": return "a wishing well: throw something precious down it"
 		"vat": return "a vat: dip a die in a new material, or melt it plain"
 		"altar": return "an altar: five gems given up for one"
-		"rest_stop": return "a rest stop: heal, or take the supplies"
+		"rest_stop": return "a rest stop: heal, or polish a gem for the run"
 		"landing": return "a landing"
 	return kind
 
@@ -765,10 +863,33 @@ func _draw_hall(at: Vector2, depth: int, reachable: bool) -> void:
 	var tone: Color = DeepUi.CHAMBER_colorS.warden
 	var threat: float = 54.0 + 8.0 * sin(_clock * 2.0)
 	_glow(at, Vector2(threat, threat), Color(tone, (0.3 if reachable else 0.18) * fade))
-	_canvas.draw_circle(at, 15.0, Color(tone.darkened(0.65), 0.97 * fade))
-	_canvas.draw_arc(at, 15.0, 0, TAU, 32, Color(tone, (0.95 if reachable else 0.5) * fade), 2.2, true)
-	_glyph("crown", at, 17.0, Color(tone.lightened(0.3), fade))
-	_canvas.draw_string(DeepUi.caps_font(), at + Vector2(22, 5), "BOSS" if DeepDescent.run_is_boss(run, depth) else "WARDEN", HORIZONTAL_ALIGNMENT_LEFT, -1, _caps(11), Color(tone, 0.85 * fade))
+	## Named and faced from the stretch's first floor (review card W2): its own picture in the
+	## ring, a small crown on the ring, and its name beside it where "WARDEN" used to be.
+	var key: String = DeepDescent.warden_key(run, depth)
+	var face: Texture2D = _warden_face(key) if not key.is_empty() else null
+	var radius: float = 17.0 if face != null else 15.0
+	_canvas.draw_circle(at, radius, Color(tone.darkened(0.65), 0.97 * fade))
+	if face != null:
+		var points := PackedVector2Array()
+		var uvs := PackedVector2Array()
+		for index in range(32):
+			var unit := Vector2(cos(TAU * float(index) / 32.0), sin(TAU * float(index) / 32.0))
+			points.append(at + unit * (radius - 1.0))
+			uvs.append(Vector2(0.5, 0.5) + unit * 0.5)
+		_canvas.draw_colored_polygon(points, Color(1, 1, 1, fade), uvs, face)
+	_canvas.draw_arc(at, radius, 0, TAU, 32, Color(tone, (0.95 if reachable else 0.5) * fade), 2.2, true)
+	if face != null:
+		var badge: Vector2 = at + Vector2(radius * 0.72, -radius * 0.72)
+		_canvas.draw_circle(badge, 6.5, Color(tone.darkened(0.6), fade))
+		_glyph("crown", badge, 9.0, Color(tone.lightened(0.35), fade))
+	else:
+		_glyph("crown", at, 17.0, Color(tone.lightened(0.3), fade))
+	var named: String = str(DeepContent.creature(key).get("name", "")).to_upper() if not key.is_empty() else ""
+	if named.is_empty():
+		named = "BOSS" if DeepDescent.run_is_boss(run, depth) else "WARDEN"
+	_canvas.draw_string(DeepUi.caps_font(), at + Vector2(radius + 7.0, 5), named, HORIZONTAL_ALIGNMENT_LEFT, maxf(40.0, size.x - at.x - radius - 12.0), _caps(11), Color(tone, 0.85 * fade))
+	if reachable or int(_hall_drawn.get("depth", -1)) < 0:
+		_hall_drawn = {"depth": depth, "at": at}
 
 func _draw_party(at: Vector2) -> void:
 	## Where the party stands: a lantern's glow and a slow pulse.

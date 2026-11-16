@@ -191,10 +191,32 @@ static func toolbar_narrow(home: Control, parent: Node, context: String, opts: D
 	way.name = "Direction"
 	way.focus_mode = Control.FOCUS_NONE
 	DeepUi.ledger_button(way, DeepUi.SLATE_HI, DeepUi.LEDGER_LINE, 4)
-	var dots := DeepUi.hbox(rows, 2)
-	dots.alignment = BoxContainer.ALIGNMENT_CENTER
-	_dots(home, dots, context, s)
+	## The dots on a row of their own, each a finger wide on the phone (28 points, H2): at 18
+	## points apart a tap on one landed on its neighbour. A host may stand them at the end of a
+	## row of its own instead (`dots_into`: the phone bag's toggles, H2 round 3, November 16,
+	## 2026), which gives the row they had to the list.
+	var into: Variant = opts.get("dots_into", null)
+	var dots: HBoxContainer
+	if into is HBoxContainer:
+		DeepUi.spacer(into)
+		dots = DeepUi.hbox(into, 0)
+		dots.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	else:
+		dots = DeepUi.hbox(rows, 0 if DeepUi.phone else 2)
+		dots.alignment = BoxContainer.ALIGNMENT_CENTER
+	dots.name = "Dots"
+	_dots(home, dots, context, s, DeepUi.pt(DeepUi.FINGER_LEAST) if DeepUi.phone else 0.0)
 	return rows
+
+static func filter_words(home: Control, context: String) -> String:
+	## What an empty list says when the color dots emptied it (H2): "No red stones · tap red
+	## again to show every color". "" when the dots show every color.
+	var picked: Array = settings(home, context).get("colors", [])
+	if picked.is_empty():
+		return ""
+	var names: Array = picked.map(func(c: Variant) -> String: return str(DeepContent.color(str(c)).get("name", str(c).capitalize())).to_lower())
+	var named: String = " or ".join(names)
+	return DeepUi.phone_words("No %s stones · click %s again to show every color" % [named, names[0] if names.size() == 1 else "a picked dot"])
 
 static func _sort_dropdown(home: Control, row: Node, context: String, s: Dictionary, only: Array) -> Button:
 	## The sort as a drop-down: a button naming the sort, with a chevron, that opens the list of
@@ -317,11 +339,13 @@ static func _direction(home: Control, row: Node, context: String, s: Dictionary)
 	way.tooltip_text = "Highest first" if bool(s.desc) else "Lowest first"
 	return way
 
-static func _dots(home: Control, row: Node, context: String, s: Dictionary) -> void:
+static func _dots(home: Control, row: Node, context: String, s: Dictionary, wide: float = 0.0) -> void:
 	## A dot a color: click one to see only its stones, Shift-click to add another, click a
-	## picked one to show every color again.
+	## picked one to show every color again. `wide`: each dot's width, to space them for fingers.
 	for color in COLORS:
 		var dot := ColorDot.new(color, s.colors.is_empty() or s.colors.has(color), s.colors.has(color))
+		if wide > 0.0:
+			dot.custom_minimum_size.x = maxf(dot.custom_minimum_size.x, wide)
 		dot.tooltip_text = "Only %s stones" % str(DeepContent.color(color).get("name", color.capitalize())) if not s.colors.has(color) else "Show every color again"
 		row.add_child(dot)
 		var key: String = color
@@ -390,7 +414,7 @@ class ColorDot extends Control:
 	func _has_point(point: Vector2) -> bool:
 		## A click counts well past the dot: 34 tall, and half the gap to each neighbour wide,
 		## so the dots share the whole strip between them. The dot is drawn as it always was.
-		var reach: Vector2 = REACH * _k() if not DeepUi.phone else Vector2(DeepUi.pt(3), (DeepUi.TOUCH - size.y) * 0.5)
+		var reach: Vector2 = REACH * _k() if not DeepUi.phone else Vector2(0.0 if size.x >= DeepUi.pt(DeepUi.FINGER_LEAST) else DeepUi.pt(3), maxf(0.0, (DeepUi.TOUCH - size.y) * 0.5))
 		return Rect2(-reach, size + reach * 2.0).has_point(point)
 	func _draw() -> void:
 		var centre: Vector2 = size * 0.5
@@ -514,6 +538,15 @@ static func table(home: Control, parent: Node, stones: Array, opts: Dictionary =
 			head.add_child(b)
 			cell = b
 		cell.custom_minimum_size.x = float(column[2])
+		## Every heading exactly its column's width, as every row's cell is (X12): a heading
+		## wider than its column (a button's padding, the sort arrow) pushed the rest along.
+		if cell is Button:
+			(cell as Button).clip_text = true
+			## No padding of its own: the heading's words start where its column's values do.
+			for look in ["normal", "hover", "pressed", "hover_pressed", "focus", "disabled"]:
+				(cell as Button).add_theme_stylebox_override(look, StyleBoxEmpty.new())
+		elif cell is Label:
+			(cell as Label).clip_text = true
 		if int(column[2]) == 0:
 			cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var wearing: Dictionary = _wearers(home)
@@ -539,15 +572,16 @@ static func table(home: Control, parent: Node, stones: Array, opts: Dictionary =
 		if bool(stone.get("fresh", false)):
 			DeepUi.chip(name_cell, "NEW", StoneCard.PIP_NEW, 10).name = "New"
 		var grade: Dictionary = DeepStone.grade(stone)
-		DeepUi.label(row, "%s · %d" % [str(DeepStone.TIER_NAMES.get(str(grade.tier), grade.tier)), int(grade.score)], 13, DeepUi.tier_color(str(grade.tier))).custom_minimum_size.x = 104
-		DeepUi.label(row, "%d ct" % int(stone.get("carat", 1)), 14, DeepUi.PAPER).custom_minimum_size.x = 56
+		## Each cell held to its heading's width (X12), so the values stand under their headings.
+		_fixed(DeepUi.label(row, "%s · %d" % [str(DeepStone.TIER_NAMES.get(str(grade.tier), grade.tier)), int(grade.score)], 13, DeepUi.tier_color(str(grade.tier))), 104)
+		_fixed(DeepUi.label(row, "%d ct" % int(stone.get("carat", 1)), 14, DeepUi.PAPER), 56)
 		var cut_cell := DeepUi.hbox(row, 6)
 		cut_cell.custom_minimum_size.x = 124
 		cut_cell.add_child(StoneCard.Pips.new(int(stone.get("cut", 0)) + 1, DeepContent.cuts().size(), 6.0, StoneCard.TileTags.CUT_TONE))
-		DeepUi.label(cut_cell, DeepContent.cut_name(int(stone.get("cut", 0))), 13, DeepUi.MUTED)
-		DeepUi.label(row, DeepContent.clarity_name(int(stone.get("clarity", 0))), 13, DeepUi.MUTED).custom_minimum_size.x = 100
+		_fixed(DeepUi.label(cut_cell, DeepContent.cut_name(int(stone.get("cut", 0))), 13, DeepUi.MUTED), 0)
+		_fixed(DeepUi.label(row, DeepContent.clarity_name(int(stone.get("clarity", 0))), 13, DeepUi.MUTED), 100)
 		## Worth is a sort, so it is a column too: a list sorted by it shows what it was sorted on.
-		DeepUi.label(row, "%d" % DeepStone.value(stone), 13, DeepUi.ACCENT).custom_minimum_size.x = 56
+		_fixed(DeepUi.label(row, "%d" % DeepStone.value(stone), 13, DeepUi.ACCENT), 56)
 		var inside: Array = stone.get("inclusions", []).map(func(k: Variant) -> String: return str(DeepContent.inclusion(str(k)).get("name", k)))
 		var inside_label := DeepUi.label(row, ", ".join(inside) if not inside.is_empty() else "–", 12, DeepUi.MUTED)
 		inside_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -564,9 +598,10 @@ static func table(home: Control, parent: Node, stones: Array, opts: Dictionary =
 		where_label.custom_minimum_size.x = 130
 		where_label.clip_text = true
 		where_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-		DeepUi.label(row, str(provenance.get("date", "–")), 12, DeepUi.DIM).custom_minimum_size.x = 84
+		_fixed(DeepUi.label(row, str(provenance.get("date", "–")), 12, DeepUi.DIM), 84)
 		var in_cell := DeepUi.hbox(row, 3)
 		in_cell.custom_minimum_size.x = 76
+		in_cell.clip_contents = true
 		for character in wearing.get(skill, []):
 			var face := Roster.Portrait.new(str(character), Vector2(22, 22), false, false, false, Roster.worn_stone(home.profile, str(character)))
 			face.tooltip_text = "In %s's sockets" % DeepContent.character_title(str(character))
@@ -579,6 +614,17 @@ static func table(home: Control, parent: Node, stones: Array, opts: Dictionary =
 					on_pick.call(picked_stone))
 		index += 1
 	return box
+
+static func _fixed(label: Label, width: float) -> Label:
+	## A list cell exactly `width` across (or as its row lets it, at 0): its words cut short
+	## with an ellipsis rather than widening the column under a heading.
+	label.clip_text = true
+	label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	if width > 0.0:
+		label.custom_minimum_size.x = width
+	else:
+		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	return label
 
 static func _row_style(picked: bool, index: int) -> StyleBoxFlat:
 	return DeepUi.flat(Color(DeepUi.ACCENT, 0.12) if picked else Color(1, 1, 1, 0.025 if index % 2 == 0 else 0.0), DeepUi.ACCENT if picked else Color(0, 0, 0, 0), 6, 4)

@@ -55,6 +55,9 @@ const HOME_LOOK := Vector3(0.0, 1.2, -3.5)
 ## Where the eye rests in a card room: lower than in a fight, so the forge, the bench or the
 ## plinth stands clear above the row of cards along the bottom instead of behind it.
 const CARD_LOOK := Vector3(0.0, 0.6, -3.0)
+## Where the party stands at a merchant's counter: a step nearer and a little lower than home,
+## along the same line of sight, so the goods read larger (review card R3, November 16, 2026).
+const STALL_EYE := Vector3(0.0, 1.85, 3.6)
 ## Where the party stands to choose a way on: near enough that the mouths are plain.
 const CROSSROADS := Vector3(0.0, 2.05, -9.0)
 const CROSSROADS_LOOK := Vector3(0.0, 2.1, Chamber.Z_FAR - 2.0)
@@ -392,7 +395,7 @@ func show_room(p: Dictionary, force: bool = false) -> bool:
 	for step in made.steps:
 		(step as Callable).call()
 	_settle_in()
-	camera.home_position = HOME
+	camera.home_position = room_eye(str(p.get("kind", "")))
 	camera.home_look = room_look(str(p.get("kind", "")))
 	camera.home_fov = BASE_FOV
 	camera.bob = 0.0
@@ -443,6 +446,14 @@ static func room_look(kind: String) -> Vector3:
 	if kind in DeepDescent.ROCK_ROOMS:
 		return HOME_LOOK + Vector3(0, 0.55, -1.0)
 	return HOME_LOOK
+
+static func room_eye(kind: String) -> Vector3:
+	## Where the party stands in a room of this kind, the partner of `room_look`: the walk in
+	## ends here, so the step in and the settle are one move. Only the merchant's counter is
+	## stood nearer; every other room keeps home.
+	if kind == "merchant":
+		return STALL_EYE
+	return HOME
 
 func _settle_in() -> void:
 	## The room the party now stands in, at the origin: its air, its flares, its mouths.
@@ -819,6 +830,11 @@ func retire_business() -> float:
 func _retire(done: Node3D) -> float:
 	## The business goes its own way down (a vein, a hoard, an altar know how to `collapse`),
 	## or sinks; either way nothing stands at the arena any more. Returns how long to wait.
+	## Its words go at once: drawn flat over the room, they would sink with it and float over
+	## the floor (a stall's "Sell" and "Appraise" did, review card X15).
+	for spot in get_tree().get_nodes_in_group(NAME_GROUP) if is_inside_tree() else []:
+		if done.is_ancestor_of(spot):
+			(spot as Node).set_meta("alpha", 0.0)
 	var wait: float = done.collapse(fx) if done.has_method("collapse") else _sink(done)
 	_business = null
 	_business_key = ""
@@ -1568,7 +1584,7 @@ func walk(p: Dictionary, exit_index: int, arrive: Callable = Callable(), halfway
 		points.append(tunnel.point_at(s) + Vector3.UP * EYE)
 		s += 2.4
 	points.append(tunnel.point_at(tunnel.length) + Vector3.UP * EYE)
-	points.append(origin + HOME)
+	points.append(origin + room_eye(str(p.get("kind", ""))))
 	var path: Curve3D = _smooth(points)
 	var ahead_env: Environment = ahead.environment()
 	_travel = {"kind": "walk", "path": path, "length": path.get_baked_length(), "seconds": WALK_SECONDS, "t": 0.0,
@@ -1683,7 +1699,7 @@ func _arrive(travel: Dictionary) -> void:
 	room = ahead
 	place = travel.place
 	_settle_in()
-	camera.home_position = HOME
+	camera.home_position = room_eye(str(place.get("kind", "")))
 	## The look the walk ended on, in the room's own frame now the world has moved back: the
 	## room's builder leads the eye to this same point, so nothing pans after the step in.
 	camera.home_look = Vector3(travel.look_end) - Vector3(travel.origin)
@@ -2151,6 +2167,8 @@ func _sync_names() -> void:
 					_phone_name(label, spot)
 				if spot.has_meta("stagger"):
 					label.set_meta("stagger", true)
+				if spot.has_meta("under_tags"):
+					label.set_meta("under_tags", true)
 				_names_layer.add_child(label)
 				_names[key] = label
 			## Only when they change: each override has the word laid out again.
@@ -2206,9 +2224,17 @@ func _stagger_names() -> void:
 			crowded = true
 	if not crowded:
 		return
+	var step: float = 0.0
 	for index in range(1, row.size(), 2):
 		var label: Label = row[index]
 		label.position.y += label.size.y + DeepUi.pt(2)
+		step = maxf(step, label.size.y + DeepUi.pt(2))
+	## A stall stone's marks ("Lucky find", "Void", review card S1) hang under the tags: they
+	## step down past the second line, so a mark never sits beside a tag stepped down.
+	for key in _names:
+		var mark: Variant = _names[key]
+		if mark is Label and is_instance_valid(mark) and (mark as Label).visible and bool((mark as Label).get_meta("under_tags", false)):
+			(mark as Label).position.y += step
 
 func shrine_rect() -> Rect2:
 	## Where the mark over an oddity's plinth floats on the screen, its bob included, in the

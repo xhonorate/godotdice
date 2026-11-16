@@ -86,7 +86,8 @@ const PANE_WIDTH := 250.0
 const PANE_HEIGHT := 140.0
 ## The phone's bag (board run-bag): its width inside the screen's safe edge, its stones four a
 ## row between two sizes, and the card at its foot that reads the stone tapped (points).
-const PHONE_COLUMN := 290.0
+## 296 (was 290, H2 round 3): the toggles and the seven color dots, a finger each, share a row.
+const PHONE_COLUMN := 296.0
 const PHONE_COLUMNS := 4
 const PHONE_TILE := Vector2(50.0, 64.0)
 const PHONE_CARD := 124.0
@@ -144,6 +145,8 @@ var sort_by: String:
 		browse["_sort"].sort = value
 ## The stone the drawer's reading pane is open on (the last one pointed at).
 var _reading: String = ""
+## The room the dock last drew (phase, chamber, depth): see `show_run`.
+var _room_seen: String = ""
 var _key: String = ""
 var _targets: Array = []
 ## A choice waiting on one of the things the player carries: {kind, items, prompt}. It is
@@ -176,10 +179,6 @@ func _ready() -> void:
 	_drawer.name = "Bag"
 	## The chart's plate (`ShaftMap.side_plate`), its shadow falling to the left over the room.
 	var plate: StyleBoxFlat = ShaftMap.side_plate(-1.0, int(COLUMN_PAD))
-	## On the phone the panel runs to the screen's edge, its stones inside the safe edge.
-	if DeepUi.phone:
-		plate.content_margin_right += DeepUi.safe_right
-		plate.content_margin_bottom += DeepUi.safe_bottom
 	_drawer.add_theme_stylebox_override("panel", plate)
 	_drawer.mouse_filter = Control.MOUSE_FILTER_STOP
 	_drawer.set_anchors_and_offsets_preset(Control.PRESET_RIGHT_WIDE)
@@ -197,6 +196,7 @@ func _ready() -> void:
 	_pane.add_theme_stylebox_override("panel", DeepUi.ledger(DeepUi.LEDGER_FILL, DeepUi.ACCENT_DIM, 14, 12, 3, 5))
 	_pane.mouse_filter = Control.MOUSE_FILTER_STOP
 	_pane.visible = false
+	_pane.mouse_exited.connect(_pane_left_soon)
 	add_child(_pane)
 	_pane_box = DeepUi.vbox(_pane, 6)
 	_pane_box.name = "Pane"
@@ -246,11 +246,13 @@ func _fit_dock() -> void:
 	_drawer.offset_top = COLUMN_TOP
 	_drawer.offset_bottom = -14.0 if COLUMN_OVER_DOCK else - side_foot()
 	if DeepUi.phone:
-		## The phone's bag stands from under the strip to the foot of the screen, over the
-		## dock's dice, as the board has it.
+		## The phone's bag stands from under the strip down over the dock's dice, as the board
+		## has it, its edges at the screen's safe edges: a card like the chart's on the left,
+		## not a plate running off the screen with an empty strip inside it (H2, round 4,
+		## November 16, 2026).
 		_drawer.offset_left = - _phone_column()
-		_drawer.offset_right = 0.0
-		_drawer.offset_bottom = 0.0
+		_drawer.offset_right = - DeepUi.safe_right
+		_drawer.offset_bottom = - DeepUi.safe_bottom
 
 func side_foot() -> float:
 	## How far above the foot of the screen a panel along the side ends: the bag column's foot,
@@ -273,8 +275,6 @@ func _column_height() -> float:
 	## How tall the column stands inside its plate, from its offsets (its own size lags a frame).
 	if size.y <= 0.0:
 		return 0.0
-	if DeepUi.phone:
-		return size.y - _drawer.offset_top + _drawer.offset_bottom - COLUMN_PAD * 2.0 - DeepUi.safe_bottom
 	return size.y - _drawer.offset_top + _drawer.offset_bottom - COLUMN_PAD * 2.0
 
 func _tabs_lift() -> float:
@@ -475,7 +475,8 @@ func flash_sockets(indices: Array, badge: String = "") -> void:
 				child.fire()
 		if at == 0 and not badge.is_empty():
 			var over: Vector2 = slot.get_global_rect().get_center() - get_global_rect().position - Vector2(0, BattleScreen.SOCKET_EDGE * 0.66)
-			DeepUi.float_text(self, over, badge, DeepUi.GOOD, 16, 26.0, 1.3)
+			## On the phone in points, never under the floor (review card X18: "6 ct" floated at 8 points).
+			DeepUi.float_text(self, over, badge, DeepUi.GOOD, maxi(int(round(DeepUi.pt(12))), DeepUi.min_text()) if DeepUi.phone else 16, 26.0, 1.3)
 
 func preview_hp(cost: int) -> void:
 	## Health a click about to be made will cost, hatched red on the ring while it is pointed
@@ -616,6 +617,12 @@ func toggle_drawer() -> void:
 
 func show_run(state: Dictionary) -> void:
 	run = state
+	## A new room puts the reading plate away: a stone read at the last room's stall has no
+	## business standing over the next one's (X1).
+	var room: String = "%s:%s:%d" % [str(state.get("phase", "")), str(state.get("chamber", {}).get("kind", "")), int(state.get("depth", 0))]
+	if room != _room_seen:
+		_room_seen = room
+		_reading = ""
 	## Put away through a fight, which sends a new state with every step it plays: nothing
 	## here is drawn then, and the key below catches it up the moment it is shown again.
 	if not visible:
@@ -826,6 +833,7 @@ func _socket(parent: Node, unit: Dictionary, index: int, cap: float = -1.0) -> v
 		picture.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		slot.add_child(picture)
 		_lay_trigger(card, stone, _rail_context(unit, index))
+		polish_badge(slot, stone)
 		var set_stone: Dictionary = stone
 		Tips.attach(card, func() -> Control: return _refused(Plates.gem(set_stone, _rail_context(unit, index), [], {}, [], _rider_opts(unit, index, set_stone)), "stone", str(set_stone.id)), {"tone": DeepUi.color(DeepStone.color(set_stone)), "keep": true})
 		if editable() and not DeepStone.is_locked(stone):
@@ -870,6 +878,27 @@ func _socket(parent: Node, unit: Dictionary, index: int, cap: float = -1.0) -> v
 		_inspectable(card, func() -> void:
 			var context: Dictionary = _rail_context(unit, at)
 			Inspector.stone(stone, {"context": context} if not context.is_empty() else {}))
+
+static func polish_badge(slot: Control, stone: Dictionary) -> void:
+	## A polished gem (review cards R3 and B1) wears a small "+1" with the wheel's mark on its
+	## ring's shoulder, so the rail shows what the stall or the rest stop did to it; its plate
+	## says it lasts the run.
+	var lent: int = DeepStone.polished(stone)
+	if lent <= 0:
+		return
+	var badge := PanelContainer.new()
+	badge.name = "Polished"
+	badge.add_theme_stylebox_override("panel", DeepUi.capsule(badge, Color(0.04, 0.05, 0.07, 0.9), Plates.POLISHED, 1, 4, 0))
+	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	slot.add_child(badge)
+	var row := DeepUi.stat(badge, "buff_wheel", "+%d" % lent, Plates.POLISHED, 11)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for child in row.get_children():
+		(child as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
+	badge.reset_size()
+	## On the ring's lower right shoulder, clear of the name over it and the trigger under it.
+	var mark_size: Vector2 = badge.get_combined_minimum_size()
+	badge.position = Vector2(slot.custom_minimum_size.x - mark_size.x + 6.0, slot.custom_minimum_size.y - mark_size.y + 2.0)
 
 func _lay_trigger(card: Control, stone: Dictionary, context: Dictionary) -> void:
 	## What a set stone asks of the hand, between it and its name, at the rung it stands on:
@@ -1110,7 +1139,9 @@ func _build_drawer(unit: Dictionary) -> void:
 	var everything: Array = unit.get("haul", [])
 	var haul: Array = _shown_haul(unit)
 	## The toggles first (the owner, Nov 6, 2026, round 8), then the sort and the color dots.
-	var head := DeepUi.hbox(column, 4)
+	## On the phone the color dots stand at this row's right end (H2 round 3), the toggles
+	## pressed close to make room for them.
+	var head := DeepUi.hbox(column, int(DeepUi.pt(1)) if DeepUi.phone else 4)
 	head.name = "Toggles"
 	var appraised_count: int = everything.filter(func(s: Dictionary) -> bool: return bool(s.get("appraised", false)) and not DeepStone.is_geode(s)).size()
 	var geode_count: int = everything.filter(func(s: Dictionary) -> bool: return DeepStone.is_geode(s)).size()
@@ -1125,7 +1156,7 @@ func _build_drawer(unit: Dictionary) -> void:
 	_toggle(head, "geode", str(geode_count), show_geodes, Color("c8a8ff"), func() -> void:
 		show_geodes = not show_geodes
 		_rebuild()).tooltip_text = "%s: only the workshop cracks them" % DeepUi.plural(geode_count, "Geode")
-	StoneBrowser.toolbar_narrow(self, column, "bag", {"sorts": BAG_SORTS})
+	StoneBrowser.toolbar_narrow(self, column, "bag", {"sorts": BAG_SORTS, "dots_into": head if DeepUi.phone else null})
 	## The tiles take what is left between the toggles and the foot; how many rows that is
 	## decides the page.
 	var room := Control.new()
@@ -1137,6 +1168,11 @@ func _build_drawer(unit: Dictionary) -> void:
 	foot.name = "Foot"
 	foot.alignment = BoxContainer.ALIGNMENT_CENTER
 	foot.custom_minimum_size.y = DeepUi.pt(DeepUi.FINGER_LEAST) if DeepUi.phone else FOOT_ROW
+	## On the phone the foot stands only for a pager: empty, it left a gap over the reading card
+	## (H2 round 3). It comes back below if the stones run to a second page.
+	if DeepUi.phone:
+		foot.custom_minimum_size.y = 0.0
+		foot.visible = false
 	## On the phone the stone tapped is read on a card pinned at the foot (board run-bag),
 	## its room kept whether one is read or not, so the page of stones never shifts.
 	if DeepUi.phone:
@@ -1146,7 +1182,11 @@ func _build_drawer(unit: Dictionary) -> void:
 		card.custom_minimum_size.y = DeepUi.pt(PHONE_CARD)
 		card.mouse_filter = Control.MOUSE_FILTER_STOP
 		column.add_child(card)
-		DeepUi.vbox(card, int(DeepUi.pt(3))).name = "Pane"
+		var pane := DeepUi.vbox(card, int(DeepUi.pt(3)))
+		pane.name = "Pane"
+		## What it reads stands in the card's middle, not at its top over a band of nothing (H2
+		## round 3).
+		pane.alignment = BoxContainer.ALIGNMENT_CENTER
 	var fixed: float = column.get_combined_minimum_size().y
 	var tall: float = _column_height() - fixed
 	var least: float = DeepUi.pt(PHONE_TILE.x) if DeepUi.phone else GEM_TILE_LEAST
@@ -1157,9 +1197,19 @@ func _build_drawer(unit: Dictionary) -> void:
 		most = minf(most, floor((DeepUi.pt(PHONE_INNER) - float(across - 1) * GEM_TILE_GAP) / float(across)))
 	var rows: int = maxi(1, int(floor((tall + GEM_TILE_GAP) / (least + GEM_TILE_GAP))))
 	var tile: float = clampf(floor((tall - float(rows - 1) * GEM_TILE_GAP) / float(rows)), least, most)
-	set_meta("bag_tile", tile)
 	var each: int = rows * across
 	var count: int = DeepUi.pages(haul.size(), each)
+	if DeepUi.phone and count > 1 and not foot.visible:
+		## More than a page: the foot comes back for the pager, and the rows are counted again.
+		foot.visible = true
+		foot.custom_minimum_size.y = DeepUi.pt(DeepUi.FINGER_LEAST)
+		fixed = column.get_combined_minimum_size().y
+		tall = _column_height() - fixed
+		rows = maxi(1, int(floor((tall + GEM_TILE_GAP) / (least + GEM_TILE_GAP))))
+		tile = clampf(floor((tall - float(rows - 1) * GEM_TILE_GAP) / float(rows)), least, most)
+		each = rows * across
+		count = DeepUi.pages(haul.size(), each)
+	set_meta("bag_tile", tile)
 	var page: int = clampi(int(_pages.get("bag_page", 0)), 0, count - 1)
 	_pages["bag_page"] = page
 	set_meta("bag_pages", count)
@@ -1178,11 +1228,20 @@ func _build_drawer(unit: Dictionary) -> void:
 	_tiles = tiles
 	if haul.is_empty():
 		## Where the first row of stones would stand.
-		var why: String = "Nothing to show." if everything.is_empty() else "Nothing in the bag is shown: turn a toggle on."
+		## The color dots say so when they are what emptied it (H2).
+		var filtered: String = StoneBrowser.filter_words(self, "bag")
+		var why: String = "Nothing to show." if everything.is_empty() else (filtered if not filtered.is_empty() else "Nothing in the bag is shown: turn a toggle on.")
 		var words := DeepUi.wrap(room, why, 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER, COLUMN_INNER)
 		words.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 		words.custom_minimum_size.y = tile
 		words.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		## On the phone the words stand in the middle of the empty list, a little in from its
+		## sides (H2 round 3), not in a band at its top.
+		if DeepUi.phone:
+			words.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			words.offset_left = DeepUi.pt(10)
+			words.offset_right = -DeepUi.pt(10)
+			words.custom_minimum_size = Vector2.ZERO
 	for stone in DeepUi.page_of(haul, page, each):
 		_stone_tile(tiles, stone, tile)
 	if count > 1:
@@ -1213,7 +1272,12 @@ func _toggle(parent: Node, glyph: String, words: String, on: bool, tone: Color, 
 	## A capsule that is lit while it is on.
 	var b := DeepUi.icon_button(parent, glyph, words, flip, 11, tone if on else DeepUi.MUTED) if not glyph.is_empty() else DeepUi.button(parent, words, flip, 11)
 	var fill: Color = tone.darkened(0.6) if on else DeepUi.SLATE_LOW
-	var style := DeepUi.capsule(b, fill, tone if on else DeepUi.LEDGER_LINE, 2, 7, 2)
+	## Narrower on the phone, where the color dots share the row (H2 round 3): with its reach a
+	## finger wide all the same.
+	var style := DeepUi.capsule(b, fill, tone if on else DeepUi.LEDGER_LINE, 2, 4 if DeepUi.phone else 7, 2)
+	if DeepUi.phone:
+		b.add_theme_constant_override("h_separation", 2)
+		b.custom_minimum_size.x = DeepUi.pt(DeepUi.FINGER_LEAST) - 4.0
 	for state in ["normal", "hover", "pressed", "hover_pressed", "focus"]:
 		b.add_theme_stylebox_override(state, style)
 	b.add_theme_color_override("font_color", Color.WHITE if on else DeepUi.MUTED)
@@ -1248,6 +1312,49 @@ func _show_pane(unit: Dictionary) -> void:
 	_place_pane()
 	if is_inside_tree():
 		_place_pane.call_deferred()
+
+func reading_rect() -> Rect2:
+	## Where the reading plate stands on the screen while it is up, else an empty rect: a
+	## room's plate keeps clear of it, so a "Sell" never sits over another list's row (X1).
+	if _pane == null or not _pane.is_visible_in_tree():
+		return Rect2()
+	return _pane.get_global_rect()
+
+## How long the pointer may be off both the stone and its plate before the plate shuts.
+const PANE_GRACE: float = 0.5
+var _pane_token: int = 0
+
+func _pane_left_soon() -> void:
+	## The pointer has left a stone (or its plate): the plate shuts unless the pointer is on the
+	## plate, or on a stone, a beat later (review card X1: a plate stood open for fifteen
+	## minutes after a drag that came to nothing, its Sell over the merchant's list). The phone
+	## reads at the bag's foot, never on a plate over the room, and keeps it.
+	if DeepUi.phone or DeepUi.headless() or not is_inside_tree() or _reading.is_empty():
+		return
+	_pane_token += 1
+	var token: int = _pane_token
+	get_tree().create_timer(PANE_GRACE).timeout.connect(func() -> void:
+		if token != _pane_token or not is_inside_tree() or _reading.is_empty():
+			return
+		## A drag from the stone is still going: looked at again as it ends.
+		if get_viewport().gui_is_dragging():
+			return
+		var at: Vector2 = get_global_mouse_position()
+		if _pane != null and _pane.visible and _pane.get_global_rect().grow(6.0).has_point(at):
+			return
+		if _tiles != null and is_instance_valid(_tiles) and _tiles.get_global_rect().has_point(at):
+			return
+		close_reading())
+
+func close_reading() -> void:
+	## The reading plate put away: the next stone pointed at opens it again.
+	if _reading.is_empty():
+		return
+	_reading = ""
+	if _pane != null:
+		_pane.visible = false
+	_key = ""
+	show_run(run)
 
 func _phone_card(unit: Dictionary) -> void:
 	## The phone's reading: the card at the bag's foot (board run-bag), never the plate beside it.
@@ -1421,7 +1528,9 @@ func _stone_tile(parent: Node, stone: Dictionary, edge: float = GEM_TILE) -> voi
 					var pick: Array = other.get_meta("pick", ["", ""])
 					var its: Color = DeepUi.tier_color(str(DeepStone.grade(DeepOddities.find_stone(me(), str(pick[1]))).tier)) if bool(DeepOddities.find_stone(me(), str(pick[1])).get("appraised", false)) else DeepUi.color(DeepStone.color(DeepOddities.find_stone(me(), str(pick[1]))))
 					(face as Panel).add_theme_stylebox_override("panel", DeepUi.ledger(DeepUi.SLATE_LOW, its if str(pick[1]) == id else Color(its, 0.55), 8, 0, 2, 0)))
-	tile.mouse_exited.connect(func() -> void: _light_fits(unit, stone, false))
+	tile.mouse_exited.connect(func() -> void:
+		_light_fits(unit, stone, false)
+		_pane_left_soon())
 	Tips.attach(tile, func() -> Control:
 		if appraised and not DeepStone.is_geode(stone):
 			return _refused(Plates.gem(stone, {}, [], {}, [], {}), "stone", id)
@@ -1508,3 +1617,6 @@ func _notification(what: int) -> void:
 			## After the drop has been answered, not in the middle of it.
 			if _open:
 				set_drawer.call_deferred(false)
+		## A drag that came to nothing leaves the pointer wherever it was let go: the plate it
+		## started from shuts unless the pointer is back on it.
+		_pane_left_soon()

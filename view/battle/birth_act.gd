@@ -131,6 +131,12 @@ func spin_extra() -> float:
 	## and the tiers are read only once this has passed too (a Bandit's reels stop one by one).
 	return _spin_extra()
 
+func die_note(die_id: String) -> String:
+	## A line for a die's plate saying what this act's mark on that die means ("" for none):
+	## a mark on a die with nothing on its plate read as unexplained (review card X13: Vesper's
+	## crown and "×12").
+	return _die_note(die_id)
+
 # --- what a stone's script fills in -----------------------------------------------------------
 
 func _open() -> void:
@@ -156,6 +162,9 @@ func _button_words() -> Dictionary:
 
 func _spin_extra() -> float:
 	return 0.0
+
+func _die_note(_die_id: String) -> String:
+	return ""
 
 func _look_key() -> String:
 	## Anything the act draws from that `_process` should redraw for when it changes; the

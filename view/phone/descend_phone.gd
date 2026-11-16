@@ -126,10 +126,15 @@ static func _mine_row(home: Control, parent: VBoxContainer, key: String, records
 	sub.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	if not open:
 		DeepUi.icon(line, "lock", DeepUi.pt(11), DeepUi.MUTED).mouse_filter = Control.MOUSE_FILTER_IGNORE
+	## The mastery diamond (K3): the delver going down, in the Birthstone they wear, lit once this
+	## mine's final boss has fallen to them wearing it; what it means is on the row's card.
+	var mastered: Dictionary = MineMap.mastery(home.profile, key) if open else {}
+	if not mastered.is_empty():
+		line.add_child(MineMap.MasteryMark.new(mastered, DeepUi.pt(13)))
 	var band := DeepUi.pill(line, "gem", MineMap.carat_words(key, tier).replace(" ct", " ct"), tone.lightened(0.3), 11)
 	band.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	band.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.tooltip_text = "%s\n%s" % [str(mine.get("name", key)), str(mine.get("text", "")) if open else MineMap.sealed_hint(key, tier)]
+	row.tooltip_text = "%s\n%s%s" % [str(mine.get("name", key)), str(mine.get("text", "")) if open else MineMap.sealed_hint(key, tier), ("\n" + str(mastered.tip)) if not mastered.is_empty() else ""]
 	if open and home.is_host and not chosen:
 		row.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		row.gui_input.connect(func(event: InputEvent) -> void:
@@ -460,11 +465,19 @@ static func _going_down(home: Control, parent: VBoxContainer) -> void:
 		if index < loadout.rail.size() and not loadout.rail[index] is Dictionary:
 			empty += 1
 	if light != 0.0:
-		DeepUi.stat(rail, "gem", "%+d luck" % int(light), DeepUi.GOOD if light > 0.0 else DeepUi.BAD, 11, MineMap.luck_words(light).strip_edges())
+		## Why, and how to lose it, on a tap (S3): the card has no line to spare under the rail,
+		## and a seven-socket rail no room for more than the figure.
+		DescendPage.luck_key(rail, DescendPage.loaded(home, current), 11, true)
 	elif empty > 0:
 		DeepUi.stat(rail, "gem", "%d empty" % empty, DeepUi.ACCENT, 11)
 	else:
-		DeepUi.label(rail, "Tap to change ›", 11, DeepUi.MUTED)
+		## A key, not a label (X18): it opens their sockets, as a tap on a socket does.
+		var change := DeepUi.button(rail, "Change ›", func() -> void: home.edit_loadout(current), 11)
+		change.name = "ChangeSockets"
+		change.flat = true
+		change.add_theme_color_override("font_color", DeepUi.MUTED)
+		change.custom_minimum_size = Vector2(DeepUi.pt(64), DeepUi.pt(DeepUi.FINGER_LEAST))
+		change.tooltip_text = "Change the stones in their sockets"
 	home.enter(box.get_parent(), 0.05)
 
 static func _seed_panel(home: Control) -> void:
@@ -473,6 +486,10 @@ static func _seed_panel(home: Control) -> void:
 	var box: VBoxContainer = panel.get_meta("box")
 	DeepUi.wrap(box, "A seed of your own: the same mine, the same rooms and the same stones for anyone who goes down it. Leave it empty for a new one.", 12, DeepUi.MUTED)
 	var typed: String = home._seed.text if home._seed != null and is_instance_valid(home._seed) else ""
+	## A seed sent from a past run (K5) is typed in for the player.
+	if home.has_meta("seed_next"):
+		typed = str(home.get_meta("seed_next"))
+		home.remove_meta("seed_next")
 	home._seed = LineEdit.new()
 	home._seed.placeholder_text = "blank for a new one"
 	home._seed.text = typed
@@ -495,7 +512,9 @@ static func _daily_rules(home: Control, parent: VBoxContainer) -> void:
 	var head := DeepUi.hbox(box, int(DeepUi.pt(6)))
 	DeepUi.section(head, "calendar", "The daily dig", DeepUi.ACCENT, 11).size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var left: int = DeepEconomy.seconds_to_tomorrow()
-	DeepUi.stat(head, "hourglass", "%dh %02dm" % [left / 3600, (left % 3600) / 60], DeepUi.MUTED, 11, "A new seam opens every day at midnight UTC.")
+	var clock := DeepUi.stat(head, "hourglass", "%dh %02dm" % [left / 3600, (left % 3600) / 60], DeepUi.MUTED, 11, "A new seam opens every day at midnight UTC.")
+	## Kept true, and the page turned with the day (X9).
+	DescendPage.countdown(home, clock, date, "")
 	DeepUi.title(box, "%s, and on down" % str(mine.get("name", plan.mine)), 17, DeepUi.PAPER)
 	DeepUi.label(box, "The same seam for everyone today.", 11, DeepUi.MUTED)
 	for key in [str(plan.rail)] + plan.get("mods", []):
@@ -558,6 +577,8 @@ static func _daily_side(home: Control, parent: VBoxContainer) -> void:
 			DeepUi.pill(standing, "star", "Best today %d" % int(best.score), DeepUi.GOOD, 11)
 		_:
 			DeepUi.pill(standing, "star", "Not dug yet today", DeepUi.ACCENT, 11)
+	## Par lines, the streak and the last days dug (K4).
+	DescendPage.par_block(home, pays, date)
 
 # --- the way down ------------------------------------------------------------------------------------
 

@@ -77,6 +77,14 @@ func _sync_act() -> void:
 	if _cuts <= 0:
 		_cuts = int(reading().get("high", best)) * (2 if _clean else 1)
 
+func _die_note(die_id: String) -> String:
+	## The ringed die's plate says what its ring and its "×N" are.
+	if die_id.is_empty() or die_id != _high_id or _cuts <= 0:
+		return ""
+	if _clean:
+		return "Thousand Cuts: your highest die while all five differ, and its crown is up (Clean Kill), so every cut counts twice: ×%s cuts." % DeepUi.number(_cuts)
+	return "Thousand Cuts: your highest die while all five differ. It sets the cuts: ×%s." % DeepUi.number(_cuts)
+
 func _look_key() -> String:
 	return "%s|%s|%d|%s|%s" % [str(_ties), _high_id, _cuts, str(_clean), str(planning)]
 

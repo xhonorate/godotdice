@@ -15,6 +15,8 @@ const Thumbs = preload("res://view/gems/thumbs.gd")
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
 const BattleScreen = preload("res://view/battle/battle_screen.gd")
 const Tips = preload("res://view/ui/tips.gd")
+const DescendPage = preload("res://view/home/descend_page.gd")
+const MineMap = preload("res://view/home/mine_map.gd")
 
 ## The dossier's outer columns, in points: who they are, and their Birthstones. What is left
 ## between them is their kit's, and Florin's eight rings need 245 of it.
@@ -185,6 +187,10 @@ static func _birth_panel(home: Control, holder: Control, key: String, unlocked: 
 	var said := DeepUi.vbox(scroll, int(DeepUi.pt(5)))
 	said.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	HomeParts.stone_words(said, str(stone.get("text", "")), stone, 11, DeepUi.MUTED)
+	## Where it has been mastered (K3).
+	if unlocked:
+		var mastered := DeepUi.wrap(said, MineMap.mastered_in(home.profile, key, read), 11, DeepUi.ACCENT_HI if not DeepProfile.stone_conquests(home.profile, key, read).is_empty() else DeepUi.DIM)
+		mastered.name = "MasteredIn"
 	HomeParts.birth_ladder(said, stone)
 	HomeParts.birth_action(home, right, key, read, unlocked)
 
@@ -209,6 +215,7 @@ static func _sockets(home: Control, content: VBoxContainer, character_key: Strin
 	var back := DeepUi.way_out("Delvers", func() -> void:
 		home._roster_view = "dossier"
 		home._bench_socket = -1
+		DelversPage._pick_order = {}
 		home._render(), true, "", "person")
 	back.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	head.add_child(back)
@@ -230,13 +237,14 @@ static func _sockets(home: Control, content: VBoxContainer, character_key: Strin
 		var skill: String = home.rail_skill(record, index)
 		var stone: Dictionary = DeepProfile.owned(home.profile, skill) if DeepProfile.fillable_socket(home.profile, character_key, index) and skill != "" else {}
 		_socket_tile(home, rail_row, index, str(sockets[index]), stone, character_key)
+	## An opal set where it cannot reach the gem beside or behind it says so (B2).
+	RailWarnings.loadout(home, rail_row, character_key)
 	_birth_tile(home, rail_row, character_key)
 	## The line under the sockets, and the browser's controls on the same row.
 	var bar := DeepUi.hbox(content, int(DeepUi.pt(6)))
-	var luck: float = DeepDescent.loadout_luck(filled)
 	DeepUi.label(bar, "%d of %d set" % [filled, rail_cap], 11, DeepUi.GOOD if filled >= rail_cap else DeepUi.MUTED)
-	if luck != 0.0:
-		DeepUi.label(bar, "%+d luck" % int(luck), 11, DeepUi.GOOD if luck > 0.0 else DeepUi.BAD)
+	## Travelling light or heavy: a tap says why and how to lose it (S3).
+	DescendPage.luck_key(bar, filled)
 	DeepUi.label(bar, "· tap a socket, then a stone" if home._bench_socket < 0 else "· choose a stone for socket %d" % (home._bench_socket + 1), 11, DeepUi.MUTED if home._bench_socket < 0 else DeepUi.ACCENT)
 	DeepUi.spacer(bar)
 	var tools := StoneBrowser.toolbar_phone(home, bar, "sockets")
@@ -262,16 +270,8 @@ static func _sockets(home: Control, content: VBoxContainer, character_key: Strin
 		return str(data.get("kind", "")) == "loadout_stone" and int(data.get("from_socket", -1)) >= 0,
 		func(data: Dictionary) -> void:
 			home.set_socket.call_deferred(character_key, int(data.from_socket), null, "ui_back"))
-	var stones: Array = StoneBrowser.sorted(home, home.profile.get("vault", {}).values(), "sockets")
-	if home._bench_socket >= 0:
-		var fits: Array = []
-		var rest: Array = []
-		for s in stones:
-			if DeepProfile.rail_refusal(home.profile, character_key, home._bench_socket, str(s.skill)).is_empty():
-				fits.append(s)
-			else:
-				rest.append(s)
-		stones = fits + rest
+	## Those that fit the picked socket first, and the order kept while stones are set (K1).
+	var stones: Array = DelversPage.pick_order(home, character_key, StoneBrowser.sorted(home, home.profile.get("vault", {}).values(), "sockets"))
 	if not home._socket_ready.is_empty():
 		for at in range(stones.size()):
 			if str(stones[at].skill) == home._socket_ready:
@@ -291,10 +291,16 @@ static func _sockets(home: Control, content: VBoxContainer, character_key: Strin
 		if in_rail:
 			home.tile_mark(tile, "check", DeepUi.GOOD, "Already set")
 		var shown_stone: Dictionary = stone
+		## Held, the picture's card says what it does and how it weighs against the stone in the
+		## socket it would go in; its Details is the close look, with "Set in socket N".
+		DelversPage.dress_pick(home, tile, character_key, shown_stone, fits)
+		var thumb: Variant = tile.get_meta("thumb", null)
 		home.wire(tile, {"kind": "loadout_stone", "skill": chosen_key, "from_socket": -1}, func() -> Control: return Thumbs.GemThumb.new(shown_stone, DeepUi.pt(40)), Callable(), Callable())
 		## A tap sets it: in the picked socket, or, with none picked, the first empty one it fits.
 		tile.gui_input.connect(func(event: InputEvent) -> void:
 			if not event is InputEventMouseButton or event.button_index != MOUSE_BUTTON_LEFT or event.pressed or Tips.held(tile):
+				return
+			if thumb is Control and is_instance_valid(thumb) and Tips.held(thumb):
 				return
 			var target: int = home._bench_socket if home._bench_socket >= 0 and fits else DelversPage._empty_fit(home, character_key, chosen_key)
 			if target >= 0:
@@ -344,7 +350,11 @@ static func _socket_tile(home: Control, parent: Node, index: int, socket_color: 
 			buy.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 			buy.custom_minimum_size.y = DeepUi.pt(DeepUi.FINGER_LEAST)
 			buy.disabled = int(home.profile.get("gold", 0)) < price
+			buy.tooltip_text = "Open this socket for good: it is filled from the vault before every run, in every mine." + DelversPage._heavy_note(index)
 			DeepUi.voice(buy, "buy")
+			var heavy: String = DelversPage.heavy_tag(index)
+			if not heavy.is_empty():
+				DeepUi.label(box, heavy, 11, DeepUi.BAD, HORIZONTAL_ALIGNMENT_CENTER)
 		else:
 			DeepUi.label(box, "open %d first" % (DeepProfile.open_sockets(home.profile, character_key) + 1), 11, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 		return

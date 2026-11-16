@@ -52,7 +52,8 @@ static func _head(home: Control, content: VBoxContainer, records: Dictionary) ->
 	var history: Array = home.profile.get("history", [])
 	var since: String = str(history[0].get("date", "")) if not history.is_empty() else ""
 	DeepUi.label(names, ("Delving since %s" % since if not since.is_empty() else "No runs yet") + " · %d of %d gems owned" % [home.profile.get("vault", {}).size(), DeepProfile.known_skills(home.profile).size()], 13, DeepUi.MUTED)
-	for entry in [["pick", "runs", "runs"], ["lift", "extractions", "extractions"], ["crown", "conquests", "conquests"], ["skull", "falls", "falls"],
+	## The mines' runs are expeditions: the daily digs are counted on their own tile (X8).
+	for entry in [["pick", "runs", "expeditions"], ["lift", "extractions", "extractions"], ["crown", "conquests", "conquests"], ["skull", "falls", "falls"],
 			["flag", "commissions", "commissions"], ["contract", "contracts", "contracts"], ["calendar", "best_daily", "best daily"]]:
 		var tile := DeepUi.vbox(row, 0)
 		tile.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -65,10 +66,13 @@ static func _head(home: Control, content: VBoxContainer, records: Dictionary) ->
 		if str(entry[1]) == "best_daily":
 			var bests: Array = records.get("daily_bests", []).duplicate()
 			bests.reverse()
-			var said: Array = ["Your best score on each day's seam:"]
+			var said: Array = ["%s dug. Your best score on each day's seam:" % DeepUi.plural(int(records.get("dailies", 0)), "daily dig")]
 			for day in bests.slice(0, 10):
 				said.append("%s: %d (%d gold)" % [str(day.get("date", "")), int(day.get("score", 0)), int(day.get("gold", 0))])
 			tile.tooltip_text = "\n".join(said) if not bests.is_empty() else "No daily digs yet."
+			tile.mouse_filter = Control.MOUSE_FILTER_STOP
+		elif str(entry[1]) == "runs":
+			tile.tooltip_text = "Runs down the mines. The daily digs are counted apart, under best daily (%d dug)." % int(records.get("dailies", 0))
 			tile.mouse_filter = Control.MOUSE_FILTER_STOP
 	home.enter(row)
 
@@ -234,12 +238,16 @@ static func _runs(home: Control, columns: HBoxContainer) -> void:
 		var daily: bool = bool(run.get("daily", false))
 		var tone: Color = DeepUi.BAD if outcome == "fallen" else (DeepUi.ACCENT if outcome == "conquered" else DeepUi.GOOD)
 		var panel := DeepUi.panel(box, Color(1, 1, 1, 0.025 if shown % 2 == 0 else 0.0), Color(0, 0, 0, 0), 6, 5)
+		opens_run(home, panel, run)
 		var row := DeepUi.hbox(panel, 10)
 		DeepUi.icon(row, "calendar" if daily else {"fallen": "skull", "conquered": "crown"}.get(outcome, "lift"), 16, DeepUi.INFO if daily else tone, outcome.capitalize())
-		DeepUi.label(row, "Daily dig" if daily else outcome.capitalize(), 13, DeepUi.INFO if daily else tone).custom_minimum_size.x = 84
+		## The outcome is the mark and the words after the mine say how (K5): the column it had
+		## went to the cause.
 		DeepUi.label(row, str(run.get("date", "")), 12, DeepUi.DIM).custom_minimum_size.x = 84
-		var where := DeepUi.label(row, DeepContent.mine_name(str(run.get("deepest_mine", run.get("mine", ""))) if daily else str(run.get("mine", ""))), 13, DeepUi.PAPER)
+		var where := DeepUi.label(row, run_where(run), 13, DeepUi.PAPER)
 		where.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		where.clip_text = true
+		where.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		var character: String = str(run.get("character", ""))
 		if not DeepContent.character(character).is_empty():
 			## Who dug it, and in which Birthstone when it was not their first: "Ardor · Rampart".
@@ -247,7 +255,7 @@ static func _runs(home: Control, columns: HBoxContainer) -> void:
 			row.add_child(Roster.Portrait.new(character, Vector2(22, 22), false, false, false, stone))
 			var who := DeepUi.label(row, Roster.named(character, stone, false), 12, DeepUi.MUTED if Roster.is_first(character, stone) else Roster.stone_tone(stone))
 			who.name = "DugAs"
-			who.custom_minimum_size.x = 180
+			who.custom_minimum_size.x = 120
 			who.clip_text = true
 			who.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 			who.mouse_filter = Control.MOUSE_FILTER_PASS
@@ -262,5 +270,29 @@ static func _runs(home: Control, columns: HBoxContainer) -> void:
 			DeepUi.stat(row, "star", str(int(run.get("score", 0))), DeepUi.PAPER, 12, "Score")
 		else:
 			DeepUi.stat(row, "gem", str(int(run.get("stones", 0))), DeepUi.ACCENT, 12, "Stones brought home")
+		DeepUi.icon(row, "next", 12, DeepUi.DIM)
 		shown += 1
 	home.enter(card, 0.12)
+
+static func run_where(run: Dictionary) -> String:
+	## A ledger row's place and how it ended (K5): "The Quarry · Fell to The Foreman, turn 15".
+	var daily: bool = bool(run.get("daily", false))
+	var where: String = DeepContent.mine_name(str(run.get("deepest_mine", run.get("mine", ""))) if daily else str(run.get("mine", "")))
+	if daily:
+		return "Daily dig · %s" % where
+	var cause: String = str(run.get("cause", ""))
+	return "%s · %s" % [where, cause if not cause.is_empty() else str(run.get("outcome", "")).capitalize()]
+
+static func opens_run(home: Control, row: Control, run: Dictionary) -> void:
+	## A ledger row is a way into that run (K5): a click (a tap) reopens its sheet, with its seed.
+	row.mouse_filter = Control.MOUSE_FILTER_STOP
+	row.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	row.tooltip_text = "Open this run: how it ended, its tally and its seed."
+	var Inspector: Script = load("res://view/inspect/inspector.gd")
+	row.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed and not Tips.held(row):
+			if DeepUi.phone and load("res://view/ui/swipe.gd").flicked():
+				return
+			DeepAudio.play("ui_open", {"volume": 0.6})
+			var dig: Callable = (func() -> void: home.dig_seed(run)) if int(run.get("seed", 0)) != 0 else Callable()
+			Inspector.past_run(run, dig))

@@ -77,14 +77,22 @@ static func attach(control: Control, build: Callable, opts: Dictionary = {}) -> 
 		if event is InputEventMouseMotion and _press_id == control.get_instance_id() and event.position.distance_to(control.get_meta("tip_press_at", event.position)) > HOLD_SLIP:
 			_press_id = 0
 			return
+		## The pointer moving on this control while the plate up is another's that it is not
+		## over (a quick jump across rows sends the enter to the row it crossed, or the page
+		## moved under a resting pointer): the plate is this control's from the first motion
+		## (X10, November 13, 2026). Not once a click has hushed it.
+		if event is InputEventMouseMotion and event.button_mask == 0:
+			_reanchor(control, event.global_position)
+			return
 		if event is InputEventMouseButton and event.pressed:
 			_hushed[control.get_instance_id()] = true
 			if _anchor == control:
 				hide_now())
 	## Keyboard and gamepad: a thing with the focus shows its plate, as one under the pointer does.
+	## Not the focus a click gives it: what was clicked is hushed until the pointer leaves.
 	control.focus_entered.connect(func() -> void:
-		if not DeepUi.headless() and not DeepUi.phone and control.is_visible_in_tree():
-			_show(control))
+		if not DeepUi.headless() and not DeepUi.phone and control.is_visible_in_tree() and not _hushed.has(control.get_instance_id()):
+			_show(control, true))
 	control.focus_exited.connect(func() -> void:
 		if _anchor == control:
 			hide_now())
@@ -497,7 +505,63 @@ static func _leave(control: Control) -> void:
 		return
 	hide_now()
 
-static func _show(control: Control) -> void:
+static func _reanchor(control: Control, at: Vector2) -> void:
+	## See the motion in `attach`: a control the pointer is moving on (`at`, on the canvas) takes
+	## the plate from one whose rect the pointer is not in.
+	if DeepUi.headless() or DeepUi.phone or _anchor == control or _hushed.has(control.get_instance_id()) or not control.is_visible_in_tree():
+		return
+	if control.get_viewport() != null and control.get_viewport().gui_is_dragging():
+		return
+	if _anchor != null and is_instance_valid(_anchor) and _anchor.is_inside_tree() and _anchor.is_visible_in_tree() \
+			and _anchor.get_global_rect().has_point(at):
+		return
+	_show(control)
+
+static func hide_all() -> void:
+	## Everything a plate, a card or a word put up goes, and nothing stays hushed: the screen
+	## is changing (a room, the lift) and what was pointed at is gone (X10, November 13, 2026).
+	hide_now()
+	close_sheet()
+	close_word()
+	_hushed.clear()
+	_press_id = 0
+
+static func _pressed(event: InputEventMouseButton) -> void:
+	## Any press of a button anywhere puts the plate up away (X10): a click lands on what the
+	## plate was about, or on something else, and either way the plate has said its piece. One
+	## that takes the pointer keeps it while the press is on it (a number hovered for its
+	## working). What was under the pointer stays hushed until the pointer leaves it.
+	if DeepUi.phone or not event.pressed or not event.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT, MOUSE_BUTTON_MIDDLE]:
+		return
+	if _plate == null or not is_instance_valid(_plate):
+		return
+	var pointer: Vector2 = event.position
+	for held in [_plate, _sub]:
+		if held != null and is_instance_valid(held) and (held as Plate).keep and (held as Control).get_global_rect().has_point(pointer):
+			return
+	if _sub != null and is_instance_valid(_sub) and _sub.get_global_rect().has_point(pointer):
+		return
+	var under: Node = _plate.get_viewport().gui_get_hovered_control() if _plate.get_viewport() != null else null
+	while under != null:
+		if under is Control and bool(under.get_meta("tip_wired", false)):
+			_hushed[under.get_instance_id()] = true
+		under = under.get_parent()
+	hide_now()
+
+class PressWatch extends Node:
+	## Hears every press before the controls do, for `_pressed`, and keeps where the pointer is on
+	## the canvas for the plates (`Plate.pointer`): the events' own position, which is what the
+	## controls answer to (a pushed event, a finger), not the system cursor's.
+	var on_press: Callable = Callable()
+
+	func _input(event: InputEvent) -> void:
+		if event is InputEventMouse:
+			Plate.pointer = (event as InputEventMouse).position
+			Plate.pointer_known = true
+		if event is InputEventMouseButton and on_press.is_valid():
+			on_press.call(event)
+
+static func _show(control: Control, by_focus: bool = false) -> void:
 	var build: Callable = control.get_meta("tip_build", Callable())
 	if not build.is_valid():
 		return
@@ -526,6 +590,8 @@ static func _show(control: Control) -> void:
 				_anchor = null)
 		_layer_for(control).add_child(_plate)
 	_plate.anchor = control
+	## A plate the focus brought up is not the pointer's: it does not go when the pointer is elsewhere.
+	_plate.by_focus = by_focus
 	_plate.fill(content as Control, Color(opts.get("tone", DeepUi.LEDGER_LINE)), float(opts.get("width", 0.0)))
 	if fresh:
 		_plate.appear(FADE_IN)
@@ -543,4 +609,8 @@ static func _layer_for(control: Control) -> CanvasLayer:
 	_layer.name = "DeepTips"
 	_layer.layer = 120
 	root.add_child(_layer)
+	var watch := PressWatch.new()
+	watch.name = "PressWatch"
+	watch.on_press = func(event: InputEvent) -> void: _pressed(event as InputEventMouseButton)
+	_layer.add_child(watch)
 	return _layer

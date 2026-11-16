@@ -190,6 +190,11 @@ func _init() -> void:
 		guard += 1
 		var run: Dictionary = app.session.run
 		var phase: String = str(run.get("phase", ""))
+		if phase == "tunnels" and not DeepDescent.spoils_of(run, app.session.local_id).is_empty() and target != "spoils":
+			## Every other shot walks past a fight's spoils as a player skipping them would.
+			app.session.send({"kind": "spoils", "pick": -1})
+			await process_frame
+			continue
 		if target in ["battle_status", "inspect_creature"] and DeepDescent.in_battle(run) and str(DeepDescent.battle(run).phase) == "planning":
 			var b: Dictionary = DeepDescent.battle(run)
 			if target == "battle_status":
@@ -248,11 +253,12 @@ func _init() -> void:
 				return
 			await process_frame
 			continue
-		if target == "spoils" and str(app.descent._hold.get("kind", "")) == "victory":
-			if str(app.descent._hold.get("stage", "")) == "spoils":
-				await create_timer(moment if moment >= 0.0 else 1.0).timeout
-				_save(out)
-				return
+		if target == "spoils" and phase == "tunnels" and app.descent._hold.is_empty() and not DeepDescent.spoils_of(run, app.session.local_id).is_empty():
+			## The spoils' three cards (review card R1), once the fight's pay has flown up.
+			await create_timer(moment if moment >= 0.0 else 2.4).timeout
+			_save(out)
+			return
+		if target == "spoils" and not app.descent._hold.is_empty():
 			await process_frame
 			continue
 		if target == "vein_done" and not app.descent._hold.is_empty() and str(app.descent._hold.kind) == "vein":

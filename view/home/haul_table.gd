@@ -58,6 +58,10 @@ var rough: Array = []
 var focus: String = ""
 var page: int = 0
 var report: Dictionary = {}
+## The report's header line and its words before the worth: it counts up with the gold card's
+## total, so the two never say different numbers (the card counts from 0 over a second and a half).
+var _report_line: Label = null
+var _report_said: String = ""
 var _cards: Dictionary = {}
 var _grid: Grid = null
 var _pane: VBoxContainer = null
@@ -463,7 +467,9 @@ func _pane_raw(stone: Dictionary) -> void:
 		var carats: Array = odds.get("carat", [1, 1])
 		line = "%s. %d to %d ct inside; it cracks last, after the stones." % [Geode.geode_line(stone.geode), int(carats[0]), int(carats[1])]
 	else:
-		line = "%s. Its skill, Cut and Clarity show once it is cracked." % str(DeepStone.size_class(int(stone.get("carat", 1))).range).capitalize()
+		## Only its first letter raised: capitalize() made every word a capital ("1 To 2 Carats", X13).
+		var span: String = str(DeepStone.size_class(int(stone.get("carat", 1))).range)
+		line = "%s. Its skill, Cut and Clarity show once it is cracked." % (span.substr(0, 1).to_upper() + span.substr(1))
 	DeepUi.wrap(_pane, line, 11 if phone else 14, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER, DeepUi.pt(200) if phone else 380.0)
 	var facts := DeepUi.hbox(_pane, int(DeepUi.pt(4)) if phone else 8)
 	facts.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -851,7 +857,11 @@ func _spotlights(cracked: Array) -> void:
 	## gives its best find alone.
 	var low: bool = _fallen()
 	var suggested: Dictionary = DeepProfile.suggest_fates(profile(), stones)
+	## The finest of the stones just cracked closes the row; it is called the best of the haul
+	## only when it is: a stone read down the mine may beat every one of them (X5), and then the
+	## last one cracked is shown as the find, the new skill or the upgrade it is.
 	var best: String = ""
+	var haul_best: String = _best_id()
 	var found: Array = cracked.map(func(id: String) -> Dictionary: return _stone(id)).filter(func(s: Dictionary) -> bool: return not s.is_empty() and bool(s.get("appraised", false)))
 	for stone in found:
 		if best.is_empty() or DeepProfile.better_stone(stone, _stone(best)):
@@ -878,14 +888,15 @@ func _spotlights(cracked: Array) -> void:
 		var fresh: bool = kept.is_empty() and str(suggested.get(str(stone.id), "")) == "vault"
 		var color: String = DeepStone.color(stone)
 		var have: Array = DeepProfile._owned_of_color(profile(), color)
+		var crowned: bool = str(stone.id) == best and best == haul_best
 		var opts: Dictionary = {"index": index, "count": picked.size(), "low": low, "owned": kept,
-			"kind": "best" if str(stone.id) == best else ("new" if fresh else ("upgrade" if DeepProfile.better_stone(stone, kept) else "find")), "fresh": fresh}
+			"kind": "best" if crowned else ("new" if fresh else ("upgrade" if DeepProfile.better_stone(stone, kept) else "find")), "fresh": fresh}
 		if fresh:
 			opts.slot = {"color": [int(have[0]) + int(colors_seen.get(color, 0)), int(have[1])], "vault": [profile().get("vault", {}).size() + fresh_seen, DeepProfile.known_skills(profile()).size()]}
 			colors_seen[color] = int(colors_seen.get(color, 0)) + 1
 			fresh_seen += 1
 		var score: int = int(DeepStone.grade(stone).score)
-		if str(stone.id) == best and record >= 0 and score > record:
+		if crowned and record >= 0 and score > record:
 			opts.records = [["crown", "Your best grade yet (was %d)" % record]]
 		var layer: CanvasLayer = Spotlight.show_stone(stone, opts)
 		if layer == null:
@@ -1107,8 +1118,8 @@ func _build_report() -> void:
 	var title := DeepUi.title(head, "Salvaged" if fallen else "The haul is in", 24 if phone else 42, DeepUi.MUTED.lightened(0.3) if fallen else DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
 	title.name = "ReportTitle"
 	var where: String = DeepContent.mine_name(str(last.get("mine", DeepContent.starter_mine()))) if holding else "The vault"
-	var line: String = "%s · %s · worth %s gold" % [where, DeepUi.plural(int(report.get("stones", 0)), "stone"), DeepUi.number(int(report.get("worth", 0)))]
-	DeepUi.label(head, line, 11 if phone else 15, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	_report_said = "%s · %s · worth " % [where, DeepUi.plural(int(report.get("stones", 0)), "stone")]
+	_report_line = DeepUi.label(head, _report_said + "%s gold" % DeepUi.number(int(report.get("worth", 0))), 11 if phone else 15, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 	var middle := DeepUi.hbox(self, int(DeepUi.pt(6)) if phone else 18)
 	middle.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	if phone:
@@ -1181,10 +1192,31 @@ func _report_plinth(parent: Control, best: Dictionary, edge: float) -> void:
 		var shown_ribbons: Array = ribbons.slice(0, 2) if phone else ribbons
 		for index in range(shown_ribbons.size()):
 			var entry: Array = shown_ribbons[index]
-			var ribbon := DeepUi.pill(flow, str(entry[0]), str(entry[1]), _ribbon_tone(str(entry[2])), 11 if phone else 15)
+			var ribbon := DeepUi.pill(flow, str(entry[0]), _ribbon_words(entry, best), _ribbon_tone(str(entry[2])), 11 if phone else 15)
 			if not _instant:
 				DeepUi.pop_in(ribbon, 0.7 + 0.15 * float(index), 0.6, 0.4)
 				ribbon.create_tween().tween_callback(func() -> void: DeepAudio.play("star", {"volume": 0.7})).set_delay(0.7 + 0.15 * float(index))
+
+func _ribbon_words(entry: Array, best: Dictionary) -> String:
+	## A record about a stone other than the one on the plinth names it (X5: "First opal" sat
+	## under Spall while the opal was Green Seam): "First opal · Green Seam".
+	var kind: String = str(entry[2])
+	var words: String = str(entry[1])
+	var kept: Array = report.get("kept", []).map(func(e: Dictionary) -> Dictionary: return e.stone)
+	var about: Dictionary = {}
+	if kind == "OPAL":
+		if DeepStone.is_opal(best):
+			return words
+		for stone in kept:
+			if DeepStone.is_opal(stone) and (about.is_empty() or DeepProfile.better_stone(stone, about)):
+				about = stone
+	elif kind in ["best", "EXQUISITE", "PEERLESS"]:
+		for stone in kept:
+			if about.is_empty() or DeepProfile.better_stone(stone, about):
+				about = stone
+	if about.is_empty() or (str(about.get("id", "")) == str(best.get("id", "x")) and str(about.get("skill", "")) == str(best.get("skill", ""))):
+		return words
+	return "%s · %s" % [words, DeepUi.skill_name(about)]
 
 func _ribbon_tone(kind: String) -> Color:
 	match kind:
@@ -1254,9 +1286,12 @@ func _report_gold(parent: Control, width: float) -> void:
 	big.add_theme_font_override("font", DeepUi.bold_font())
 	if not _instant and worth > 0:
 		big.text = "0"
+		_say_worth(0)
 		var count := big.create_tween()
 		count.tween_interval(0.35)
-		count.tween_method(func(v: float) -> void: big.text = DeepUi.number(int(round(v))), 0.0, float(worth), 1.2).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		count.tween_method(func(v: float) -> void:
+			big.text = DeepUi.number(int(round(v)))
+			_say_worth(int(round(v))), 0.0, float(worth), 1.2).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	var lines: Array = []
 	var kept_worth: int = 0
 	for entry in report.get("kept", []):
@@ -1286,6 +1321,11 @@ func _report_gold(parent: Control, width: float) -> void:
 	DeepUi.label(purse, "Purse", 11 if phone else 15, DeepUi.MUTED).size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var sum := DeepUi.label(purse, "%s → %s" % [DeepUi.number(int(report.get("purse_from", 0))), DeepUi.number(int(report.get("purse_to", 0)))] if not phone else DeepUi.number(int(report.get("purse_to", 0))), 11 if phone else 16, DeepUi.PAPER)
 	sum.add_theme_font_override("font", DeepUi.bold_font())
+
+func _say_worth(value: int) -> void:
+	## The header's worth, in step with the gold card's count.
+	if _report_line != null and is_instance_valid(_report_line):
+		_report_line.text = _report_said + "%s gold" % DeepUi.number(value)
 
 func _report_foot(kept: Array, best: Dictionary) -> void:
 	var phone: bool = DeepUi.phone

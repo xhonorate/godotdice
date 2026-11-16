@@ -13,6 +13,7 @@ const GemMesh = preload("res://view/gems/gem_mesh.gd")
 const GemIcons = preload("res://view/gems/gem_icons.gd")
 const DiceGeometry = preload("res://view/dice/dice_geometry.gd")
 const DiceIcons = preload("res://view/dice/dice_icons.gd")
+const BattleFx = preload("res://view/battle/battle_fx.gd")
 
 const WIDTH := 7.2
 const TOP := 1.06
@@ -42,7 +43,18 @@ const TAG_SIZE: int = 15
 const TAG_PIP: float = 12.0
 const TAG_DROP: float = 0.56
 const DIAMOND: Array = [Vector2(0.5, 0.0), Vector2(1.0, 0.5), Vector2(0.5, 1.0), Vector2(0.0, 0.5)]
-
+## A lucky find and a Void stone (review card S1, round 3) are told apart at a glance: a lucky
+## find shimmers in gold (a halo behind it and glints winking round it, the Flawless line's
+## gold) with a "Lucky find" mark under its tag; a Void stone is drawn as the dark space the
+## dock draws Void in, its facets lit at the rim, with a "Void" mark. `MARK_DROP` is how far
+## under the tag the first mark hangs, `MARK_STEP` the next one's step.
+const MARK_SIZE: int = 13
+const MARK_DROP: float = 0.3
+const MARK_STEP: float = 0.27
+const GLINT_SPOTS: Array = [Vector3(0.27, 0.2, 0.28), Vector3(-0.26, 0.06, 0.28), Vector3(0.1, -0.2, 0.34), Vector3(-0.12, 0.31, 0.22)]
+static var _glint_material: StandardMaterial3D = null
+static var _halo_material: StandardMaterial3D = null
+static var _hollow_shader: Shader = null
 func build(biome: Dictionary, stock: Array, seed_value: int) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
@@ -228,6 +240,13 @@ func _build_lens() -> void:
 	lens.add_child(_lens_label)
 	_glows["lens"] = _glow_light(lens, DeepUi.INFO)
 
+func hide_words() -> void:
+	## The stall packs up (it sinks with the room's business): its words go at once. They are
+	## drawn flat over the room, and sank with it to float over the floor (review card X15).
+	for spot in find_children("*", "Node3D", true, false):
+		if spot.is_in_group("stage_name"):
+			spot.set_meta("alpha", 0.0)
+
 func _glow_light(parent: Node3D, color: Color) -> OmniLight3D:
 	var light := OmniLight3D.new()
 	light.light_color = color
@@ -266,7 +285,16 @@ func weigh() -> void:
 		tween.tween_property(pan, "position:y", 0.74, 0.6).set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT)
 
 func show_stock(stock: Array) -> void:
-	## Lays out what is for sale, three stones as a rule, left to right.
+	## Lays out what is for sale, three stones as a rule, left to right. Goods no longer in the
+	## stock at all were cleared off by a Restock (review card S1): they sink away, and the new
+	## goods rise into their places.
+	var listed: Array = stock.map(func(item: Dictionary) -> String: return str(item.get("id", "")))
+	var cleared: bool = false
+	for id in _items.keys():
+		if not listed.has(str(id)):
+			_clear_item(str(id))
+			cleared = true
+	var fresh: bool = cleared or not _items.is_empty()
 	var count: int = maxi(1, stock.size())
 	for index in range(stock.size()):
 		var item: Dictionary = stock[index]
@@ -292,6 +320,9 @@ func show_stock(stock: Array) -> void:
 			shown.scale = Vector3.ONE * 0.68 / float(shown.get_meta("extent", 1.0))
 			shown.rotation = Vector3(deg_to_rad(-60), 0, 0)
 			tone = DeepUi.tier_color(str(DeepStone.grade(stone).tier))
+			if DeepStone.is_slotless(stone):
+				_hollow(shown, stone)
+				tone = _void_tone(stone)
 		var spinner := Node3D.new()
 		holder.add_child(spinner)
 		spinner.add_child(shown)
@@ -319,8 +350,157 @@ func show_stock(stock: Array) -> void:
 		## The phone's names stand larger (mine_stage.gd): a little further under the price.
 		tag.position = Vector3(0, -(TAG_DROP + (0.14 if DeepUi.phone else 0.0)), 0.62)
 		holder.add_child(tag)
+		var lucky: bool = bool(item.get("lucky", false))
+		var glints: Array = []
+		if lucky:
+			shine.light_color = lucky_tone()
+			glints = _shimmer(holder)
+		var marks: Array = _marks(item, holder, tag.position)
 		_items[id] = {"holder": holder, "spinner": spinner, "shine": shine, "hover": false, "phase": float(index) * 1.3,
-			"price_label": price, "tag": tag, "price": int(item.get("price", 0))}
+			"price_label": price, "tag": tag, "price": int(item.get("price", 0)), "lucky": lucky, "glints": glints, "marks": marks}
+		if fresh and is_inside_tree():
+			## A Restock's goods come up onto the cloth once the old ones have gone.
+			holder.scale = Vector3.ONE * 0.01
+			var pop := holder.create_tween()
+			pop.tween_property(holder, "scale", Vector3.ONE, 0.45).set_delay(0.3 + 0.08 * float(index)).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+static func lucky_tone() -> Color:
+	## A lucky find's gold: the Flawless line's (`FlawlessFx.tone`), the game's word for "more
+	## than it should be".
+	return DeepUi.tier_color("PEERLESS")
+
+static func _void_tone(stone: Dictionary) -> Color:
+	## The rim a Void stone is lit at: its own hue, paled (as `VoidMarks.tone_of`).
+	return GemMesh.tint(stone).lerp(Color.WHITE, 0.45)
+
+func _marks(item: Dictionary, holder: Node3D, under: Vector3) -> Array:
+	## The marks under a stone's tag: "Lucky find" in gold, "Void" in the Void's blue. Each is
+	## a word the stage writes on a capsule of its own (`MarkPlate`); on the phone they step
+	## down with a staggered row of tags (`MineStage._stagger_names`, `under_tags`).
+	var words: Array = []
+	if bool(item.get("lucky", false)):
+		words.append(["Lucky find", lucky_tone(), false])
+	if str(item.get("kind", "stone")) != "die" and DeepStone.is_slotless(item.get("stone", {})):
+		words.append(["Void", DeepUi.INFO, true])
+	var out: Array = []
+	var drop: float = MARK_DROP + (0.1 if DeepUi.phone else 0.0)
+	for index in range(words.size()):
+		var said: Array = words[index]
+		var spot := _label(str(said[0]), Color(said[1]).lightened(0.25), MARK_SIZE)
+		spot.set_meta("plate", MarkPlate.new(Color(said[1]), bool(said[2])))
+		spot.set_meta("font", DeepUi.bold_font())
+		spot.set_meta("under_tags", true)
+		spot.position = under - Vector3(0, drop + MARK_STEP * float(index) * (1.45 if DeepUi.phone else 1.0), 0)
+		holder.add_child(spot)
+		out.append(spot)
+	return out
+
+func _shimmer(holder: Node3D) -> Array:
+	## A lucky find's gold: a soft halo behind the stone and four glints round it that wink in
+	## turn (`_process`). The halo is the first of what comes back, the glints after it.
+	if _glint_material == null:
+		_glint_material = StandardMaterial3D.new()
+		_glint_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_glint_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_glint_material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		_glint_material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+		_glint_material.billboard_keep_scale = true
+		_glint_material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+		_glint_material.no_depth_test = true
+		_glint_material.albedo_texture = BattleFx.sparkle_texture()
+		_glint_material.albedo_color = Color(lucky_tone().lightened(0.35), 1.0)
+		_halo_material = _glint_material.duplicate() as StandardMaterial3D
+		_halo_material.no_depth_test = false
+		_halo_material.albedo_texture = DeepUi.glow_texture()
+		_halo_material.albedo_color = Color(lucky_tone(), 0.5)
+	var out: Array = []
+	var halo := MeshInstance3D.new()
+	var disc := QuadMesh.new()
+	disc.size = Vector2.ONE
+	halo.mesh = disc
+	halo.material_override = _halo_material
+	halo.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	halo.position = Vector3(0, 0.02, -0.12)
+	holder.add_child(halo)
+	out.append(halo)
+	for spot in GLINT_SPOTS:
+		var glint := MeshInstance3D.new()
+		var quad := QuadMesh.new()
+		quad.size = Vector2.ONE
+		glint.mesh = quad
+		glint.material_override = _glint_material
+		glint.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		glint.position = spot
+		glint.scale = Vector3.ONE * 0.01
+		holder.add_child(glint)
+		out.append(glint)
+	return out
+
+const HOLLOW_3D: String = """
+shader_type spatial;
+render_mode unshaded, cull_back;
+uniform vec4 tone : source_color = vec4(0.66, 0.82, 1.0, 1.0);
+varying vec3 at;
+
+float hash(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+
+void vertex() {
+	at = VERTEX;
+}
+
+void fragment() {
+	float facing = clamp(dot(NORMAL, VIEW), 0.0, 1.0);
+	float rim = pow(1.0 - facing, 3.6);
+	vec3 base = mix(vec3(0.015, 0.02, 0.045), vec3(0.1, 0.125, 0.24), facing * 0.6);
+	vec3 cell = floor(at * 9.0);
+	float h = hash(cell);
+	float star = (h > 0.9 ? smoothstep(0.42, 0.05, length(fract(at * 9.0) - 0.5)) : 0.0) * (0.5 + 0.5 * fract(h * 7.3));
+	vec3 lite = tone.rgb * 0.55 + vec3(0.45);
+	ALBEDO = base + vec3(star) + lite * rim * 0.85;
+}
+"""
+
+func _hollow(shown: Node3D, stone: Dictionary) -> void:
+	## A Void stone on the counter in the dock's Void look (VoidMarks' Hollow), made solid: dark
+	## space with a few stars where the body was, every facet lit at its rim in the stone's own
+	## paled hue. The far half goes; its own lamp takes the rim's color.
+	if _hollow_shader == null:
+		_hollow_shader = Shader.new()
+		_hollow_shader.code = HOLLOW_3D
+	var material := ShaderMaterial.new()
+	material.shader = _hollow_shader
+	material.set_shader_parameter("tone", _void_tone(stone))
+	var meshes: Array = shown.get_children().filter(func(n: Node) -> bool: return n is MeshInstance3D)
+	for index in range(meshes.size()):
+		var part: MeshInstance3D = meshes[index]
+		if index < meshes.size() - 1:
+			part.visible = false
+			continue
+		part.material_override = material
+		part.material_overlay = null
+	for lamp in shown.get_children():
+		if lamp is OmniLight3D:
+			(lamp as OmniLight3D).light_color = _void_tone(stone)
+			(lamp as OmniLight3D).light_energy = 0.6
+
+func _clear_item(id: String) -> void:
+	## Goods put away by a Restock: they shrink into the cloth, their words fading with them.
+	var entry: Dictionary = _items.get(id, {})
+	_items.erase(id)
+	var holder: Variant = entry.get("holder", null)
+	if not holder is Node3D or not is_instance_valid(holder):
+		return
+	var words: Array = ([entry.get("price_label", null), entry.get("tag", null)] + entry.get("marks", [])).filter(func(n: Variant) -> bool: return n is Node3D)
+	if not is_inside_tree():
+		(holder as Node3D).queue_free()
+		return
+	var tween := (holder as Node3D).create_tween()
+	tween.tween_property(holder, "scale", Vector3.ONE * 0.01, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+	tween.parallel().tween_method(func(alpha: float) -> void:
+		for spot in words:
+			if is_instance_valid(spot):
+				(spot as Node3D).set_meta("alpha", alpha), 1.0, 0.0, 0.2)
+	tween.tween_callback((holder as Node3D).queue_free)
 
 func _tag(item: Dictionary) -> Node3D:
 	## The name under the price: a gem's name, or a die's size ("d4"), the way the bag reads them.
@@ -384,7 +564,7 @@ func take(id: String) -> Node3D:
 	tween.tween_property(holder, "scale", Vector3.ONE * 0.01, 0.35).set_delay(0.2)
 	## The words are drawn flat over the room and do not shrink with it: they fade instead,
 	## or the price and the tag would slide together into the empty stand.
-	var words: Array = [entry.get("price_label", null), entry.get("tag", null)].filter(func(n: Variant) -> bool: return n is Node3D)
+	var words: Array = ([entry.get("price_label", null), entry.get("tag", null)] + entry.get("marks", [])).filter(func(n: Variant) -> bool: return n is Node3D)
 	tween.parallel().tween_method(func(alpha: float) -> void:
 		for spot in words:
 			if is_instance_valid(spot):
@@ -408,6 +588,20 @@ func _process(delta: float) -> void:
 		var scale_goal: float = 1.18 if bool(entry.hover) else 1.0
 		spinner.scale = spinner.scale.lerp(Vector3.ONE * scale_goal, clampf(delta * 10.0, 0.0, 1.0))
 		(entry.shine as OmniLight3D).light_energy = 1.6 if bool(entry.hover) else 0.7
+		if bool(entry.get("lucky", false)):
+			## A lucky find breathes its gold, and its glints wink in turn round it.
+			var breath: float = 0.5 + 0.5 * sin(_clock * 2.1 + float(entry.phase))
+			(entry.shine as OmniLight3D).light_energy = (1.9 if bool(entry.hover) else 1.0) + 0.6 * breath
+			var glints: Array = entry.get("glints", [])
+			for index in range(glints.size()):
+				var glint: Variant = glints[index]
+				if not glint is MeshInstance3D or not is_instance_valid(glint):
+					continue
+				if index == 0:
+					(glint as Node3D).scale = Vector3.ONE * (0.95 + 0.2 * breath)
+					continue
+				var wink: float = pow(maxf(0.0, sin(_clock * 2.6 + float(index) * 1.9 + float(entry.phase))), 4.0)
+				(glint as Node3D).scale = Vector3.ONE * (0.04 + 0.3 * wink)
 
 func _faced_die(die: Dictionary) -> Node3D:
 	## The die as it rolls in a hand: each face shaded and numbered, etched faces tinted, so
@@ -479,3 +673,38 @@ class TagPlate extends StyleBox:
 		var rim := shape.duplicate()
 		rim.append(shape[0])
 		RenderingServer.canvas_item_add_polyline(to_canvas_item, rim, PackedColorArray([_tone.darkened(0.45)]), 1.0, true)
+
+class MarkPlate extends StyleBox:
+	## A mark under a stall stone's tag (review card S1, round 3): a capsule filled with its
+	## tone's dark and edged in the tone, a small glyph in its left margin (a lucky find's
+	## four-pointed glint, a Void's ring).
+	var _plate: StyleBoxFlat
+	var _tone: Color
+	var _ring: bool
+
+	func _init(tone: Color, ring: bool) -> void:
+		_tone = tone
+		_ring = ring
+		_plate = StyleBoxFlat.new()
+		_plate.bg_color = Color(tone.darkened(0.8), 0.94)
+		_plate.border_color = Color(tone, 0.95)
+		_plate.set_border_width_all(2)
+		_plate.set_corner_radius_all(40)
+		content_margin_left = 9.0 + TAG_PIP + 5.0
+		content_margin_right = 11.0
+		content_margin_top = 1.0
+		content_margin_bottom = 2.0
+
+	func _draw(to_canvas_item: RID, rect: Rect2) -> void:
+		_plate.draw(to_canvas_item, rect)
+		var middle := Vector2(rect.position.x + 9.0 + TAG_PIP * 0.5, rect.position.y + rect.size.y * 0.5)
+		var reach: float = TAG_PIP * 0.5
+		if _ring:
+			RenderingServer.canvas_item_add_circle(to_canvas_item, middle, reach, _tone.lightened(0.2))
+			RenderingServer.canvas_item_add_circle(to_canvas_item, middle, reach * 0.55, _plate.bg_color)
+			return
+		var star := PackedVector2Array()
+		for point in range(8):
+			var angle: float = TAU * float(point) / 8.0 - PI * 0.5
+			star.append(middle + Vector2(cos(angle), sin(angle)) * (reach * 1.15 if point % 2 == 0 else reach * 0.3))
+		RenderingServer.canvas_item_add_polygon(to_canvas_item, star, PackedColorArray([_tone.lightened(0.35)]))
