@@ -21,6 +21,7 @@ export function analyze(hand, colors = []) {
 	const wildTops = new Map();
 	const rank = new Map();
 	let total = 0, maxTotal = 0, held = 0, rerolled = 0, phantoms = 0, high = 0, low = 0, highPct = 0, odd = 0, even = 0, lowDice = 0, crowns = 0;
+	const phantomIds = [];
 	const lowIds = [];
 	const crownIds = [];
 	let crownTotal = 0;
@@ -42,7 +43,7 @@ export function analyze(hand, colors = []) {
 		// A die a Warden has numbed this turn counts for nothing, as a blank does (sim/hand.gd).
 		if ('numb' in roll) { numbed += 1; continue; }
 		maxTotal += top;
-		if (roll.phantom) phantoms += 1;
+		if (roll.phantom) { phantoms += 1; phantomIds.push(id); }
 		if (heldForPatterns(roll)) held += 1;
 		if ((I(roll.rerolls)) > 0) rerolled += 1;
 		if (kind === 'wild') {
@@ -112,7 +113,7 @@ export function analyze(hand, colors = []) {
 	return {
 		values, wilds, wild_tops: wildTops, wild_total: wildTotal, rank, total, max_total: Math.max(1, maxTotal),
 		high: Math.max(high, wildTop), low: low > 0 ? low : wildTop, high_pct: highPct,
-		held, rerolled, phantoms, dice_count: hand.length - numbed,
+		held, rerolled, phantoms, phantom_ids: phantomIds, dice_count: hand.length - numbed,
 		groups, plain_groups: plainGroups, best_set: groups.length ? groups[0] : { value: 0, count: 0, dice: [] },
 		pairs, straight: straightOf(counts, wilds, idsByValue, hand.length, wildTop),
 		odd: odd + wilds.length, even: even + wilds.length, distinct: counts.size + wilds.length,

@@ -463,10 +463,10 @@ cards were decided; what was built:
 
 ### Worn on the creature (`view/creatures/creature_wear.gd`)
 
-One `Wear` node under every creature, fed by `_dress` with the creature's statuses and its
-block as a share of its health. A single overlay material over the body's meshes carries the
-tint, the heat cracks and the stone crust (triplanar masks, so no creature needs UVs); the
-rest are meshes and particles of its own, sized to the body as it stands at rest.
+One `Wear` node under every creature, fed by `_dress` with the creature's statuses. A single
+overlay material over the body's meshes carries the tint and the heat cracks (triplanar
+masks, so no creature needs UVs); the rest are meshes and particles of its own, sized to the
+body as it stands at rest.
 
 | Status | Look | Beat |
 | ------ | ---- | ---- |
@@ -479,7 +479,7 @@ rest are meshes and particles of its own, sized to the body as it stands at rest
 | Spikes | Grey thorns jut out of it | |
 | Ward | A faint blue bubble with a rim ring; it pops with blue shards when it takes a debuff (`pop_ward`) | |
 | Regeneration | Green motes rising | |
-| Block | Grey stone plates crust over the body, filling as block reaches half its health; a soaked blow chips plates off and throws stone shards | |
+| Block | Nothing on the body (November 16, 2026: the grey stone crust read as the model fracturing, and the owner had it taken off). Block is the tag's blue chip and the hatch on the health bar; a soaked blow is the shield flash and blue shards | |
 
 ### Guards
 

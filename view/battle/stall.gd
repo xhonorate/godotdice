@@ -54,7 +54,6 @@ const MARK_STEP: float = 0.27
 const GLINT_SPOTS: Array = [Vector3(0.27, 0.2, 0.28), Vector3(-0.26, 0.06, 0.28), Vector3(0.1, -0.2, 0.34), Vector3(-0.12, 0.31, 0.22)]
 static var _glint_material: StandardMaterial3D = null
 static var _halo_material: StandardMaterial3D = null
-static var _hollow_shader: Shader = null
 func build(biome: Dictionary, stock: Array, seed_value: int) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
@@ -381,7 +380,7 @@ func _marks(item: Dictionary, holder: Node3D, under: Vector3) -> Array:
 	if bool(item.get("lucky", false)):
 		words.append(["Lucky find", lucky_tone(), false])
 	if str(item.get("kind", "stone")) != "die" and DeepStone.is_slotless(item.get("stone", {})):
-		words.append(["Void", DeepUi.INFO, true])
+		words.append(["Void", DeepUi.VOID, true])
 	var out: Array = []
 	var drop: float = MARK_DROP + (0.1 if DeepUi.phone else 0.0)
 	for index in range(words.size()):
@@ -436,40 +435,11 @@ func _shimmer(holder: Node3D) -> Array:
 		out.append(glint)
 	return out
 
-const HOLLOW_3D: String = """
-shader_type spatial;
-render_mode unshaded, cull_back;
-uniform vec4 tone : source_color = vec4(0.66, 0.82, 1.0, 1.0);
-varying vec3 at;
-
-float hash(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
-
-void vertex() {
-	at = VERTEX;
-}
-
-void fragment() {
-	float facing = clamp(dot(NORMAL, VIEW), 0.0, 1.0);
-	float rim = pow(1.0 - facing, 3.6);
-	vec3 base = mix(vec3(0.015, 0.02, 0.045), vec3(0.1, 0.125, 0.24), facing * 0.6);
-	vec3 cell = floor(at * 9.0);
-	float h = hash(cell);
-	float star = (h > 0.9 ? smoothstep(0.42, 0.05, length(fract(at * 9.0) - 0.5)) : 0.0) * (0.5 + 0.5 * fract(h * 7.3));
-	vec3 lite = tone.rgb * 0.55 + vec3(0.45);
-	ALBEDO = base + vec3(star) + lite * rim * 0.85;
-}
-"""
-
 func _hollow(shown: Node3D, stone: Dictionary) -> void:
 	## A Void stone on the counter in the dock's Void look (VoidMarks' Hollow), made solid: dark
 	## space with a few stars where the body was, every facet lit at its rim in the stone's own
 	## paled hue. The far half goes; its own lamp takes the rim's color.
-	if _hollow_shader == null:
-		_hollow_shader = Shader.new()
-		_hollow_shader.code = HOLLOW_3D
-	var material := ShaderMaterial.new()
-	material.shader = _hollow_shader
-	material.set_shader_parameter("tone", _void_tone(stone))
+	var material: ShaderMaterial = VoidMarks.hollow_3d_material(_void_tone(stone))
 	var meshes: Array = shown.get_children().filter(func(n: Node) -> bool: return n is MeshInstance3D)
 	for index in range(meshes.size()):
 		var part: MeshInstance3D = meshes[index]

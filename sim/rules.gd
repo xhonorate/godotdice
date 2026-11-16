@@ -33,7 +33,8 @@ extends RefCounted
 ##   matched (dice that match another: every die in a set of two or more)
 ##   trophies (what a Renown has taken this run)  envenom (the owner's Envenomed stacks)
 ##   crown_steps / one_steps (the sizes over a d4 of the dice on their top face, or on a 1, added up)
-##   fight_ones (the 1s a Bloodroot has counted this fight)  target_curse (Curse on whoever is aimed at)
+##   fight_ones (the 1s a Bloodroot has counted this fight)  fresh_ones (the 1s its last count found new)
+##   target_curse (Curse on whoever is aimed at)
 ##   colors (how many of the six colors have fired on this rail this turn)
 ##
 ## A skill may carry `numbers`: named amount expressions written into its `text` and its
@@ -173,7 +174,7 @@ const TERMS: Array = ["rolled", "value", "second", "count", "high", "low", "tota
 	"resonance", "previous_amount", "carat", "cut", "clarity", "depth", "turn", "party", "crowns", "high_crown", "low_dice", "pyrite", "pot", "enemy_poison", "fizzles",
 	"swell", "held_gems", "biggest_hit", "party_heaviest_carat", "party_best_turn", "party_richest", "party_high_die", "taken_since", "turns_acted", "living_players", "strength", "pairs", "even_read",
 	"crown_total", "run_fires", "fight_resonance", "pair_count", "pairs_total", "rerolls_left", "run_kills", "run_breaks", "healed_all", "self_dots",
-	"matched", "trophies", "envenom", "crown_steps", "one_steps", "fight_ones", "target_curse", "colors"]
+	"matched", "trophies", "envenom", "crown_steps", "one_steps", "fight_ones", "fresh_ones", "target_curse", "colors"]
 const RANKS: Array = ["carat", "cut", "clarity"]
 const EFFECT_KINDS: Array = ["damage", "block", "heal", "gold", "poison", "stun", "remove_block", "cleanse", "revive",
 	"curse", "amplify_next", "cut_step_next", "raise_low", "raise_high", "set_match", "flip_high", "flip_low",
@@ -410,6 +411,7 @@ static func term(name: String, node: Dictionary, c: Dictionary) -> int:
 		"crown_steps": return DeepHand.size_steps(a, a.get("crown_ids", []))
 		"one_steps": return DeepHand.size_steps(a, a.get("one_ids", []))
 		"fight_ones": return int(unit.get("fight_ones", 0))
+		"fresh_ones": return int(unit.get("fresh_ones", 0))
 		"target_curse": return int(c.get("target_unit", {}).get("statuses", {}).get("curse", 0))
 		"colors": return int(c.get("colors", 0))
 		"dice": return int(a.get("dice_count", 0))

@@ -835,7 +835,18 @@ func _socket(parent: Node, unit: Dictionary, index: int, cap: float = -1.0) -> v
 		_lay_trigger(card, stone, _rail_context(unit, index))
 		polish_badge(slot, stone)
 		var set_stone: Dictionary = stone
-		Tips.attach(card, func() -> Control: return _refused(Plates.gem(set_stone, _rail_context(unit, index), [], {}, [], _rider_opts(unit, index, set_stone)), "stone", str(set_stone.id)), {"tone": DeepUi.color(DeepStone.color(set_stone)), "keep": true})
+		## An opal beside or behind a gem it cannot touch says so here as in the fight (opals
+		## never copy opals): the badge on its ring, the lines on its plate.
+		var warn: Dictionary = RailWarnings.run_blocks(unit).get(index, {})
+		var cant: Array = warn.get("lines", [])
+		var toward: Array = []
+		for other in warn.get("toward", []):
+			var key: String = "socket:%d" % int(other)
+			toward.append(func() -> Rect2:
+				var aim: Variant = _spots.get(key, null)
+				return (aim as Control).get_global_rect() if aim is Control and is_instance_valid(aim) else Rect2())
+		RailWarnings.opal_warn(slot, stone, cant, toward, false)
+		Tips.attach(card, func() -> Control: return _refused(Plates.gem(set_stone, _rail_context(unit, index), [], {}, [], _rider_opts(unit, index, set_stone, false, cant)), "stone", str(set_stone.id)), {"tone": DeepUi.color(DeepStone.color(set_stone)), "keep": true})
 		if editable() and not DeepStone.is_locked(stone):
 			data = {"kind": "stone", "stone_id": str(stone.id), "from_socket": index, "appraised": true}
 			card.mouse_default_cursor_shape = Control.CURSOR_DRAG
@@ -926,9 +937,12 @@ func _rail_context(unit: Dictionary, socket: int) -> Dictionary:
 		context.run_fires = int(unit.get("run_counts", {}).get(str(own.get("id", "")), 0))
 	return context
 
-func _rider_opts(unit: Dictionary, socket: int, stone: Dictionary, rider_of: bool = false) -> Dictionary:
-	## What a plate on this socket says about the Void gems riding it.
+func _rider_opts(unit: Dictionary, socket: int, stone: Dictionary, rider_of: bool = false, cant: Array = []) -> Dictionary:
+	## What a plate on this socket says about the Void gems riding it, and what its opal cannot
+	## reach (`cant`, RailWarnings.run_blocks).
 	var opts: Dictionary = {"socket": socket}
+	if not cant.is_empty():
+		opts.cant = cant
 	var riders: Array = DeepStone.riders_of(unit, socket)
 	if rider_of:
 		opts.rider_of = true

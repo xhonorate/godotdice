@@ -1648,15 +1648,26 @@ static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
 ##     stone drop would have been (`stone_drop_pct`), and always after `spoils_pity` fights in a
 ##     row that gave this player no stone. An elite's is always there, a grade better
 ##     (`elite_stone_luck`), and of a color the player has set on the rail (review card B1).
-##   a die's work, named in full so one click does it: the lowest face of a die comes up
-##     (`spoils_temper`), a die a size bigger, or a die dipped in a material. With no stone card,
-##     a second piece of work of another kind takes its place.
+##   a die's work, named in full so one click does it: a face of a die comes up or down by
+##     `spoils_temper` (its lowest up: temper; its highest up: hone; its lowest down: soften;
+##     its highest down: blunt), a die a size bigger or smaller, or a die dipped in a material.
+##     With no stone card, a second piece of work of another kind takes its place. Work that
+##     takes a die down (November 16, 2026: the spoils only ever raised a face or grew a die)
+##     is for the rail that reads low: it is drawn `spoils_low_weight` (3) times as often when
+##     a set gem's trigger reads the low end of the hand (`_rail_reads_low`), and still now
+##     and then for anyone, so a low build can be begun on it.
 ##   pyrite: `spoils_pyrite_pct` of what the fight paid, on top of it.
 ##
 ## The offer is `state.spoils[player id]` = {cards, elite, paid, dropped}. A vote down a tunnel
 ## with the offer still open skips it, and so does the party moving on (`_drop_spoils`).
 
-const SPOILS_WORK: Array = ["temper", "upsize", "material"]
+const SPOILS_WORK: Array = ["temper", "hone", "soften", "blunt", "upsize", "downsize", "material"]
+## How often each piece of work is drawn against the others: raising and growing most, a dip
+## less, work that takes a die down least unless the rail reads low.
+const SPOILS_WORK_WEIGHT: Dictionary = {"temper": 3.0, "hone": 2.0, "upsize": 3.0, "material": 2.0, "soften": 1.0, "blunt": 1.0, "downsize": 1.0}
+const SPOILS_LOW_WORK: Array = ["soften", "blunt", "downsize"]
+## A trigger that reads the low end of the hand, by kind, or an `always` read "low".
+const LOW_TRIGGER_KINDS: Array = ["at_most", "below", "low_count", "total_pct_at_most", "total_at_most", "crowns_at_most", "all_odd"]
 
 static func _offer_spoils(state: Dictionary, unit: Dictionary, streams: Dictionary, elite: bool, stone_card: bool, paid: int, quality: int, dropped: int) -> Dictionary:
 	var rng: RandomNumberGenerator = streams.stones
@@ -1669,10 +1680,10 @@ static func _offer_spoils(state: Dictionary, unit: Dictionary, streams: Dictiona
 		_reveal(stone)
 		cards.append({"kind": "stone", "stone": stone})
 	var works: Array = SPOILS_WORK.duplicate()
+	var low_weight: float = maxf(1.0, float(DeepContent.constant("spoils_low_weight", 3))) if _rail_reads_low(unit) else 1.0
 	while cards.size() < 2 and not works.is_empty():
-		var at: int = rng.randi_range(0, works.size() - 1)
-		var work: String = str(works[at])
-		works.remove_at(at)
+		var work: String = _draw_work(works, rng, low_weight)
+		works.erase(work)
 		var card: Dictionary = _spoils_work(unit, work, rng)
 		if not card.is_empty():
 			cards.append(card)
@@ -1701,6 +1712,32 @@ static func spoils_pool(state: Dictionary, unit: Dictionary) -> Array:
 		return colors.has(str(skill.get("color", ""))) and not DeepContent.is_transcendent(k))
 	return pool
 
+static func _draw_work(works: Array, rng: RandomNumberGenerator, low_weight: float) -> String:
+	## One piece of work drawn from `works` by weight, the low works `low_weight` times theirs.
+	var total: float = 0.0
+	for work in works:
+		total += float(SPOILS_WORK_WEIGHT.get(work, 1.0)) * (low_weight if SPOILS_LOW_WORK.has(work) else 1.0)
+	var roll: float = rng.randf() * total
+	for work in works:
+		roll -= float(SPOILS_WORK_WEIGHT.get(work, 1.0)) * (low_weight if SPOILS_LOW_WORK.has(work) else 1.0)
+		if roll < 0.0:
+			return str(work)
+	return str(works[works.size() - 1])
+
+static func _rail_reads_low(unit: Dictionary) -> bool:
+	## True when a gem set on the rail wants the low end of the hand: a trigger of a low kind,
+	## or an `always` that reads "low" at the stone's own Cut.
+	for stone in DeepStone.rail_stones(unit):
+		if not stone is Dictionary or DeepStone.is_geode(stone):
+			continue
+		var trigger: Dictionary = DeepStone.skill_of(stone).get("trigger", {})
+		var kind: String = str(trigger.get("kind", "always"))
+		if LOW_TRIGGER_KINDS.has(kind):
+			return true
+		if kind == "always" and DeepPatterns.read_side(trigger, int(DeepStone.effective(stone, {}).get("cut_step", 0))) == "low":
+			return true
+	return false
+
 static func _spoils_work(unit: Dictionary, work: String, rng: RandomNumberGenerator) -> Dictionary:
 	## One piece of work on one of the player's dice, chosen now so the card can say exactly
 	## what it does: {kind: "die", work, die_id, die (as it is), after (as it would be), ...}.
@@ -1708,29 +1745,47 @@ static func _spoils_work(unit: Dictionary, work: String, rng: RandomNumberGenera
 	var dice: Array = unit.get("dice", [])
 	var fits: Array = []
 	match work:
-		"temper":
+		"temper", "soften":
 			## The die whose lowest face is lowest of all, so the work lands where it shows most.
+			## Softening needs a numbered face above 1 to take down.
 			var least: int = 1 << 30
 			for die in dice:
 				if die.get("faces", []).is_empty():
 					continue
-				var low: int = _lowest_face(die)
+				if work == "soften" and _lowest_numbered(die) < 0:
+					continue
+				var low: int = _lowest_face(die) if work == "temper" else _shown_value(die.faces[_lowest_numbered(die)])
 				if low < least:
 					least = low
 					fits = [die]
 				elif low == least:
 					fits.append(die)
-		"upsize":
-			## The smallest die that can grow.
-			var smallest: int = 1 << 30
+		"hone", "blunt":
+			## The die whose highest face is highest of all. Blunting needs it above 1.
+			var most: int = -1
 			for die in dice:
-				if not DeepOddities.resize_refusal(die, 1).is_empty():
+				if die.get("faces", []).is_empty():
+					continue
+				var high: int = _shown_value(die.faces[_highest_face(die)])
+				if work == "blunt" and high <= 1:
+					continue
+				if high > most:
+					most = high
+					fits = [die]
+				elif high == most:
+					fits.append(die)
+		"upsize", "downsize":
+			## The smallest die that can grow, or the biggest that can be filed down.
+			var way: int = 1 if work == "upsize" else -1
+			var best: int = (1 << 30) if work == "upsize" else -1
+			for die in dice:
+				if not DeepOddities.resize_refusal(die, way).is_empty():
 					continue
 				var size: int = DeepOddities.SIZES.find(str(die.get("shape", "")))
-				if size < smallest:
-					smallest = size
+				if (size < best) if work == "upsize" else (size > best):
+					best = size
 					fits = [die]
-				elif size == smallest:
+				elif size == best:
 					fits.append(die)
 		"material":
 			fits = dice.filter(func(d: Dictionary) -> bool: return str(d.get("material", "")).is_empty())
@@ -1757,9 +1812,31 @@ static func _lowest_face(die: Dictionary) -> int:
 		low = mini(low, 0 if str(f.get("kind", "plain")) == "blank" else int(f.get("value", 0)))
 	return low
 
+static func _lowest_numbered(die: Dictionary) -> int:
+	## The index of the lowest face that has a number above 1 to take down (a blank has none,
+	## a 1 is as low as a face goes), or -1.
+	var at: int = -1
+	var faces: Array = die.get("faces", [])
+	for index in range(faces.size()):
+		if str(faces[index].get("kind", "plain")) == "blank" or _shown_value(faces[index]) <= 1:
+			continue
+		if at < 0 or _shown_value(faces[index]) < _shown_value(faces[at]):
+			at = index
+	return at
+
+static func _highest_face(die: Dictionary) -> int:
+	## The index of the highest face (the first of equals).
+	var at: int = 0
+	var faces: Array = die.get("faces", [])
+	for index in range(faces.size()):
+		if _shown_value(faces[index]) > _shown_value(faces[at]):
+			at = index
+	return at
+
 static func _spoils_apply(die: Dictionary, card: Dictionary) -> int:
 	## Does a die card's work to `die` in place. Returns the face it worked on (-1 for work on
 	## the whole die), or -2 when the die cannot take it.
+	var step: int = maxi(1, int(DeepContent.constant("spoils_temper", 2)))
 	match str(card.get("work", "")):
 		"temper":
 			var faces: Array = die.get("faces", [])
@@ -1770,10 +1847,29 @@ static func _spoils_apply(die: Dictionary, card: Dictionary) -> int:
 				if _shown_value(faces[index]) < _shown_value(faces[low]):
 					low = index
 			var kind_was: String = str(faces[low].get("kind", "plain"))
-			faces[low] = DeepDice.face(_shown_value(faces[low]) + maxi(1, int(DeepContent.constant("spoils_temper", 2))), "plain" if kind_was == "blank" else kind_was)
+			faces[low] = DeepDice.face(_shown_value(faces[low]) + step, "plain" if kind_was == "blank" else kind_was)
 			return low
+		"hone":
+			## The highest face comes up further, with no ceiling, as the carver's raise has none.
+			var faces: Array = die.get("faces", [])
+			if faces.is_empty():
+				return -2
+			var high: int = _highest_face(die)
+			var kind_was: String = str(faces[high].get("kind", "plain"))
+			faces[high] = DeepDice.face(_shown_value(faces[high]) + step, "plain" if kind_was == "blank" else kind_was)
+			return high
+		"soften", "blunt":
+			## A numbered face comes down, never below a 1; what is etched on it stays.
+			var faces: Array = die.get("faces", [])
+			var at: int = _lowest_numbered(die) if str(card.work) == "soften" else (_highest_face(die) if not faces.is_empty() else -1)
+			if at < 0 or str(faces[at].get("kind", "plain")) == "blank" or _shown_value(faces[at]) <= 1:
+				return -2
+			faces[at] = DeepDice.face(maxi(1, _shown_value(faces[at]) - step), str(faces[at].get("kind", "plain")))
+			return at
 		"upsize":
 			return -1 if DeepOddities.resize(die, 1).is_empty() else -2
+		"downsize":
+			return -1 if DeepOddities.resize(die, -1).is_empty() else -2
 		"material":
 			die.material = str(card.get("material", ""))
 			return -1
@@ -2415,9 +2511,9 @@ static func _swap_die(state: Dictionary, unit: Dictionary, index: int, die_id: S
 
 # --- trading ----------------------------------------------------------------------------------
 ##
-## The one way a stone changes hands at a landing, in a party: one lapidary offers a loose stone
-## from their bag to one other, by name (from that player's tab), and the other answers with a
-## stone of their own offered back. When both have said yes to the pair, the two stones swap.
+## The one way a stone changes hands at a landing, in a party: one lapidary offers a stone from
+## their bag (or one set on their rail, which comes off it) to one other, by name (from that
+## player's tab), and the other answers with a stone of their own offered back. When both have said yes to the pair, the two stones swap.
 ## Nothing stands in the room for it, so nobody has to walk anywhere to trade and anyone can
 ## see who is trading with whom on the tabs. Several pairs can be trading at once. Trading is
 ## free: it is not the landing's respite. But each lapidary trades once a landing: one swap,
@@ -2493,8 +2589,18 @@ static func _trade_offer(state: Dictionary, unit: Dictionary, stone_id: String, 
 	for held in unit.get("haul", []):
 		if str(held.get("id", "")) == stone_id:
 			stone = held
+	## A gem set on the rail, or riding a socket, comes off the rail onto the table (November
+	## 16, 2026): what its owner could drag to the bag first, done in one.
+	var worn: bool = false
 	if stone.is_empty():
-		return _refuse("only a loose stone from your bag can be offered")
+		for held in DeepStone.rail_stones(unit):
+			if held is Dictionary and str(held.get("id", "")) == stone_id:
+				stone = held
+				worn = true
+	if stone.is_empty():
+		return _refuse("only a stone of your own can be offered")
+	if worn and DeepStone.is_locked(stone):
+		return _refuse("a Knot cannot leave its socket")
 	if bool(state.get("marks_lent", false)) and is_lent(state, stone):
 		## It would go home with neither of them: the vault it came from keeps the stone itself.
 		return _refuse("that is a copy of a stone in your vault: only stones found down here change hands")
@@ -2513,6 +2619,10 @@ static func _trade_offer(state: Dictionary, unit: Dictionary, stone_id: String, 
 	if not can_trade_with(state, id, to):
 		var other: Dictionary = player(state, to)
 		return _refuse(("%s cannot trade with you here" % str(other.get("name", ""))) if not other.is_empty() else "there is nobody of that name to trade with")
+	if worn:
+		var off: Dictionary = _unsocket(state, unit, -1, stone_id)
+		if not bool(off.get("ok", false)):
+			return off
 	var table: Dictionary = trade_table(state)
 	var offers: Dictionary = table.offers
 	var was: String = str(offers.get(id, {}).get("to", ""))
@@ -2520,7 +2630,7 @@ static func _trade_offer(state: Dictionary, unit: Dictionary, stone_id: String, 
 	## A changed offer takes back the yes of both pairs it touches: the old one and the new one.
 	var accepted: Array = table.accepted.filter(func(a: Variant) -> bool: return not str(a) in [id, was, to])
 	_set_trade(state, offers, accepted)
-	return {"ok": true, "event": _event(state, "trade_offer", {"unit": unit.id, "to": to, "stone": stone.duplicate(true)})}
+	return {"ok": true, "event": _event(state, "trade_offer", {"unit": unit.id, "to": to, "stone": stone.duplicate(true), "unsocketed": worn})}
 
 static func _trade_withdraw(state: Dictionary, unit: Dictionary) -> Dictionary:
 	var id: String = str(unit.id)

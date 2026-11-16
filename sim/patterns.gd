@@ -223,6 +223,12 @@ static func evaluate(trigger: Dictionary, cut_step: int, a: Dictionary, context:
 			## Read off the faces: "showing 1" is a die that landed on its 1, Doubled or not.
 			var wanted: Array = trigger.get("values", [7])
 			var dice: Array = DeepHand.matching_shown(a, func(v: int) -> bool: return wanted.has(v) or wanted.has(float(v)))
+			## `rolled`: only dice the player threw themselves count, so a wild face (any value)
+			## and a phantom a gem conjured are not 1s a Bloodroot pays for.
+			if bool(trigger.get("rolled", false)):
+				var ghosts: Array = a.get("phantom_ids", [])
+				var wilds: Array = a.get("wilds", [])
+				dice = dice.filter(func(id: Variant) -> bool: return not wilds.has(id) and not ghosts.has(id))
 			if dice.size() >= maxi(1, need):
 				result.active = true
 				result.dice = dice

@@ -228,6 +228,13 @@ func set_fate(id: String, fate: String) -> void:
 	_fill_pane()
 	_fill_bar()
 
+func _fate_again(fate: String) -> void:
+	## The chosen fate clicked again: it stays, and the button says so with a nod.
+	DeepAudio.play("ui_tap", {"volume": 0.5})
+	var button: Node = _pane.find_child("Fate_" + fate, true, false) if _pane != null and is_instance_valid(_pane) else null
+	if button is Control and (button as Control).is_inside_tree() and not DeepUi.headless():
+		DeepUi.pulse(button, 1.08, 0.25)
+
 func toggle_rough(id: String) -> void:
 	## Before the crack: a raw stone set aside to be sold as it is, or taken back to be read.
 	if phase != "laid" or _known(id):
@@ -532,8 +539,7 @@ func _pane_known(stone: Dictionary) -> void:
 			_pane.add_child(flow)
 			for key in inside:
 				var inclusion: Dictionary = DeepContent.inclusion(str(key))
-				var cls: String = str(inclusion.get("class", "PINPOINT"))
-				DeepUi.pill(flow, str(StoneCard.INCLUSION_GLYPHS.get(cls, "spark")), str(inclusion.get("name", key)), StoneCard.INCLUSION_TONES.get(cls, DeepUi.INFO), 12, str(inclusion.get("text", "")))
+				DeepUi.pill(flow, StoneCard.inclusion_glyph(str(key)), str(inclusion.get("name", key)), StoneCard.inclusion_tone(str(key)), 12, str(inclusion.get("text", "")))
 	DeepUi.spacer(_pane, false)
 	if phase == "fates":
 		_pane_fates(stone)
@@ -623,7 +629,11 @@ func _pane_fates(stone: Dictionary) -> void:
 		var words: String = str(look[1]) if not phone or str(look[1]).length() <= 12 else str(look[2])
 		var button: Button
 		if on:
-			button = DeepUi.primary(grid, str(look[0]), words, set_fate.bind(str(stone.id), fate), 12 if phone else 14, DeepUi.coin_safe(tone))
+			## The fate it already has, marked as chosen (a check, the selected edge), not as a
+			## call to action: filled like one, "Replace yours" read as still to be pressed, and
+			## pressing it seemed to do nothing (November 16, 2026). A click on it still answers.
+			button = DeepUi.icon_button(grid, "check", words, _fate_again.bind(fate), 12 if phone else 14, DeepUi.coin_safe(tone))
+			DeepUi.selected_style(button, DeepUi.coin_safe(tone))
 		else:
 			button = DeepUi.icon_button(grid, str(look[0]), words, set_fate.bind(str(stone.id), fate), 12 if phone else 14, tone)
 		button.name = "Fate_" + fate
@@ -633,7 +643,7 @@ func _pane_fates(stone: Dictionary) -> void:
 		if price > 0:
 			DeepUi.priced(button, "+%d" % price)
 		if not phone:
-			button.tooltip_text = "%s · press %d" % [str(look[1]), index + 1]
+			button.tooltip_text = ("Chosen: %s · press %d" if on else "%s · press %d") % [str(look[1]), index + 1]
 	if bool(costly.get(str(stone.id), false)):
 		DeepUi.stat(_pane, "cross", "This gives up the finer stone", DeepUi.BAD, 11 if phone else 13)
 

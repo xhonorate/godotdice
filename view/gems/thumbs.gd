@@ -222,8 +222,11 @@ class GemThumb extends Control:
 			hollow = value
 			if value:
 				live_on_hover = false
-			if not stone.is_empty():
-				_dress_hollow()
+				if not stone.is_empty():
+					_dress_hollow()
+	## The look was put on by `configure` for a Void stone, and comes off with the next stone
+	## that is not one.
+	var _auto_hollow: bool = false
 	var _emblem: TextureRect = null
 	## What the rail is handing this stone where it stands, so the close look can read out the
 	## ranks it really has rather than the ones it was cut with.
@@ -313,6 +316,14 @@ class GemThumb extends Control:
 		_outline = GemMesh.girdle(stone)
 		_lumps = [] if appraised else GemRock.layout(stone)
 		_slotless = bool(stone.get("appraised", false)) and DeepStone.is_slotless(stone)
+		## A Void gem (the Hollow's mark, or the Void inclusion) wears the Hollow look wherever it
+		## is pictured, not only on the fight's dock and the merchant's counter (November 16,
+		## 2026): a card, a plate, the bag, the rail, a reward.
+		if _slotless and not hollow:
+			_auto_hollow = true
+			hollow = true
+		elif hollow and _auto_hollow and not _slotless:
+			_undress_hollow()
 		_sketch = null
 		_sketch_rock = null
 		_sketch_loop = PackedVector2Array()
@@ -337,12 +348,21 @@ class GemThumb extends Control:
 			_dress_hollow()
 		queue_redraw()
 
+	func _undress_hollow() -> void:
+		hollow = false
+		_auto_hollow = false
+		material = null
+		if _emblem != null:
+			_emblem.visible = false
+
 	func _dress_hollow() -> void:
 		## The shader over the photograph, and the emblem (the one thing the dark would swallow)
 		## drawn again in white on top, sized to the stone.
 		var VoidMarks = load("res://view/battle/void_marks.gd")
 		glint = false
 		material = VoidMarks.hollow_material(VoidMarks.tone_of(stone), false, str(stone.get("id", "")).hash())
+		if _emblem != null:
+			_emblem.visible = true
 		if _emblem == null:
 			_emblem = TextureRect.new()
 			_emblem.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -472,7 +492,7 @@ class GemThumb extends Control:
 		if _slotless:
 			for arc in range(6):
 				var angle: float = TAU * float(arc) / 6.0
-				draw_arc(centre, edge * 0.47, angle, angle + TAU / 9.0, 12, Color(DeepUi.INFO, 0.7), 1.5, true)
+				draw_arc(centre, edge * 0.47, angle, angle + TAU / 9.0, 12, Color(DeepUi.VOID, 0.7), 1.5, true)
 		if _fade < 1.0 and not live_shown:
 			_draw_outline(centre, edge * 0.42 * _span * lift, 1.0 - _fade)
 		if _texture != null and not live_shown:

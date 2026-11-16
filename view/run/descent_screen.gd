@@ -2242,6 +2242,13 @@ func toast_parts(parts: Array, color: Color, glyph: String = "", hold: float = 2
 		bottom = maxf(bottom, _battle.size.y - _battle._dock.position.y + 14.0)
 	elif _run_dock.visible:
 		bottom = maxf(bottom, _run_dock.height() + 14.0)
+	## Nor over a page laid along the bottom of the room (an oddity's cards: the Idol's "It
+	## won't budge" stood on its Pull harder key, November 16, 2026): the toast stands above it,
+	## as long as that leaves it in the room.
+	if _bottom_content != null and is_instance_valid(_bottom_content) and _bottom_content.is_visible_in_tree() and bool(_bottom_content.get_meta("bottom_page", false)):
+		var page_top: float = _bottom_content.get_global_rect().position.y - get_global_rect().position.y
+		if page_top > size.y * 0.3:
+			bottom = maxf(bottom, size.y - page_top + 10.0)
 	_toasts.offset_bottom = - bottom
 	_toasts.offset_top = _toasts.offset_bottom - _toasts.get_combined_minimum_size().y
 	DeepUi.pop_in(box, 0.0, 0.8)
@@ -3484,13 +3491,14 @@ func _show_landing() -> void:
 							return str(me().get("respite", "")).is_empty() and str(data.get("kind", "")) == "stone" and DeepDescent.can_wish(DeepOddities.find_stone(me(), str(data.get("stone_id", ""))))
 						options.drop = func(data: Dictionary) -> void: _respite("wish", str(data.stone_id))
 					"trade":
-						## The whole booth, awning and all, the way the cage is the whole cage. A loose
-						## stone dropped on it goes on the table as the page opens.
+						## The whole booth, awning and all, the way the cage is the whole cage. A stone
+						## dropped on it, from the bag or straight off the rail, goes on the table as the
+						## page opens.
 						options.offset = Vector3(0, 1.5, 0)
 						options.half = Vector3(1.2, 1.5, 0.9)
 						options.accepts = func(data: Dictionary) -> bool:
-							return str(data.get("kind", "")) == "stone" and int(data.get("from_socket", -1)) < 0 and not _tradeable().is_empty() \
-								and not DeepStone.is_geode(DeepOddities.find_stone(me(), str(data.get("stone_id", ""))))
+							return str(data.get("kind", "")) == "stone" and not _tradeable().is_empty() \
+								and _offer_refusal(DeepOddities.find_stone(me(), str(data.get("stone_id", "")))).is_empty()
 						options.drop = func(data: Dictionary) -> void: _trade_station(str(data.get("stone_id", "")))
 				_stage.add_pick(id, part, options.get("half", Vector3.ONE), options)
 			## The cage takes a click before it opens too, to say why it is shut (review card M2).
@@ -3741,7 +3749,15 @@ func _trade_page() -> void:
 	_trade_slots = {}
 	var elsewhere: String = str(mine_offer.get("to", "")) if not to_them else ""
 	_trade_slots["mine"] = _trade_slot(row, "Your stone", mine_stone, paired and accepted.has(local_id), tone,
-		("Offering one here takes back your stone for %s." % str(DeepDescent.player(run, elsewhere).get("name", "them"))) if not elsewhere.is_empty() else "Pick one of your loose stones below.")
+		("Offering one here takes back your stone for %s." % str(DeepDescent.player(run, elsewhere).get("name", "them"))) if not elsewhere.is_empty() else DeepUi.touch_words("Drag a stone here, from your bag or your rail, or pick one below."))
+	## A stone dropped on your side of the table goes on it, from the bag or straight off the
+	## rail, with no "Offer a stone" first (November 16, 2026).
+	(_trade_slots.mine as Control).set_drag_forwarding(Callable(),
+		func(_at: Vector2, data: Variant) -> bool:
+			return data is Dictionary and str(data.get("kind", "")) == "stone" and _offer_refusal(DeepOddities.find_stone(me(), str(data.get("stone_id", "")))).is_empty(),
+		func(_at: Vector2, data: Variant) -> void:
+			DeepAudio.play("ui_confirm", {"volume": 0.7})
+			command.emit({"kind": "trade_offer", "stone_id": str(data.get("stone_id", "")), "to": partner_id}))
 	var middle := DeepUi.vbox(DeepUi.card(row, Color(tone, 0.35), 12), 8)
 	middle.alignment = BoxContainer.ALIGNMENT_CENTER
 	middle.custom_minimum_size.x = 190
@@ -3777,27 +3793,55 @@ func _trade_page() -> void:
 		## What they just put down swells as it lands.
 		DeepUi.pulse(_trade_slots.theirs, 1.15, 0.3)
 	_trade_pulse = false
-	## The bag: any loose stone found down here can be offered, chosen on the ask with the
-	## things that would do lit on the dock. A copy of a vault stone stays out of it: it goes
-	## home with nobody. So does a sealed Geode, which nobody can trade until the workshop has
-	## cracked it.
-	var haul: Array = unit.get("haul", []).filter(func(s: Dictionary) -> bool:
-		return not DeepStone.is_geode(s) and not (bool(run.get("marks_lent", false)) and DeepDescent.is_lent(run, s)))
+	## The bag and the rail: any loose stone found down here can be offered, and any gem set
+	## on the rail or riding it (it comes off the rail as it is offered), chosen on the ask with
+	## the things that would do lit on the dock, or dragged onto the table. A copy of a vault
+	## stone stays out of it: it goes home with nobody. So does a sealed Geode, which nobody can
+	## trade until the workshop has cracked it, and a Knot, which never leaves its socket.
+	var candidates: Array = _offerable_stones(unit)
+	var refusals: Dictionary = {}
+	for candidate in candidates:
+		var why: String = _offer_refusal(candidate)
+		if not why.is_empty():
+			refusals[str(candidate.id)] = why
 	var bag_line := DeepUi.hbox(content, 8)
 	bag_line.alignment = BoxContainer.ALIGNMENT_CENTER
-	if haul.is_empty():
+	if candidates.size() == refusals.size():
 		DeepUi.stat(bag_line, "cross_out", "You have no stone found down here to trade.", DeepUi.DIM, 13)
 		return
 	var offered: String = str(mine_offer.get("stone", "")) if to_them else ""
 	var choose := DeepUi.icon_button(bag_line, "gem", "Offer a different stone" if to_them else "Offer %s a stone" % who, func() -> void:
-		_ask.open({"key": "trade", "title": "Your stone for %s" % who, "text": "One stone each. When you have both accepted, they swap.", "glyph": "scales", "tone": tone,
-			"confirm": "Offer it", "slots": [{"key": "stone_id", "kind": "stone", "label": "Which stone?", "items": haul, "pick": offered}]})
+		_ask.open({"key": "trade", "title": "Your stone for %s" % who, "text": "One stone each. When you have both accepted, they swap. A gem set on your rail comes off it.", "glyph": "scales", "tone": tone,
+			"confirm": "Offer it", "slots": [{"key": "stone_id", "kind": "stone", "label": "Which stone?", "items": candidates, "refusals": refusals, "pick": offered}]})
 		_light_ask(), 14, tone)
 	DeepUi.ledger_button(choose, DeepUi.SLATE_HI, DeepUi.ORE, 9)
 	_enter(choose, 0.1)
 
+func _offerable_stones(unit: Dictionary) -> Array:
+	## Every stone of this player's that the table could be asked for: the loose stones in the
+	## bag and the gems set on the rail or riding it (one comes off the rail as it is offered).
+	## A sealed Geode is not among them; the ones that cannot go are told apart by
+	## `_offer_refusal`, so the ask can list them dimmed with the reason.
+	var out: Array = []
+	for stone in unit.get("haul", []) + DeepStone.rail_stones(unit):
+		if stone is Dictionary and not DeepStone.is_geode(stone):
+			out.append(stone)
+	return out
+
+func _offer_refusal(stone: Dictionary) -> String:
+	## Why this stone cannot go on the table, or "" (the rules of `DeepDescent._trade_offer`):
+	## a copy of a vault stone goes home with neither of them, a Knot never leaves its socket.
+	if stone.is_empty() or DeepStone.is_geode(stone):
+		return "nothing to offer"
+	if bool(run.get("marks_lent", false)) and DeepDescent.is_lent(run, stone):
+		return "A copy of a stone in your vault: only stones found down here change hands."
+	if DeepStone.is_locked(stone):
+		return "A Knot cannot leave its socket."
+	return ""
+
 func _trade_slot(parent: Node, heading: String, stone: Dictionary, agreed: bool, tone: Color, empty_words: String) -> Control:
 	## One side of the table: the stone put down, its name, and whether its owner has accepted.
+	## Returns the card itself (a drop lands anywhere on it).
 	var panel := DeepUi.card(parent, Color(tone, 0.55) if not stone.is_empty() else Color(DeepUi.LINE, 0.7), 14)
 	panel.custom_minimum_size = Vector2(220, 0)
 	var card := DeepUi.vbox(panel, 6)
@@ -3807,7 +3851,7 @@ func _trade_slot(parent: Node, heading: String, stone: Dictionary, agreed: bool,
 	if stone.is_empty():
 		DeepUi.icon(frame, "question", 34, DeepUi.DIM)
 		DeepUi.wrap(card, empty_words, 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER, 200)
-		return frame
+		return panel
 	StoneCard.marked_picture(frame, stone, 90)
 	## A raw stone is named by its size and colour, as the bag names it.
 	var named := DeepUi.fit_label(card, DeepUi.skill_name(stone) if bool(stone.get("appraised", false)) else DeepStone.raw_name(stone), 13, DeepUi.PAPER, 200)
@@ -3817,7 +3861,7 @@ func _trade_slot(parent: Node, heading: String, stone: Dictionary, agreed: bool,
 		DeepUi.stat(card, "check", "Accepted", DeepUi.GOOD, 12).alignment = BoxContainer.ALIGNMENT_CENTER
 	else:
 		DeepUi.label(card, "Deciding", 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
-	return frame
+	return panel
 
 func _trade_flourish(given: Dictionary, got: Dictionary) -> void:
 	## The two stones cross the table: each lifts off its own side, they pass in the middle with
@@ -4321,6 +4365,8 @@ func _bottom_page() -> VBoxContainer:
 	_page_holder.add_child(holder)
 	var content := DeepUi.vbox(holder, 12)
 	content.alignment = BoxContainer.ALIGNMENT_END
+	## A page along the bottom: a toast stands over it, not on it (`toast_parts`).
+	content.set_meta("bottom_page", true)
 	## A way-out key in the corner gives way to whatever the page lays out beside it.
 	content.sort_children.connect(_place_way_out, CONNECT_DEFERRED)
 	DeepUi.gap(holder, _page_foot())
@@ -5930,7 +5976,8 @@ func _take_numbered(index: int) -> bool:
 ## settled.
 
 ## What each piece of a die card's work is called, and its mark.
-const SPOILS_WORK_WORDS: Dictionary = {"temper": ["Temper a face", "rise"], "upsize": ["A size up", "rise"], "material": ["A new material", "drop"]}
+const SPOILS_WORK_WORDS: Dictionary = {"temper": ["Temper the low face", "rise"], "hone": ["Hone the high face", "rise"], "soften": ["Soften the low face", "fall"], "blunt": ["Blunt the high face", "fall"],
+	"upsize": ["A size up", "rise"], "downsize": ["A size down", "fall"], "material": ["A new material", "drop"]}
 
 func _show_spoils() -> void:
 	var offer: Dictionary = DeepDescent.spoils_of(run, local_id)
@@ -6164,17 +6211,22 @@ static func _spoils_work_words(card: Dictionary) -> String:
 	var before: Dictionary = card.get("die", {})
 	var after: Dictionary = card.get("after", {})
 	var named: String = DeepDice.describe(before)
-	match str(card.get("work", "")):
-		"temper":
+	var work: String = str(card.get("work", ""))
+	match work:
+		"temper", "hone", "soften", "blunt":
 			var face: int = int(card.get("face", 0))
 			var faces: Array = before.get("faces", [])
 			var was: int = int(faces[face].get("value", 0)) if face < faces.size() else 0
 			var now: int = int(after.get("faces", [])[face].get("value", 0)) if face < after.get("faces", []).size() else 0
 			if face < faces.size() and str(faces[face].get("kind", "plain")) == "blank":
 				return "Your %s's blank face becomes a %d." % [named, now]
-			return "Your %s's lowest face, %d, comes up to %d." % [named, was, now]
+			var which: String = "lowest" if work in ["temper", "soften"] else "highest"
+			var way: String = "comes up to" if work in ["temper", "hone"] else "comes down to"
+			return "Your %s's %s face, %d, %s %d." % [named, which, was, way, now]
 		"upsize":
 			return "Your %s becomes a %s, keeping every face it has." % [named, DeepDice.describe(after)]
+		"downsize":
+			return "Your %s is filed down to a %s: its highest faces go, the rest stay as they are." % [named, DeepDice.describe(after)]
 		"material":
 			return "Your %s comes out %s." % [named, DeepDice.material_name(str(card.get("material", ""))).to_lower()]
 	return ""

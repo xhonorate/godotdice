@@ -495,7 +495,14 @@ func _test_landing_commands() -> void:
 	b.haul.append(their_offer)
 	check(not cmd(state, "a", "give", {"to": "b", "item_id": "trade_a"}).ok and a.haul.has(mine_offer), "a stone is never simply handed over")
 	check(DeepDescent.can_trade(state), "a landing in a party has a trading table")
-	check(not cmd(state, "a", "trade_offer", {"stone_id": "a_strike"}).ok, "only a loose stone from the bag goes on the table")
+	## A gem set on the rail goes on the table too: it comes off the rail as it is offered, as
+	## if dragged to the bag first (November 16, 2026). A copy of a vault stone never does, set
+	## or loose: it goes home with neither of them.
+	check(not cmd(state, "a", "trade_offer", {"stone_id": "a_strike", "to": "b"}).ok and a.rail[0] is Dictionary, "a vault copy set on the rail stays out of the trade")
+	check(cmd(state, "a", "socket", {"stone_id": "trade_a", "index": 0}).ok and str(a.rail[0].id) == "trade_a", "a stone found down here is set in its place")
+	check(cmd(state, "a", "trade_offer", {"stone_id": "trade_a", "to": "b"}).ok and a.haul.any(func(s: Dictionary) -> bool: return str(s.id) == "trade_a") and not (a.rail[0] is Dictionary), "and is offered straight off the rail, into the bag")
+	check(cmd(state, "a", "trade_withdraw", {}).ok and cmd(state, "a", "socket", {"stone_id": "a_strike", "index": 0}).ok and str(a.rail[0].id) == "a_strike" and DeepDescent.trade_table(state).offers.is_empty(), "taken back, it stays loose, and the Strike is set again by hand")
+	check(not cmd(state, "a", "trade_offer", {"stone_id": "nobody_has_this"}).ok, "only a stone of your own goes on the table")
 	var sealed: Dictionary = stone("GUARD", 4, 2, 3, "trade_geode")
 	sealed.geode = {"id": "trade_geode", "mine": "QUARRY"}
 	a.haul.append(sealed)

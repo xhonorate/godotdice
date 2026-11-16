@@ -959,6 +959,10 @@ func _vitals_plate(page: Page) -> Control:
 		words += "Block is the number at the top: %s soaks that much hit damage, and falls away at the next turn unless Retain keeps it. Its arc grows both ways round the ring, a whole ring at block to match full health, and past that it thickens and armours the face. " % DeepUi.number(int(shown.block))
 	else:
 		words += "Block, when there is any, is a number at the top and an arc round the ring. "
+	var stacks: int = int(unit.get("statuses", {}).get("poison", 0))
+	if stacks > 0:
+		var hurts: int = DeepBattle.weighed_stacks(unit, "poison", stacks, int(state.get("creature_damage_pct", 100)))
+		words += "Poison is the number at the lower right: %s comes off at the end of the turn, hatched in violet at the end of the ring, then a stack less each turn. " % DeepUi.number(hurts)
 	words += "A blow being counted hatches in red what it will take."
 	var passive: String = passive_words(unit)
 	if not passive.is_empty():
@@ -1866,10 +1870,10 @@ class SeatTab extends VBoxContainer:
 	## of the small chips stand in a row over it.
 	const WIDTH: float = 150.0
 	const PARTY_WIDTH: float = 192.0
-	## A party's chips are a creature's size and marks alone; alone, the reader's are larger
-	## and numbered.
-	const CHIP_EDGE: float = 18.0
-	const PARTY_CHIP_EDGE: float = 13.0
+	## The reader's chips, numbered, alone and in a party (the owner, November 16, 2026: the
+	## party's small marks-only chips were too small to read and said no numbers).
+	const CHIP_EDGE: float = 22.0
+	const PARTY_CHIP_EDGE: float = 18.0
 	## Whether a party's fight look applies (wider, chips as small marks): the fight sets it
 	## for a party; the run dock, which shows its tabs alone too, keeps the plain look.
 	var party_look: bool = false
@@ -1895,7 +1899,7 @@ class SeatTab extends VBoxContainer:
 		alignment = BoxContainer.ALIGNMENT_END
 		size_flags_vertical = Control.SIZE_SHRINK_END
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
-		chips = EffectChips.Row.new(DeepUi.pt(12) if DeepUi.phone else CHIP_EDGE)
+		chips = EffectChips.Row.new(DeepUi.pt(14) if DeepUi.phone else CHIP_EDGE)
 		add_child(chips)
 		face = TabFace.new()
 		face.custom_minimum_size = Vector2(DeepUi.pt(120) if DeepUi.phone else WIDTH, 0)
@@ -1941,14 +1945,14 @@ class SeatTab extends VBoxContainer:
 			inspected.emit()
 			face.accept_event()
 	func update(unit: Dictionary, character: String, seat: Color, up: bool, status: Array, order: int, effects: Array, party: bool) -> void:
-		## In a party's fight the chips are small and marks alone (hover for the words and the
-		## number), six to a row over a wider tab; alone they are the reader's full-size chips.
+		## The chips carry their mark and their number alone and in a party alike (November 16,
+		## 2026); a party's are a size smaller over a wider tab, and wrap to a second row past it.
 		var roomy: bool = party and party_look
 		if DeepUi.phone:
-			chips.set_look(DeepUi.pt(10) if roomy else DeepUi.pt(12), roomy)
+			chips.set_look(DeepUi.pt(12) if roomy else DeepUi.pt(14), false)
 			face.custom_minimum_size.x = DeepUi.pt(120)
 		else:
-			chips.set_look(PARTY_CHIP_EDGE if roomy else CHIP_EDGE, roomy)
+			chips.set_look(PARTY_CHIP_EDGE if roomy else CHIP_EDGE, false)
 			face.custom_minimum_size.x = PARTY_WIDTH if roomy else WIDTH
 		chips.show_effects(effects)
 		## Alone there is no tab: the chips sit on the dock's own edge, with no tab's height of
@@ -2146,6 +2150,13 @@ func _sync_vitals(unit: Dictionary) -> void:
 	var ratio: float = float(shown.hp) / float(maxi(1, int(shown.max_hp)))
 	_hp_bar.set_values(ratio, "%s / %s" % [DeepUi.number(int(shown.hp)), DeepUi.number(int(shown.max_hp))], float(shown.block) / float(maxi(1, int(shown.max_hp))),
 		DeepUi.number(int(shown.block)) if int(shown.block) > 0 else "")
+	## Poison on the ring (November 16, 2026): what the next tick takes, hatched in violet at
+	## the end of the health, and its number on a badge at the ring's lower right.
+	var stacks: int = int(unit.get("statuses", {}).get("poison", 0))
+	var hurts: int = DeepBattle.weighed_stacks(unit, "poison", stacks, int(state.get("creature_damage_pct", 100))) if stacks > 0 else 0
+	if bool(unit.get("poison_safe", false)):
+		hurts = 0
+	_hp_bar.set_poison(float(hurts) / float(maxi(1, int(shown.max_hp))), DeepUi.number(hurts) if hurts > 0 else "")
 	if _screen_fx != null and str(unit.get("id", "")) == local_id:
 		_screen_fx.danger = clampf((0.3 - ratio) / 0.3, 0.0, 1.0) if not bool(shown.get("downed", false)) else 0.0
 	## Block gained jumps the badge and flares along the arc (the ring does both).
@@ -6577,7 +6588,20 @@ func _dock_top() -> float:
 	var top: float = _dock.get_global_rect().position.y - 6.0
 	if _my_tab != null and _my_tab.face.is_visible_in_tree():
 		top = minf(top, _my_tab.face.get_global_rect().position.y - 6.0)
+	## A socket's riders laid out over the dock (the popout): a count stands clear over it,
+	## never through its discs and names (November 16, 2026).
+	var pop: Control = _riders_pop_open()
+	if pop != null:
+		top = minf(top, pop.get_global_rect().position.y - 6.0)
 	return top
+
+func _riders_pop_open() -> Control:
+	## The riders popout open on the page in the dock, or null.
+	var page: Page = _page_for(_shown_owner())
+	if page == null or page.riders_pop == null or not is_instance_valid(page.riders_pop):
+		return null
+	var pop: Control = page.riders_pop
+	return pop if pop.is_visible_in_tree() and not pop.is_queued_for_deletion() else null
 
 func _tally_destination(event: Dictionary) -> Vector2:
 	## Where a gem's counted figure flies as its bolt leaves (see `_figure_destination`).
@@ -7160,10 +7184,9 @@ func _impact(who: String, hit: Dictionary, color: Color, mine: bool, by: String 
 	_fx.flash(at, color, 4.0 + ratio * 10.0, 7.0, 0.3, 0.8 + ratio)
 	if int(hit.get("absorbed", 0)) > 0:
 		_fx.shield(at + Vector3(0, 0, 0.6), _camera.global_position - at, DeepUi.BLOCK, 0.7, 0.4)
-		## Its stone crust takes the blow: plates chip off it.
-		if creature.crusted():
-			creature.chip_crust()
-			_fx.shards(at + Vector3(0, 0.1, 0.5), Color("9aa0b4"), 5 + mini(12, int(ratio * 30.0)), 2.5, 0.1, 0.8)
+		## Its block takes the blow: blue shards fly off the shield (the body wears no crust
+		## for block since November 16, 2026).
+		_fx.shards(at + Vector3(0, 0.1, 0.5), DeepUi.BLOCK.lightened(0.3), 5 + mini(12, int(ratio * 30.0)), 2.5, 0.1, 0.8)
 	_camera.add_trauma(0.1 + ratio * 0.55)
 	if ratio >= 0.25 or bool(hit.get("killed", false)):
 		_camera.punch(-4.0 - ratio * 4.0, 0.4)
@@ -9336,6 +9359,12 @@ func _float_lane(x: float, half: float) -> float:
 			var counted: Rect2 = (child as Control).get_global_rect()
 			if counted.size.x > 0.0 and counted.position.x < x + half and counted.end.x > x - half and counted.end.y > floor_y - 160.0:
 				floor_y = minf(floor_y, counted.position.y)
+	## And above the riders popout laid over the dock there (November 16, 2026).
+	var pop: Control = _riders_pop_open()
+	if pop != null:
+		var laid: Rect2 = pop.get_global_rect()
+		if laid.position.x < x + half and laid.end.x > x - half:
+			floor_y = minf(floor_y, laid.position.y)
 	return floor_y - 4.0
 
 func _float_world(point: Vector3, text: String, color: Color, size: int = 20) -> Label:

@@ -467,10 +467,10 @@ stones only.
 
 *Drop cut, emblem `bloodroot`, hue 2f4f3d / b3261e.* Every 1 is the price and the growth. Sets spend what the 1s bought.
 
-- **Tap**: Every 1 showing: lose 1 health and gain 1 poison for every 1 you have rolled this fight. Gain 1 max health for the rest of the run for each 1.
+- **Tap**: Every 1 you roll (not a wild or a phantom): lose 1 health and gain 1 poison per 1 rolled this fight. Gain 1 max health for the run per new 1. Wild faces and phantom dice are not 1s you rolled (the trigger's `rolled`), and a replay counts no die twice (`fight_counted`, `fresh_ones`).
 - **Take Root**: Three of a kind: gain Resonance max health for this fight, then deal damage equal to the health you are missing.
 - **Transfusion**: Four of a kind: heal Resonance, and deal the health restored to every creature.
-- **Heartsblood**: Five of a kind: deal damage equal to your max health to a random creature, once for every point in the set.
+- **Heartsblood**: Five of a kind: deal damage equal to your max health to a random creature, once per pip on the face. (Five 1s strike once, five 6s six times; before November 16, 2026 it was once for every point in the set.)
 - Deep start: opens with 350% of the skipped mines' floors as max health (`head_start`).
 
 #### Puck · Highs and Lows (1,000 gold)

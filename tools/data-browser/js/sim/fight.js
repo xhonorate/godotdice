@@ -677,6 +677,7 @@ export function resolveBirthstone(state, unit, opts, rng) {
 					// Arpeggio climbs from the one, a Bandit pays the other.
 					applied.reads = resonance;
 					applied.sets = trig.sets || [];
+					applied.dice = trig.dice || [];
 					const did = birthstoneEffect(state, unit, applied, dry, replay, rng);
 					entry.effects.push(did);
 					// An Arpeggio's notes have raised the Resonance, for what is left of this firing too.
@@ -890,11 +891,22 @@ function birthstoneEffect(state, unit, effect, dry, replay, rng = null) {
 			if (!grown.length) out.nothing = true;
 			break;
 		}
-		case 'fight_count':
-			// A Bloodroot counts the 1s it has been shown this fight.
-			unit.fight_ones = satAdd(I(unit.fight_ones), Math.max(0, amount));
+		case 'fight_count': {
+			// A Bloodroot counts the 1s it has been shown this fight, each die once a turn: a replay shows
+			// it the same 1s again. What was new this firing is `fresh_ones`, for the growth (sim/battle.gd).
+			const ids = effect.dice || [];
+			let counted = unit.fight_counted && typeof unit.fight_counted === 'object' ? unit.fight_counted : {};
+			if (I(counted.turn) !== I(state.turn) || !Array.isArray(counted.ids)) counted = { turn: I(state.turn), ids: [] };
+			let fresh = 0;
+			if (!ids.length) fresh = Math.max(0, amount);
+			else for (const id of ids) if (!counted.ids.includes(id)) { counted.ids.push(id); fresh += 1; }
+			if (!dry) unit.fight_counted = counted;
+			unit.fight_ones = satAdd(I(unit.fight_ones), fresh);
+			unit.fresh_ones = fresh;
 			out.total = I(unit.fight_ones);
+			out.fresh = fresh;
 			break;
+		}
 		case 'pot': {
 			// What is on the table. Staking moves Pyrite out of the bank in the same breath.
 			const mode = String(effect.pot_mode || 'ante');

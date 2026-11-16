@@ -149,7 +149,7 @@ var _well_want: float = 0.0
 var _held: Array[MeshInstance3D] = []
 var _held_material: StandardMaterial3D
 ## What is on it, worn on the model (creature_wear.gd): the statuses the party put on it,
-## its block as a crust, its stun as a slump. Made with the body.
+## its stun as a slump. Made with the body.
 var _worn: Wear = null
 var _slump: float = 0.0
 ## What it does with its own parts (creature_moves.gd): the move it acts out with its jaw, claws
@@ -519,8 +519,9 @@ func gripped_point(index: int = 0) -> Vector3:
 		return _held[index].global_position
 	return centre() + Vector3(0, 0, 0.5)
 
-func wear_statuses(statuses: Dictionary, block_ratio: float) -> void:
-	## What is on it, as the rules say it stands (see creature_wear.gd).
+func wear_statuses(statuses: Dictionary, block_ratio: float = 0.0) -> void:
+	## What is on it, as the rules say it stands (see creature_wear.gd). Block wears nothing
+	## on the body; `block_ratio` is taken for the callers that still pass it.
 	if _worn != null:
 		_worn.sync(statuses, block_ratio)
 
@@ -535,13 +536,6 @@ func bulk_up() -> void:
 func pop_ward() -> void:
 	if _worn != null:
 		_worn.pop_ward()
-
-func chip_crust() -> void:
-	if _worn != null:
-		_worn.chip_crust()
-
-func crusted() -> bool:
-	return _worn != null and bool(_worn.crusted())
 
 func barrier_hit() -> void:
 	## A blow meets the barrier: the whole dome brightens for an instant and the cells round

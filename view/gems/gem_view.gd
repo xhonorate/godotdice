@@ -479,11 +479,21 @@ func _apply() -> void:
 	# Hiding the far half is a tuning switch rather than a state: with it off you see the
 	# front of the stone over the background alone, which is the only clean read of its alpha.
 	_shell.visible = Tuning.flag("far_pass")
+	# A Void gem in the Hollow look (void_marks.gd), as the dock and the merchant's counter show
+	# it: dark space with a few stars where the body was, its facets lit at the rim. Nothing is
+	# seen inside it (November 16, 2026: the close look and the reward cards showed a Void gem
+	# as an ordinary stone).
+	var hollow: bool = not sealed() and bool(gem.get("appraised", true)) and DeepStone.is_slotless(gem)
+	if hollow:
+		var VoidMarks = load("res://view/battle/void_marks.gd")
+		_body.material_override = VoidMarks.hollow_3d_material(VoidMarks.tone_of(gem))
+		_body.material_overlay = null
+		_shell.visible = false
 	_shape_halo()
 	var buried := GemMesh.inside(gem)
 	_inside.mesh = buried
 	# A stone still in its rock has not been looked into: what it carries waits for the loupe.
-	_inside.visible = buried != null and not sealed()
+	_inside.visible = buried != null and not sealed() and not hollow
 	_etch.mesh = GemMesh.etch_plate(gem)
 	_etch.material_override = GemMesh.etch_material(gem)
 	_etch.visible = not sealed()

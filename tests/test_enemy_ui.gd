@@ -359,12 +359,11 @@ func _screen() -> void:
 	var aim: String = str(party_state.players[0].target)
 	var other: String = "e1" if aim != "e1" else "e0"
 	check(battle._plates.size() == 2 and battle._plates.values().all(func(p: Variant) -> bool: return p is Tag), "every creature has its tag")
-	## In a party the tabs are wider and their chips small marks alone (November 5): six of them
-	## stand in one row the width of the tab.
+	## In a party the tabs are wider and their chips a size under the reader's own, numbered
+	## like them (November 16, 2026: marks alone were too small to read and said no numbers).
 	var SeatTab = load("res://view/battle/battle_screen.gd").SeatTab
-	check(is_equal_approx(battle._my_tab.face.custom_minimum_size.x, SeatTab.PARTY_WIDTH) and battle._my_tab.chips.marks_only and is_equal_approx(battle._my_tab.chips.edge, SeatTab.PARTY_CHIP_EDGE), "a party's tabs are wide and their chips marks alone")
-	var party_chip_width: float = SeatTab.PARTY_CHIP_EDGE + 2.0 * float(int(SeatTab.PARTY_CHIP_EDGE * 0.5) + 2)
-	check(6.0 * party_chip_width + 5.0 * 3.0 <= SeatTab.PARTY_WIDTH, "six party chips fit a row the width of the tab (%.0f in %.0f)" % [6.0 * party_chip_width + 15.0, SeatTab.PARTY_WIDTH])
+	check(is_equal_approx(battle._my_tab.face.custom_minimum_size.x, SeatTab.PARTY_WIDTH) and not battle._my_tab.chips.marks_only and is_equal_approx(battle._my_tab.chips.edge, SeatTab.PARTY_CHIP_EDGE), "a party's tabs are wide and their chips numbered")
+	check(SeatTab.PARTY_CHIP_EDGE >= 16.0 and SeatTab.CHIP_EDGE > SeatTab.PARTY_CHIP_EDGE, "a party's chips are readable (%.0f px) and the lone reader's larger (%.0f px)" % [SeatTab.PARTY_CHIP_EDGE, SeatTab.CHIP_EDGE])
 	check(battle._enemy_panel != null and battle._enemy_panel.visible and battle._enemy_panel.enemy_id == aim and battle._enemy_panel.who == "target", "the ledger reads the target")
 	battle._hover_creature(other)
 	check(battle._enemy_panel.enemy_id == other and battle._enemy_panel.who == "looking", "pointing at another creature hands the ledger to it")

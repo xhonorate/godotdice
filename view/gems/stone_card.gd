@@ -13,6 +13,20 @@ const Thumbs = preload("res://view/gems/thumbs.gd")
 
 const INCLUSION_TONES := {"STAR": Color("ffcf5a"), "FRACTURE": Color("ff7a6b"), "FEATHER": Color("9fd8ff"), "LENS": Color("c58bff"), "PINPOINT": Color("76b6ff")}
 const INCLUSION_GLYPHS := {"STAR": "star", "FRACTURE": "split_shield", "FEATHER": "spark", "LENS": "eye", "PINPOINT": "crosshair"}
+## An inclusion with a chip of its own, apart from its class (November 16, 2026): the Void
+## wears the Hollow's spiral in the Void's blue, not a Fracture's red split shield, so a Void
+## gem reads as the different thing it is.
+const INCLUSION_OWN_GLYPHS := {"VOID": "widening_spiral"}
+
+static func inclusion_glyph(key: String) -> String:
+	if INCLUSION_OWN_GLYPHS.has(key):
+		return str(INCLUSION_OWN_GLYPHS[key])
+	return str(INCLUSION_GLYPHS.get(str(DeepContent.inclusion(key).get("class", "PINPOINT")), "spark"))
+
+static func inclusion_tone(key: String) -> Color:
+	if key == "VOID":
+		return DeepUi.VOID
+	return INCLUSION_TONES.get(str(DeepContent.inclusion(key).get("class", "PINPOINT")), DeepUi.INFO)
 ## What the Hollow's mark on a gem means, wherever the gem is shown.
 const VOIDED_WORDS := "The Hollow made it Void: it takes no socket, rides one instead and fires right after that socket's gem. When the run ends it is an ordinary gem again."
 
@@ -284,7 +298,7 @@ static func build(parent: Node, stone: Dictionary, opts: Dictionary = {}) -> Pan
 		if not parts.is_empty():
 			DeepUi.stat(footer, "map", ", ".join(parts), DeepUi.DIM, 11, "Where it was found")
 	if DeepStone.is_voided(stone):
-		DeepUi.stat(footer, "widening_spiral", "Void · until the run ends", DeepUi.INFO, 12, VOIDED_WORDS)
+		DeepUi.stat(footer, "widening_spiral", "Void · until the run ends", DeepUi.VOID, 12, VOIDED_WORDS)
 	if bool(stone.get("temporary", false)):
 		DeepUi.stat(footer, "hourglass", "Temporary · lent for this run only", DeepUi.INFO, 12, "Filled an empty socket at the shaft head. It cannot be sold, kept or wished on, and it is gone when the run ends.")
 	elif DeepStone.is_fragile(stone):
@@ -423,9 +437,7 @@ static func _color_chip(parent: Node, color_key: String, stone: Dictionary = {})
 
 static func _inclusion_chip(parent: Node, key: String) -> void:
 	var inclusion: Dictionary = DeepContent.inclusion(key)
-	var cls: String = str(inclusion.get("class", "PINPOINT"))
-	var tone: Color = INCLUSION_TONES.get(cls, DeepUi.INFO)
-	var chip := DeepUi.pill(parent, str(INCLUSION_GLYPHS.get(cls, "spark")), str(inclusion.get("name", key)), tone, 11, str(inclusion.get("text", "")))
+	var chip := DeepUi.pill(parent, inclusion_glyph(key), str(inclusion.get("name", key)), inclusion_tone(key), 11, str(inclusion.get("text", "")))
 	chip.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 
 static func _rarity_color(rarity: String) -> Color:

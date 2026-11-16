@@ -28,6 +28,10 @@ const ACCENT_DIM := Color("8a6d2a")
 const GOOD := Color("6fe3b0")
 const BAD := Color("ff7a6b")
 const INFO := Color("76b6ff")
+## The Void's own tone (November 16, 2026): a pale starlight blue for the marks that say a gem
+## is Void (its inclusion chip, the Hollow's "until the run ends", the dashed ring), apart
+## from INFO, which any note wears.
+const VOID := Color("b9c6ff")
 const HP := Color("3fb56b")
 const HP_LOST := Color("5a2a2a")
 const BLOCK := Color("6fa8ff")

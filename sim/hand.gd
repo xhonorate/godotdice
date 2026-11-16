@@ -33,6 +33,7 @@ extends RefCounted
 ##                 where that differs from what it counts for (Doubled, exploding)
 ##   sizes         {die id: how many faces a plain die of its shape has}
 ##   one_ids       the dice whose face shows a 1 (a wild is not one of them)
+##   phantom_ids   the dice a gem conjured this turn (counted in `phantoms` as well)
 ##   scale         {length, dice, values, total}: the longest climb across the dice from the
 ##                 smallest die to the largest, each showing more than the one before (Arpeggio)
 
@@ -51,6 +52,7 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 	var held: int = 0
 	var rerolled: int = 0
 	var phantoms: int = 0
+	var phantom_ids: Array = []
 	var high: int = 0
 	var low: int = 0
 	var high_pct: int = 0
@@ -89,6 +91,7 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 		max_total += top
 		if bool(roll.get("phantom", false)):
 			phantoms += 1
+			phantom_ids.append(id)
 		if DeepDice.held_for_patterns(roll):
 			held += 1
 		if int(roll.get("rerolls", 0)) > 0:
@@ -190,7 +193,7 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 			even_values += 1
 	return {"values": values, "wilds": wilds, "wild_tops": wild_tops, "wild_total": wild_total, "rank": rank, "total": total, "max_total": maxi(1, max_total),
 		"high": maxi(high, wild_top), "low": low if low > 0 else wild_top, "high_pct": high_pct,
-		"held": held, "rerolled": rerolled, "phantoms": phantoms, "dice_count": hand.size() - numbed,
+		"held": held, "rerolled": rerolled, "phantoms": phantoms, "phantom_ids": phantom_ids, "dice_count": hand.size() - numbed,
 		"groups": groups, "plain_groups": plain_groups, "best_set": groups[0] if groups.size() > 0 else {"value": 0, "count": 0, "dice": []},
 		"pairs": pairs, "straight": _straight(counts.keys(), wilds, ids_by_value, hand.size(), wild_top),
 		"odd": odd + wilds.size(), "even": even + wilds.size(), "distinct": counts.size() + wilds.size(),

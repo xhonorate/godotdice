@@ -15,7 +15,7 @@ export const TERMS = ['rolled', 'value', 'second', 'count', 'high', 'low', 'tota
 	// What the variant Birthstones read (sim/rules.gd): the dice that match another, a Renown's
 	// Trophies, the owner's Envenomed, the sizes over a d4 of the dice on a crown or on a 1, the 1s
 	// a Bloodroot has counted this fight, the Curse on whoever is aimed at, the colors fired.
-	'matched', 'trophies', 'envenom', 'crown_steps', 'one_steps', 'fight_ones', 'target_curse', 'colors'];
+	'matched', 'trophies', 'envenom', 'crown_steps', 'one_steps', 'fight_ones', 'fresh_ones', 'target_curse', 'colors'];
 export const RANKS = ['carat', 'cut', 'clarity'];
 export const EFFECT_KINDS = ['damage', 'block', 'heal', 'gold', 'poison', 'stun', 'remove_block', 'cleanse', 'revive',
 	'curse', 'amplify_next', 'cut_step_next', 'raise_low', 'raise_high', 'set_match', 'flip_high', 'flip_low',
@@ -164,6 +164,7 @@ export function term(name, node, c) {
 		case 'crown_steps': return Hand.sizeSteps(a, a.crown_ids || []);
 		case 'one_steps': return Hand.sizeSteps(a, a.one_ids || []);
 		case 'fight_ones': return I(unit.fight_ones);
+		case 'fresh_ones': return I(unit.fresh_ones);
 		case 'target_curse': return I(((c.target_unit || {}).statuses || {}).curse);
 		case 'colors': return I(c.colors);
 		case 'dice': return I(a.dice_count);
@@ -293,7 +294,7 @@ export function amountWords(expr, cutStep = null) {
 			party_best_turn: "the party's best turn", party_richest: 'the richest purse', strength: 'its Strength', turns_acted: 'actions taken', living_players: 'players standing', pot: 'the pot', dealt: 'damage dealt', hp: 'health', max_hp: 'max health', hp_missing: 'missing health',
 			pair_count: 'pairs', pairs_total: 'the pairs added up', rerolls_left: 'rerolls unused', run_kills: 'kills this run', run_breaks: 'times your Block broke', healed_all: 'healing done, past full too', self_dots: 'your Poison and Burn',
 			matched: 'dice that match another', trophies: 'Trophies', envenom: 'your Envenomed', crown_steps: 'sizes over a d4 of your crowns', one_steps: 'sizes over a d4 of your 1s',
-			fight_ones: '1s counted this fight', target_curse: 'Curse on the target', colors: 'colors fired' };
+			fight_ones: '1s counted this fight', fresh_ones: '1s new this turn', target_curse: 'Curse on the target', colors: 'colors fired' };
 		return names[expr.term] || expr.term;
 	}
 	if ('rank' in expr) return expr.rank;

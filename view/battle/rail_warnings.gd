@@ -27,6 +27,31 @@ static func lines_for(rail: Array, socket: int, blocks: Dictionary) -> Array:
 		out.append(DeepBattle.opal_block_line(rail[socket], mark))
 	return out
 
+static func run_blocks(unit: Dictionary) -> Dictionary:
+	## `DeepBattle.opal_blocks` read off a rail that is not laid flat (the run's dock and bench
+	## keep the riders apart from the sockets): socket -> {"lines": [...], "toward": [socket,
+	## ...]} for the gem set in each socket, so the run's rail says what the fight's does
+	## (November 16, 2026: the warning was only seen in a fight and in the loadout at home).
+	var flat: Dictionary = {"character": str(unit.get("character", "")), "rail": unit.get("rail", []).duplicate(),
+		"sockets": unit.get("sockets", []).duplicate(), "riders": unit.get("riders", []).duplicate(true), "haul": []}
+	DeepStone.flatten_rail(flat)
+	var blocks: Dictionary = DeepBattle.opal_blocks(flat.rail)
+	var out: Dictionary = {}
+	var places: Array = flat.get("places", [])
+	for at in blocks:
+		if int(at) < 0 or int(at) >= places.size():
+			continue
+		var place: Dictionary = places[int(at)]
+		if int(place.get("rider", -1)) >= 0:
+			continue
+		var toward: Array = []
+		for mark in blocks[at]:
+			var other: int = int(mark.get("at", -1))
+			if other >= 0 and other < places.size():
+				toward.append(int(places[other].get("socket", -1)))
+		out[int(place.get("socket", -1))] = {"lines": lines_for(flat.rail, int(at), blocks), "toward": toward}
+	return out
+
 static func plate(stone: Dictionary, said: Array) -> Control:
 	## The warning's own plate: the opal's name and each thing it cannot reach.
 	var box := Plates.plate(290.0)

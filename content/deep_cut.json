@@ -90,6 +90,7 @@
     "spoils_pyrite_pct": 150,
     "spoils_pity": 2,
     "spoils_temper": 2,
+    "spoils_low_weight": 3,
     "motherlode_rich": [3, 5],
     "rich_seam_luck": 6,
     "chain_heat": 2,
@@ -6059,9 +6060,10 @@
               "trigger": {
                 "kind": "value",
                 "values": [1],
-                "amount": 1
+                "amount": 1,
+                "rolled": true
               },
-              "text": "Every 1 showing: lose 1 health and gain 1 poison for every 1 you have rolled this fight. Gain 1 max health for the rest of the run for each 1.",
+              "text": "Every 1 you roll (not a wild or a phantom): lose 1 health and gain 1 poison per 1 rolled this fight. Gain 1 max health for the run per new 1.",
               "effects": [
                 {
                   "kind": "fight_count",
@@ -6091,7 +6093,7 @@
                   "kind": "max_hp",
                   "target": "self",
                   "amount": {
-                    "term": "count"
+                    "term": "fresh_ones"
                   },
                   "empty": true,
                   "scale": "none"
@@ -6153,7 +6155,7 @@
                 "kind": "quint",
                 "amount": 1
               },
-              "text": "Five of a kind: deal damage equal to your max health to a random creature, once for every point in the set.",
+              "text": "Five of a kind: deal damage equal to your max health to a random creature, once per pip on the face.",
               "effects": [
                 {
                   "kind": "damage",
@@ -6162,15 +6164,7 @@
                     "term": "max_hp"
                   },
                   "repeat": {
-                    "op": "*",
-                    "args": [
-                      {
-                        "term": "value"
-                      },
-                      {
-                        "term": "count"
-                      }
-                    ]
+                    "term": "value"
                   }
                 }
               ]
@@ -7367,7 +7361,9 @@
           "anim": "cast",
           "text": "Clouds a socket on your rail for 3 turns: the gem there does nothing until then, or until you hit the Clouder",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "fog", "target": "heroes", "amount": 1, "turns": 3 }]
+          "effects": [
+            { "kind": "fog", "target": "heroes", "amount": 1, "turns": 3 }
+          ]
         },
         {
           "name": "Gather",
@@ -7638,7 +7634,7 @@
       ]
     },
     "THE_FOREMAN": {
-      "name": "The Foreman",
+      "name": "The Crabman",
       "hp": 90,
       "block": 10,
       "threat": 20,
@@ -13453,7 +13449,11 @@
             "label": "Take up the **steel** chisel",
             "text": "Raise or lower die faces by 1, one cut at a time. It **never breaks in its first 3 cuts** and lasts up to 6. Etchings stay.",
             "needs": "chisel",
-            "action": { "kind": "chisel", "amount": 1, "breaks": [0, 0, 0, 30, 50, 100] }
+            "action": {
+              "kind": "chisel",
+              "amount": 1,
+              "breaks": [0, 0, 0, 30, 50, 100]
+            }
           }
         },
         {

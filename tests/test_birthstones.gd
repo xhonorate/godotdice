@@ -421,11 +421,27 @@ func _test_bloodroot() -> void:
 	e = fired(run_turn(f))
 	flow = tier(e, "Transfusion")
 	check(int(hits(flow, "heal")[0].healed) == 10 and int(hits(flow)[0].amount) == 10, "Take Root has made the room the heal fills")
-	## Heartsblood: max health, once for every point in the set.
+	## Heartsblood: max health, once for every pip on the face (November 16, 2026: it was once
+	## for every point in the set, five 1s striking five times).
 	f = fight("RUE", "BLOODROOT", [2, 2, 2, 2, 2], 10, ["CAVE_TICK", "RAIL_RAT"])
 	e = fired(run_turn(f))
 	var heart: Array = hits(tier(e, "Heartsblood"))
-	check(lit(e) == ["Take Root", "Transfusion", "Heartsblood"] and heart.size() == 10 and int(heart[0].amount) == 80, "five 2s: ten blows of her max health (%d of %d)" % [heart.size(), int(heart[0].get("amount", 0)) if not heart.is_empty() else 0])
+	check(lit(e) == ["Take Root", "Transfusion", "Heartsblood"] and heart.size() == 2 and int(heart[0].amount) == 80, "five 2s: two blows of her max health (%d of %d)" % [heart.size(), int(heart[0].get("amount", 0)) if not heart.is_empty() else 0])
+	f = fight("RUE", "BLOODROOT", [1, 1, 1, 1, 1], 10, ["CAVE_TICK", "RAIL_RAT"])
+	e = fired(run_turn(f))
+	check(hits(tier(e, "Heartsblood")).size() == 1 and int(tier(e, "Tap").effects[0].total) == 5, "five 1s: one blow, and the Tap counts all five")
+	## Tap counts only the 1s she rolled: a wild face is not one, nor a phantom a gem conjured.
+	f = fight("RUE", "BLOODROOT", [1, 1, 3, 4, 5])
+	hand(f.unit, [1, 1, 1, 4, 5])
+	f.unit.hand[2].kind = "wild"
+	e = fired(run_turn(f))
+	tap = tier(e, "Tap")
+	check(int(tap.effects[0].total) == 2 and int(hits(tap)[0].hp_loss) == 2, "a wild face is not a 1 she rolled: two 1s cost 2 (%s)" % str(tap.effects[0]))
+	f = fight("RUE", "BLOODROOT", [1, 2, 3, 4, 5])
+	f.unit.hand.append(DeepDice.phantom(f.unit.hand[0], "ghost"))
+	e = fired(run_turn(f))
+	tap = tier(e, "Tap")
+	check(int(tap.effects[0].total) == 1 and int(hits(tap, "max_hp")[0].max_hp_after) == 71, "a phantom 1 is not one she rolled: one 1 costs 1 and grows 1 (%s)" % str(tap.effects[0]))
 
 # --- Puck -----------------------------------------------------------------------------------
 

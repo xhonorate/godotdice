@@ -215,7 +215,12 @@ export function evaluate(trigger, cutStep, a, context = {}) {
 		case 'value': {
 			// Read off the faces: "showing 1" is a die that landed on its 1, Doubled or not.
 			const wanted = (trigger.values || [7]).map(Number);
-			const dice = Hand.matchingShown(a, (v) => wanted.includes(v));
+			let dice = Hand.matchingShown(a, (v) => wanted.includes(v));
+			// `rolled`: only dice the player threw themselves count: no wild face, no phantom a gem conjured.
+			if (trigger.rolled) {
+				const ghosts = a.phantom_ids || [], wilds = a.wilds || [];
+				dice = dice.filter((id) => !wilds.includes(id) && !ghosts.includes(id));
+			}
 			if (dice.length >= Math.max(1, need)) { result.active = true; result.dice = dice; result.count = dice.length; result.value = wanted.length ? Number(wanted[0]) : 0; }
 			break;
 		}

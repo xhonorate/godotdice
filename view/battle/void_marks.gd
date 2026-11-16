@@ -209,6 +209,51 @@ static func hollow_material(tone: Color, die: bool, seed: int = 1) -> ShaderMate
 	_hollow_materials[key] = material
 	return material
 
+## The Hollow look made solid, for a stone turning in 3D (the merchant's counter, the close
+## look, a reward held up): dark space with a few stars where the body was, every facet lit at
+## its rim in the stone's own paled hue.
+const HOLLOW_3D: String = """
+shader_type spatial;
+render_mode unshaded, cull_back;
+uniform vec4 tone : source_color = vec4(0.66, 0.82, 1.0, 1.0);
+varying vec3 at;
+
+float hash(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+
+void vertex() {
+	at = VERTEX;
+}
+
+void fragment() {
+	float facing = clamp(dot(NORMAL, VIEW), 0.0, 1.0);
+	float rim = pow(1.0 - facing, 3.6);
+	vec3 base = mix(vec3(0.015, 0.02, 0.045), vec3(0.1, 0.125, 0.24), facing * 0.6);
+	vec3 cell = floor(at * 9.0);
+	float h = hash(cell);
+	float star = (h > 0.9 ? smoothstep(0.42, 0.05, length(fract(at * 9.0) - 0.5)) : 0.0) * (0.5 + 0.5 * fract(h * 7.3));
+	vec3 lite = tone.rgb * 0.55 + vec3(0.45);
+	ALBEDO = base + vec3(star) + lite * rim * 0.85;
+}
+"""
+
+static var _hollow_3d_shader: Shader = null
+static var _hollow_3d_materials: Dictionary = {}
+
+static func hollow_3d_material(tone: Color) -> ShaderMaterial:
+	## One spatial material a tone, shared by every stone shown in it.
+	var key: String = tone.to_html(false)
+	var found: ShaderMaterial = _hollow_3d_materials.get(key, null)
+	if found != null:
+		return found
+	if _hollow_3d_shader == null:
+		_hollow_3d_shader = Shader.new()
+		_hollow_3d_shader.code = HOLLOW_3D
+	var material := ShaderMaterial.new()
+	material.shader = _hollow_3d_shader
+	material.set_shader_parameter("tone", tone)
+	_hollow_3d_materials[key] = material
+	return material
+
 static func hollow_gem(stone: Dictionary, edge: float) -> Control:
 	## A stone's picture in the Hollow look, its emblem in white over the dark.
 	var thumb := Thumbs.GemThumb.new({}, edge)

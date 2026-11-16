@@ -910,7 +910,7 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 	for field in ["carat", "cut", "clarity"]:
 		StoneCard.staked_mark(tags, item, field, 13)
 	if DeepStone.is_voided(item):
-		DeepUi.pill(tags, "widening_spiral", "Void · until the run ends", DeepUi.INFO, 13, StoneCard.VOIDED_WORDS)
+		DeepUi.pill(tags, "widening_spiral", "Void · until the run ends", DeepUi.VOID, 13, StoneCard.VOIDED_WORDS)
 	if reference:
 		DeepUi.pill(tags, "eye", "Seen, not kept", DeepUi.MUTED, 13, "One of these has passed through your hands. The vault keeps the page, not the stone.")
 	elif bool(item.get("temporary", false)):
@@ -1492,9 +1492,7 @@ func _inclusions(item: Dictionary, parent: Control, context: Dictionary = {}) ->
 	parent.add_child(grid)
 	for key in item.inclusions:
 		var inclusion: Dictionary = DeepContent.inclusion(str(key))
-		var cls: String = str(inclusion.get("class", "PINPOINT"))
-		var tone: Color = StoneCard.INCLUSION_TONES.get(cls, DeepUi.INFO)
-		var badge := DeepUi.pill(grid, str(StoneCard.INCLUSION_GLYPHS.get(cls, "spark")), str(inclusion.get("name", key)), tone, 13)
+		var badge := DeepUi.pill(grid, StoneCard.inclusion_glyph(str(key)), str(inclusion.get("name", key)), StoneCard.inclusion_tone(str(key)), 13)
 		badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		## A Fingerprint on a rail names what it is carrying, and is dimmed when it carries nothing.
 		var carrying: Dictionary = context.get("fingerprint", {}) if str(key) == "FINGERPRINT" else {}

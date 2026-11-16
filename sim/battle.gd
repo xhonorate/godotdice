@@ -1645,6 +1645,7 @@ static func resolve_birthstone(state: Dictionary, unit: Dictionary, opts: Dictio
 					## Arpeggio climbs from the one, a Bandit pays the other.
 					applied.reads = resonance
 					applied.sets = trig.get("sets", [])
+					applied.dice = trig.get("dice", [])
 					did = [_birthstone_effect(state, unit, applied, dry, replay, rng)]
 					## An Arpeggio's notes have raised the Resonance, for what is left of this firing too.
 					var climbed: int = int(did[0].get("gained", 0))
@@ -1840,8 +1841,13 @@ static func birth_count(name: String, trigger: Dictionary, resolved: Array, reso
 	var also: Array = []
 	for index in range(resolved.size()):
 		var applied: Dictionary = resolved[index][1]
-		if index != headline and str(applied.get("kind", "")) in TALLY_KINDS and str(applied.get("kind", "")) != "gold" and int(applied.get("amount", 0)) > 0:
-			also.append({"kind": str(applied.kind), "amount": int(applied.amount)})
+		if index == headline or not str(applied.get("kind", "")) in TALLY_KINDS or str(applied.get("kind", "")) == "gold":
+			continue
+		## An effect whose figure is read off another's (Transfusion deals what it healed: its
+		## `amount` is a percent, not a number) shows what it landed, never its raw amount.
+		var shown: int = _landed_amount(resolved[index]) if _derived(applied) else int(applied.get("amount", 0))
+		if shown > 0:
+			also.append({"kind": str(applied.kind), "amount": shown})
 	count.also = also
 	## A tier that came to nothing (no Resonance to multiply, a heal at full health) is not
 	## counted out: the screen shows a small grey pill for a moment instead (F1, November 13).
@@ -1872,11 +1878,27 @@ static func _paid_nothing(resolved: Array, resonance: int) -> String:
 					return ""
 			elif int(result.get("amount", 0)) > 0 or int(result.get("hp_loss", 0)) > 0 or int(result.get("absorbed", 0)) > 0:
 				return ""
-		if kind != "heal" and int(applied.get("amount", 0)) > 0:
+		if kind != "heal" and int(applied.get("amount", 0)) > 0 and not _derived(applied):
 			return ""
 	if healing and resonance > 0:
 		return "nothing to heal"
 	return "no Resonance" if resonance <= 0 else "nothing to land"
+
+static func _derived(applied: Dictionary) -> bool:
+	## An effect whose figure is read off something else as it lands (a share, what an earlier
+	## effect did, a status, the target's own): its `amount` is a percent or a coefficient, not
+	## the number it lands with.
+	return applied.has("share") or applied.has("from_result") or applied.has("of_status") or applied.has("of_target") \
+		or bool(applied.get("missing_hp_bonus", false)) or bool(applied.get("split_party", false))
+
+static func _landed_amount(entry: Array) -> int:
+	## The figure one resolved effect landed with: the largest of its results' amounts (each
+	## blow of a Transfusion is what the heal restored; the count says the figure, not the sum).
+	var most: int = 0
+	for result in entry[2]:
+		if result is Dictionary:
+			most = maxi(most, int(result.get("amount", 0)))
+	return most
 
 static func _resonance_factor(expr: Variant) -> Array:
 	## [the other factor] when an amount is Resonance times something ([null] when it is
@@ -2116,9 +2138,27 @@ static func _birthstone_effect(state: Dictionary, unit: Dictionary, effect: Dict
 			if grown.is_empty():
 				out.nothing = true
 		"fight_count":
-			## A Bloodroot counts the 1s it has been shown this fight.
-			unit.fight_ones = DeepRules.sat_add(int(unit.get("fight_ones", 0)), maxi(0, amount))
+			## A Bloodroot counts the 1s it has been shown this fight. Each die is counted once a
+			## turn: a replay (an Encore, a Birthright) shows it the same 1s again, and they are
+			## not new ones rolled. What was new this firing is `fresh_ones`, for the growth.
+			var ids: Array = effect.get("dice", [])
+			var counted: Dictionary = unit.get("fight_counted", {}) if unit.get("fight_counted", null) is Dictionary else {}
+			if int(counted.get("turn", -1)) != int(state.get("turn", 0)):
+				counted = {"turn": int(state.get("turn", 0)), "ids": []}
+			var fresh: int = 0
+			if ids.is_empty():
+				fresh = maxi(0, amount)
+			else:
+				for id in ids:
+					if not counted.ids.has(id):
+						counted.ids.append(id)
+						fresh += 1
+			if not dry:
+				unit.fight_counted = counted
+			unit.fight_ones = DeepRules.sat_add(int(unit.get("fight_ones", 0)), fresh)
+			unit.fresh_ones = fresh
 			out.total = int(unit.fight_ones)
+			out.fresh = fresh
 		"pot":
 			## What is on the table. Staking moves Pyrite out of the bank in the same breath,
 			## so what the Gambler owns is the ceiling on what he can ever have riding, and a

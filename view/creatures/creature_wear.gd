@@ -12,12 +12,13 @@ extends Node3D
 ## - Strength: red heat cracks in the body, and it bulks up as it gains it (`bulk_up`).
 ## - Spikes: grey thorns jut out of it. Ward: a blue bubble round it that pops when it takes a
 ##   debuff for it (`pop_ward`). Regeneration: green motes rising.
-## - Block: grey stone plates crust over the body in proportion to block against health;
-##   a soaked blow chips plates off (`chip_crust`).
+## - Block wears nothing on the body (November 16, 2026: the grey stone crust that plated it
+##   over read as the model fracturing, and the owner had it taken off). Block is the tag's
+##   blue chip and the hatch on its health bar, and a soaked blow is the shield flash.
 ##
-## The tint, the cracks and the crust are one overlay material drawn over every mesh of
-## the body (triplanar masks, so no creature needs UVs); the rest are meshes and particles
-## of its own. Everything eases toward what is asked of it, so a status that ends fades.
+## The tint and the cracks are one overlay material drawn over every mesh of the body
+## (triplanar masks, so no creature needs UVs); the rest are meshes and particles of its
+## own. Everything eases toward what is asked of it, so a status that ends fades.
 
 const BattleFx = preload("res://view/battle/battle_fx.gd")
 const Lowpoly = preload("res://view/battle/lowpoly.gd")
@@ -31,9 +32,6 @@ const STRENGTH := Color("ff7a5a")
 const SPIKES := Color("c0c4d0")
 const WARD := Color("6fa8ff")
 const REGEN := Color("6fe3b0")
-const CRUST := Color("9aa0b4")
-## How much of its health in block fills the crust: plates cover it whole at half its health.
-const CRUST_FULL: float = 0.5
 
 const OVERLAY_SHADER := """
 shader_type spatial;
@@ -41,9 +39,6 @@ render_mode unshaded, blend_mix, depth_draw_never, cull_back;
 uniform vec4 tint : source_color = vec4(0.0);
 uniform vec4 crack_color : source_color = vec4(1.0, 0.48, 0.35, 0.0);
 uniform sampler2D cracks : hint_default_black;
-uniform vec4 crust_color : source_color = vec4(0.6, 0.63, 0.7, 0.0);
-uniform sampler2D plates : hint_default_black;
-uniform float crust_cut = 1.0;
 uniform float tex_scale = 1.1;
 uniform float flicker = 1.0;
 varying vec3 wpos;
@@ -60,15 +55,11 @@ float tri(sampler2D t, vec3 p, vec3 n) {
 void fragment() {
 	vec3 p = wpos * tex_scale;
 	float c = tri(cracks, p, wnorm);
-	float k = tri(plates, p, wnorm);
 	vec3 col = tint.rgb;
 	float a = tint.a;
 	float ca = crack_color.a * smoothstep(0.3, 0.7, c) * flicker;
 	col = mix(col, crack_color.rgb, ca);
 	a = a + ca * (1.0 - a);
-	float ka = crust_color.a * step(0.03, k) * step(k, crust_cut);
-	col = mix(col, crust_color.rgb * (0.85 + 0.3 * k), ka);
-	a = a + ka * (1.0 - a);
 	ALBEDO = col;
 	ALPHA = a;
 }
@@ -76,7 +67,6 @@ void fragment() {
 
 static var _shader: Shader = null
 static var _cracks_texture: ImageTexture = null
-static var _plates_texture: ImageTexture = null
 static var _x_texture: ImageTexture = null
 static var _star_texture: ImageTexture = null
 static var _chain_material: StandardMaterial3D = null
@@ -93,10 +83,6 @@ var _tint_want: Color = Color(0, 0, 0, 0)
 var _tint_now: Color = Color(0, 0, 0, 0)
 var _crack_want: float = 0.0
 var _crack_now: float = 0.0
-var _crust_want: float = 0.0
-var _crust_now: float = 0.0
-var _crust_cut: float = 1.0
-var _crust_cut_now: float = 1.0
 var _flash: float = 0.0
 var _flash_color: Color = Color.WHITE
 ## The body's size, in its own units: how tall it stands and how far it reaches sideways.
@@ -144,10 +130,11 @@ func _ready() -> void:
 
 # --- what is asked ---------------------------------------------------------------------------
 
-func sync(statuses: Dictionary, block_ratio: float) -> void:
-	## The statuses on the creature as the rules say they stand, and its block as a share of
-	## its health. Called whenever the fight is drawn; every look eases toward it. Built once
-	## the creature stands in the room (see `_dirty`).
+func sync(statuses: Dictionary, block_ratio: float = 0.0) -> void:
+	## The statuses on the creature as the rules say they stand. Called whenever the fight is
+	## drawn; every look eases toward it. Built once the creature stands in the room (see
+	## `_dirty`). `block_ratio` is kept for the callers that still pass it: block wears
+	## nothing on the body now.
 	_want = statuses
 	_block_ratio = block_ratio
 	_dirty = true
@@ -157,7 +144,6 @@ func sync(statuses: Dictionary, block_ratio: float) -> void:
 func _apply() -> void:
 	_dirty = false
 	var statuses: Dictionary = _want
-	var block_ratio: float = _block_ratio
 	_measure()
 	var poison: int = int(statuses.get("poison", 0))
 	var stun: int = int(statuses.get("stun", 0))
@@ -172,8 +158,6 @@ func _apply() -> void:
 	_crack_want = 0.0 if strength <= 0 else 0.55 + 0.35 * clampf(float(strength) / 4.0, 0.0, 1.0)
 	bulk = 1.0 + 0.03 * float(clampi(strength, 0, 5))
 	slump = 1.0 if stun > 0 else 0.0
-	_crust_want = 0.85 if block_ratio > 0.0 else 0.0
-	_crust_cut = clampf(block_ratio / CRUST_FULL, 0.08, 1.0) if block_ratio > 0.0 else 1.0
 	_sync_embers(int(statuses.get("burn", 0)))
 	_sync_drips(poison)
 	_sync_motes(int(statuses.get("regeneration", 0)))
@@ -202,14 +186,6 @@ func pop_ward() -> void:
 	if _ward != null:
 		_ward.scale = Vector3.ONE * 1.3
 
-func chip_crust() -> void:
-	## A soaked blow: the crust flashes; the plates it loses go with the next `sync`.
-	_flash_color = Color("dfe6ff")
-	_flash = maxf(_flash, 0.5)
-
-func crusted() -> bool:
-	return _crust_now > 0.2
-
 func centre_local() -> Vector3:
 	_measure()
 	return Vector3(0, _centre_y, 0)
@@ -223,8 +199,6 @@ func _process(delta: float) -> void:
 	var ease: float = clampf(delta * 3.0, 0.0, 1.0)
 	_tint_now = _tint_now.lerp(_tint_want, ease)
 	_crack_now = lerpf(_crack_now, _crack_want, ease)
-	_crust_now = lerpf(_crust_now, _crust_want, ease)
-	_crust_cut_now = lerpf(_crust_cut_now, _crust_cut, clampf(delta * 4.0, 0.0, 1.0))
 	_flash = move_toward(_flash, 0.0, delta * 4.5)
 	_bulk_pulse = move_toward(_bulk_pulse, 0.0, delta * 2.2)
 	if _overlay != null:
@@ -235,9 +209,7 @@ func _process(delta: float) -> void:
 		_overlay.set_shader_parameter("tint", shown)
 		_overlay.set_shader_parameter("crack_color", Color(STRENGTH.lightened(0.1), _crack_now))
 		_overlay.set_shader_parameter("flicker", 0.75 + 0.25 * sin(_clock * 9.0) * sin(_clock * 5.3))
-		_overlay.set_shader_parameter("crust_color", Color(CRUST, _crust_now))
-		_overlay.set_shader_parameter("crust_cut", _crust_cut_now)
-		var idle: bool = shown.a < 0.01 and _crack_now < 0.01 and _crust_now < 0.01
+		var idle: bool = shown.a < 0.01 and _crack_now < 0.01
 		for mesh in _meshes:
 			if is_instance_valid(mesh):
 				(mesh as GeometryInstance3D).material_overlay = null if idle else _overlay
@@ -276,7 +248,7 @@ func _bulk_now() -> float:
 	## The body's size now: its settled bulk and the swell of a gain on top.
 	return bulk + 0.18 * sin(_bulk_pulse * PI) * _bulk_pulse
 
-# --- the overlay: tint, cracks and crust ------------------------------------------------------
+# --- the overlay: tint and cracks -------------------------------------------------------------
 
 func _ensure_overlay() -> void:
 	if _overlay != null:
@@ -287,7 +259,6 @@ func _ensure_overlay() -> void:
 	_overlay = ShaderMaterial.new()
 	_overlay.shader = _shader
 	_overlay.set_shader_parameter("cracks", _cracks())
-	_overlay.set_shader_parameter("plates", _plates())
 	_overlay.set_shader_parameter("tex_scale", 1.1 / maxf(0.5, _tall))
 	_meshes = _body.find_children("*", "GeometryInstance3D", true, false)
 
@@ -316,60 +287,6 @@ static func _cracks() -> ImageTexture:
 					image.set_pixel(px, py, Color(maxf(image.get_pixel(px, py).r, bright), 0, 0))
 	_cracks_texture = ImageTexture.create_from_image(image)
 	return _cracks_texture
-
-static func _plates() -> ImageTexture:
-	## Stone plates: cells of one value each, with dark seams between them, tiling. The value
-	## is which plates stay as the block wears down.
-	if _plates_texture != null:
-		return _plates_texture
-	var size: int = 96
-	var count: int = 14
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 11
-	var seed_x := PackedFloat64Array()
-	var seed_y := PackedFloat64Array()
-	var seed_value := PackedFloat64Array()
-	for i in range(count):
-		seed_x.append(rng.randf_range(0.0, 1.0))
-		seed_y.append(rng.randf_range(0.0, 1.0))
-		seed_value.append(0.06 + 0.9 * float(i) / 13.0)
-	## The texture tiles, so a seed's nearest copy is the nearer way round on each axis; the
-	## squared distance along each column and row to each seed is worked out once. Measured
-	## seed by seed against all nine copies it took a third of a second, spent by the first
-	## creature to stand in a room (October 30); this lays the same pixels in a hundredth.
-	var across := PackedFloat64Array()
-	var down := PackedFloat64Array()
-	across.resize(size * count)
-	down.resize(size * count)
-	for p in range(size):
-		var at: float = float(p) / float(size)
-		for i in range(count):
-			var dx: float = absf(at - seed_x[i])
-			dx = minf(dx, 1.0 - dx)
-			across[p * count + i] = dx * dx
-			var dy: float = absf(at - seed_y[i])
-			dy = minf(dy, 1.0 - dy)
-			down[p * count + i] = dy * dy
-	var image := Image.create(size, size, false, Image.FORMAT_R8)
-	for px in range(size):
-		var column: int = px * count
-		for py in range(size):
-			var row: int = py * count
-			var best: float = 81.0
-			var second: float = 81.0
-			var value: float = 0.0
-			for i in range(count):
-				var d: float = across[column + i] + down[row + i]
-				if d < best:
-					second = best
-					best = d
-					value = seed_value[i]
-				elif d < second:
-					second = d
-			var seam: bool = sqrt(second) - sqrt(best) < 0.03
-			image.set_pixel(px, py, Color(0.0 if seam else value, 0, 0))
-	_plates_texture = ImageTexture.create_from_image(image)
-	return _plates_texture
 
 static func _x_mark() -> ImageTexture:
 	if _x_texture != null:

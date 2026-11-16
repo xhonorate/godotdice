@@ -348,6 +348,11 @@ func _socket_card(parent: Node, unit: Dictionary, index: int) -> void:
 			DeepUi.stat(box, "knot", "knotted", DeepUi.DIM, 11).alignment = BoxContainer.ALIGNMENT_CENTER
 		elif editable():
 			data = {"kind": "stone", "stone_id": str(stone.id), "from_socket": index}
+		## An opal beside or behind a gem it cannot touch says so on the bench as in the fight
+		## (opals never copy opals): the badge on its ring, with its own plate.
+		var warn: Dictionary = RailWarnings.run_blocks(unit).get(index, {})
+		if not warn.get("lines", []).is_empty():
+			RailWarnings.opal_warn(slot, stone, warn.lines, [], true)
 		card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	else:
 		DeepUi.label(box, DeepContent.socket_name(socket_color), 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)

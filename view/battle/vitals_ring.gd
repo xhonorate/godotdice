@@ -2,7 +2,9 @@ extends Control
 ## The player's vitals on the dock (docs/UI_REDO.md): their face in a round plate, their
 ## health as a ring round it (easing to its new share, with a pale ghost of what was lost
 ## trailing it and a hatched red share of what a counted blow will take), and one capsule
-## under the ring with the health numbers. Block is its own number, on a badge at the top of
+## under the ring with the health numbers. Poison is its own number, on a badge at the ring's
+## lower right, and what its next tick takes hatched in violet at the end of the health
+## (November 16, 2026). Block is its own number, on a badge at the top of
 ## the ring, and an arc outside the ring that grows both ways round from the top: a full
 ## circle when block matches their health, and past that the arc thickens and brightens and
 ## a lattice of pale blue hexagons comes up over the face, stronger up to three times their
@@ -15,6 +17,9 @@ const ScreenFx = preload("res://view/battle/screen_fx.gd")
 ## Block past the health it matches, as a share of that health, at which the armour is at
 ## its fullest.
 const OVERFLOW: float = 2.0
+## Poison's violet on the ring: not the status bar's sickly green (DeepUi.POISON), which would
+## be lost against the health's own green.
+const POISON_TONE := Color("b58cff")
 
 var ratio: float = 1.0
 var fill: Color = DeepUi.HP
@@ -34,8 +39,13 @@ var portrait: Roster.Portrait
 var plate: PanelContainer
 ## The badge at the top of the ring: the block number, while there is any.
 var shield_badge: PanelContainer
+## The badge at the ring's lower right: what the next poison tick takes, while there is any.
+var poison_badge: PanelContainer
+## What the next poison tick takes, as a share of full health: hatched at the end of the fill.
+var poison: float = 0.0
 var _hp_label: Label
 var _shield_label: Label
+var _poison_label: Label
 var _hexes: Control
 var _edge: float = 156.0
 var _face: float = 109.0
@@ -85,13 +95,45 @@ func _init(edge: float = 156.0, character: String = "") -> void:
 	shield.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_shield_label = DeepUi.label(row, "", 14, Color("dbe8ff"))
 	_shield_label.add_theme_font_override("font", DeepUi.bold_font())
+	poison_badge = PanelContainer.new()
+	poison_badge.add_theme_stylebox_override("panel", DeepUi.capsule(poison_badge, Color("1a1030"), POISON_TONE, 2, 12, 1))
+	poison_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	poison_badge.z_index = 2
+	poison_badge.visible = false
+	add_child(poison_badge)
+	var drops := DeepUi.hbox(poison_badge, 4)
+	drops.alignment = BoxContainer.ALIGNMENT_CENTER
+	var drop := DeepUi.icon(drops, "drop", 13, POISON_TONE)
+	drop.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_poison_label = DeepUi.label(drops, "", 14, Color("ecdfff"))
+	_poison_label.add_theme_font_override("font", DeepUi.bold_font())
 	plate.resized.connect(_place_plates)
 	shield_badge.resized.connect(_place_plates)
+	poison_badge.resized.connect(_place_plates)
 	resized.connect(_place_plates)
 
 func _place_plates() -> void:
 	plate.position = Vector2((_edge - plate.size.x) * 0.5, _edge - plate.size.y * 0.5 - 1.0).round()
 	shield_badge.position = Vector2((_edge - shield_badge.size.x) * 0.5, -shield_badge.size.y * 0.5 + 1.0).round()
+	## On the ring's lower right, where it hides none of the health arc's start nor the
+	## numbers under the ring.
+	var centre := Vector2(_edge, _edge) * 0.5
+	var at: Vector2 = centre + Vector2.from_angle(PI * 0.22) * _edge * 0.468
+	poison_badge.position = (at - poison_badge.size * 0.5 + Vector2(poison_badge.size.x * 0.2, 0.0)).round()
+
+func set_poison(share: float, words: String = "") -> void:
+	## What the next poison tick takes: as a share of full health (hatched in violet at the
+	## end of the health arc) and as the number on the badge; "" for none. A changed number
+	## jumps the badge, the way gained block jumps the shield's.
+	var was: String = _poison_label.text
+	poison = clampf(share, 0.0, 1.0)
+	poison_badge.visible = not words.is_empty()
+	_poison_label.text = words
+	if poison_badge.visible and words != was and not was.is_empty() and is_inside_tree() and not DeepUi.headless():
+		DeepUi.spring(poison_badge, 0.25, 4.0, 0.45)
+	poison_badge.reset_size()
+	_place_plates()
+	queue_redraw()
 
 func set_values(new_ratio: float, new_text: String = "", new_overlay: float = 0.0, block_words: String = "") -> void:
 	new_ratio = clampf(new_ratio, 0.0, 1.0)
@@ -181,6 +223,11 @@ func _draw() -> void:
 		var tone: Color = DeepUi.health_tone(_shown, fill) if warn else fill
 		draw_arc(centre, r_hp, start, start + TAU * _shown, 96, tone, w_hp, true)
 		draw_arc(centre, r_hp + w_hp * 0.22, start, start + TAU * _shown, 96, Color(1, 1, 1, 0.14), w_hp * 0.3, true)
+	## What the poison takes at the end of the turn: hatched in violet at the end of the health,
+	## under the red of a blow being counted when both stand.
+	if poison > 0.0 and _shown > 0.001:
+		var bite: float = minf(poison, _shown)
+		_hatch(centre, r_hp, start + TAU * (_shown - bite), start + TAU * _shown, w_hp, Color(POISON_TONE, 0.85))
 	if preview > 0.0 and _shown > 0.001:
 		var cut: float = minf(preview, _shown)
 		var pulse: float = 0.45 + 0.35 * sin(Time.get_ticks_msec() * 0.008)

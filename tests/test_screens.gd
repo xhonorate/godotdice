@@ -1281,7 +1281,7 @@ func _bestiary(app: Control) -> void:
 	await _frames(2)
 	check(app.home._bestiary_pick == "THE_FOREMAN" and not bool(DeepBestiary.entry(app.profile, "THE_FOREMAN").get("fresh", false)), "picking a creature shows it and takes its new mark off")
 	check(drawn != null and is_instance_valid(drawn) and drawn.is_inside_tree(), "picking one leaves the list as it was, scrolled where it was")
-	check(_find_label(app.home, "The Foreman") != null and app.home.find_child("BestiaryLeaves", true, false) != null, "the picked creature is named, with its pages")
+	check(_find_label(app.home, str(DeepContent.creature("THE_FOREMAN").get("name", "The Foreman"))) != null and app.home.find_child("BestiaryLeaves", true, false) != null, "the picked creature is named, with its pages")
 	BestiaryPage.call("pick", app.home, "THE_DRILL")
 	await _frames(2)
 	check(_find_label(app.home, "The Drill") == null and _find_label(app.home, "???") != null, "a creature not met has no name")
