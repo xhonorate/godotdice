@@ -4,13 +4,15 @@ import * as C from '../sim/content.js';
 import * as Forge from '../sim/forge.js';
 import * as Patterns from '../sim/patterns.js';
 import * as Rules from '../sim/rules.js';
-import { traitsFor, faceNames } from '../sim/simulate.js';
+import { traitsFor, faceNames, creatureBars, riddenMoves } from '../sim/simulate.js';
 import { h, card, stat, table, fmt, fmtPct, segmented, field, toolbar, note, kv, chip } from '../ui.js';
 import { columns, lines, histogram, bars, heatmap } from '../charts.js';
 import { creatureImage, creatureDieImage, markChip, pips, MOVE_INK } from '../gemart.js';
 import { depthControls, whenReady, tabs } from './common.js';
 
-const state = { tab: 'creatures', elite: false, turn: 1, action: 1, emerging: false };
+// `bar` is which of a rising boss's phases the page shows it on (1: its first), kept for the
+// creature it was picked on (`barOf`).
+const state = { tab: 'creatures', elite: false, turn: 1, action: 1, emerging: false, bar: 1, barOf: '' };
 const PARTY_COLORS = ['#f0c95a', '#c9a43e', '#a38434', '#7d652a'];
 // A creature's die as written: a shape, or an object carrying the variations it was born with.
 const dieKey = (ref) => (ref && typeof ref === 'object' ? String(ref.shape || 'D6') : String(ref));
@@ -78,6 +80,11 @@ const KEYWORDS = {
 	Sturdy: 'No single hit takes more than that share of its health.',
 	Steadfast: 'Stun, Bound and Clouded last half as long on it, and it cannot be stunned two actions in a row.',
 	Waterlogged: 'The first time it dies, it gets back up at half its health.',
+	// The named traits of November 18, 2026 (sim/content.gd REMEMBERED_TRAITS).
+	Venomous: 'Its damaging faces also lay Poison: a quarter of the damage, 5 at most. A face that already lays Poison lays twice as much.',
+	Molten: 'Its damaging faces also lay Burn: a quarter of the damage, 5 at most. A face that already lays Burn lays twice as much.',
+	Wrathful: 'Every blow it takes gives it 1 Strength for the fight.',
+	Leeching: 'It heals for the health its blows take off you.',
 };
 const KEYWORD_RE = new RegExp(`\\b(${Object.keys(KEYWORDS).sort((a, b) => b.length - a.length).join('|')})\\w*`, 'g');
 function keywords(text) {
@@ -154,7 +161,18 @@ const TRAIT_WORDS = {
 	numb_high: (v) => [`Dice ${v} or more count for nothing`, 'Until its next action'],
 	numb_small: () => ['Smallest dice count for nothing', 'Until its next action; a bowl all of one size keeps its last die'],
 	set_toll: (v) => [`Matching dice cost ${v} health a throw`, 'Until its next action'],
+	// The named traits of November 18, 2026: what the Rift rolls, a Champion carries and a boss takes as it rises.
+	venomous: (v) => ['Venomous', riderWords('Poison', v)],
+	molten: (v) => ['Molten', riderWords('Burn', v)],
+	wrathful: (v) => ['Wrathful', `Every blow it takes gives it ${typeof v === 'number' ? v : 1} Strength for the fight.`],
+	leeching: () => ['Leeching', 'It heals for the health its blows take off you.'],
 };
+// What a Venomous or Molten creature's faces lay: its share of a face's written damage, rounded
+// up, `rider_most` at most (sim/creatures.gd ride).
+function riderWords(status, share) {
+	const part = Number(share) === 25 ? 'a quarter' : `${share}%`;
+	return `Its damaging faces also lay ${status}: ${part} of the damage, ${C.constant('rider_most', 5)} at most. A face that already lays ${status} lays twice as much.`;
+}
 
 export function traitChips(traits) {
 	const out = [];
@@ -190,10 +208,17 @@ function creaturesPage(root, route, ctx) {
 	const active = route.key && C.creature(route.key).name ? route.key : keys[0];
 	const def = C.creature(active);
 	const depth = ctx.settings.depth, party = ctx.settings.party;
-	const moves = def.moves || [];
-	const traits = traitsFor(def, 0);
+	// A boss that has to be beaten more than once: the phase it is shown on, its first for a
+	// creature just picked. Its traits are the written ones and what every rise before this gave it.
+	const bars = creatureBars(def, depth, party, mine);
+	if (state.barOf !== active) { state.bar = 1; state.barOf = active; }
+	const bar = Math.max(1, Math.min(state.bar, bars.bars));
+	const traits = traitsFor(def, 0, bar);
+	// Its moves as it throws them: a Venomous or Molten one's damaging faces lay Poison or Burn too.
+	const moves = riddenMoves(def.moves || [], traits);
 	const canEmerge = moves.some((m) => (m.trigger || {}).kind === 'emerge');
 	root.append(toolbar(...depthControls(ctx),
+		bars.bars > 1 ? field('Phase', segmented([[1, '1'], ...bars.rises.map((rise) => [rise.bar, `${rise.bar} · ${rise.name || 'rolled'}`, rise.words])], bar, (v) => { state.bar = Number(v); ctx.rerender(); }), 'Which of its phases it is on: what every rise before it gave it is on') : null,
 		field('Turn', segmented([[1, '1'], [4, '4'], [7, '7'], [9, '9']], state.turn, (v) => { state.turn = Number(v); ctx.rerender(); }), `Enrage from turn ${C.constant('enrage_turn', 7)}`),
 		field('Action', segmented([[1, '1'], [2, '2'], [3, '3'], [4, '4'], [6, '6']], state.action, (v) => { state.action = Number(v); ctx.rerender(); }), 'Which of its own actions this is'),
 		canEmerge ? field('Just surfaced', segmented([[false, 'No'], [true, 'Yes']], state.emerging, (v) => { state.emerging = v === 'true' || v === true; ctx.rerender(); }), 'The action after it burrowed') : null));
@@ -202,8 +227,10 @@ function creaturesPage(root, route, ctx) {
 	const list = h('div', { class: 'list' }, keys.map((k) => {
 		const d = C.creature(k);
 		const tag = d.warden ? 'Warden · ' : d.summon_only ? 'Summoned only · ' : d.echo ? 'Echo · ' : '';
+		const b = creatureBars(d, depth, party, mine);
 		return h('button', { type: 'button', class: `list-item${k === active ? ' is-active' : ''}`, onClick: () => ctx.navigate('enemies', k) }, creatureImage(k, 40),
-			h('span', {}, h('span', { class: 'li-name' }, d.name), h('span', { class: 'li-sub' }, `${tag}threat ${d.threat} · ${diceText(d)}`)), h('span', { class: 'li-right' }, `${Forge.creatureHp(d, depth, party, mine)} hp`));
+			h('span', {}, h('span', { class: 'li-name' }, d.name), h('span', { class: 'li-sub' }, `${tag}threat ${d.threat} · ${diceText(d)}`)),
+			h('span', { class: 'li-right', title: b.bars > 1 ? `${b.bars} phases of ${b.barHp} health, ${b.totalHp} in all` : null }, b.bars > 1 ? `${b.barHp} hp ×${b.bars}` : `${b.barHp} hp`));
 	}));
 	grid.append(h('section', { class: 'card list-panel', style: { maxHeight: 'calc(100vh - 230px)' } }, list, h('div', { class: 'list-count' }, `${keys.length} creatures · HP at depth ${depth}, party ${party}, ${mine.name || mineKey}`)));
 	const detail = h('div', { class: 'col' });
@@ -213,6 +240,7 @@ function creaturesPage(root, route, ctx) {
 	detail.append(h('div', { class: 'card' }, h('div', { class: 'card-body' }, h('div', { class: 'detail-head' }, h('span', { class: 'pic hero' }, creatureImage(active, 170)),
 		h('div', { class: 'detail-title' },
 			h('div', { class: 'row tight' }, def.warden ? chip('Warden', { class: 'accent' }) : chip('Creature'), chip(`threat ${def.threat}`), chip(`${def.ward ?? (def.warden ? 1 : 0)} Ward`),
+				bars.bars > 1 ? chip(`${bars.bars} phases`, { class: 'accent', title: `Each with ${bars.healthPct}% of its health. ${PHASE_RULE}` }) : null,
 				def.summon_only ? chip('Summoned only', { title: 'Never drawn from a band: it comes in beside another creature' }) : null,
 				def.echo ? chip(`Echo of ${(def.echo.mines || []).map((m) => C.mine(m).name || m).join(', ')}`, { title: 'A random non-Warden creature from those mines, over again, with this mine’s scaling' }) : null,
 				escorts.length ? chip(`Escorts: ${escortText(escorts)}`, { title: 'Spawned beside it at the start of the fight' }) : null),
@@ -220,25 +248,27 @@ function creaturesPage(root, route, ctx) {
 			h('h2', {}, def.name), h('p', { class: 'lede' }, ...keywords(def.text || '')), def.tip ? h('p', { class: 'lede' }, h('strong', {}, 'Remember: '), def.tip) : null,
 			h('div', { class: 'row tight' }, h('span', { class: 'small muted' }, 'Throws, in order:'), ...groups.map((g) => h('span', { class: 'row tight', title: dieCaption(g) },
 				creatureDieImage(active, g.index, g.shape, 44), h('span', { class: 'small text-2' }, `${g.label ? g.label + ' ' : ''}${g.shape.toLowerCase()}${g.count > 1 ? ` ×${g.count}` : ''}`)))))))));
-	const job = ctx.engine.run('creatureTurn', { key: active, depth, party, turn: state.turn, action: state.action, mineKey, emerging: canEmerge && state.emerging, samples: 6000 });
+	const job = ctx.engine.run('creatureTurn', { key: active, depth, party, bar, turn: state.turn, action: state.action, mineKey, emerging: canEmerge && state.emerging, samples: 6000 });
 	const statsSlot = h('div', { class: 'stats', style: { gridTemplateColumns: 'repeat(7, minmax(0,1fr))' } });
 	detail.append(statsSlot);
 	whenReady(ctx, statsSlot, job, (r) => h('div', { style: { display: 'contents' } },
-		stat('Health', String(r.hp), `base ${def.hp} × depth × party × mine`, { class: 'accent' }), stat('Block', String(def.block ?? 0), 'to start'),
+		r.bars > 1 ? stat('Health', `${r.hp} ×${r.bars}`, `a phase: ${r.healthPct}% of base ${def.hp} × depth × party × mine · ${r.totalHp} in all`, { class: 'accent' })
+			: stat('Health', String(r.hp), `base ${def.hp} × depth × party × mine`, { class: 'accent' }), stat('Block', String(def.block ?? 0), 'to start'),
 		stat('Damage an action', fmt(r.meanDamage, 2), `action ${r.action}, to its target, before block`),
 		stat('Damage ×', `${fmt(r.damagePct / 100, 2)}`, `${mine.name || mineKey} ×${fmt(r.damageMult, 2)}${traits.rising ? ` · rising +${traits.rising}%/action` : ''}`),
 		stat('Damage bonus', `+${r.damageBonus}`, `depth ÷ ${C.constant('depth_damage_every', 4)}, per die${traits.escalate ? ` · +${traits.escalate} an action` : ''}`),
 		stat('Enrage', r.enrage ? `+${r.enrage}` : '—', `from turn ${C.constant('enrage_turn', 7)}`), stat('Threat', String(def.threat), 'against the encounter budget')));
+	if (bars.bars > 1) detail.append(phasesCard(active, bars, bar));
 	const g = h('div', { class: 'grid grid-2' });
 	detail.append(g);
 	const movesSlot = h('div'), histSlot = h('div');
 	g.append(card('Dice and faces', movesSlot, { meta: `a move a face · fires per action, sampled · action ${state.action}` }));
 	g.append(card('Damage in one action', histSlot, { meta: 'to its target, before block' }));
-	whenReady(ctx, movesSlot, job, (r) => h('div', { class: 'moves' }, ...facesView(def, active, groups, r)));
+	whenReady(ctx, movesSlot, job, (r) => h('div', { class: 'moves' }, ...facesView(def, moves, active, groups, r)));
 	whenReady(ctx, histSlot, job, (r) => histogram({ bins: r.damageHist, width: 420, height: 190, color: '#e0473c', mean: r.meanDamage, xLabel: 'damage', xFormat: (v) => String(v) }));
 	const depths = Array.from({ length: 28 }, (_, i) => i + 1);
 	detail.append(h('div', { class: 'grid grid-2' },
-		card('Health by depth', lines({ series: [1, 2, 3, 4].map((p, i) => ({ key: p, label: `party of ${p}`, color: PARTY_COLORS[i], points: depths.map((d) => ({ x: d, y: Forge.creatureHp(def, d, p, mine) })) })), width: 420, height: 180, xFormat: (d) => String(d), format: (v) => fmt(v, 0), markers: false }), { meta: `+${fmt(Number(C.constant('depth_hp_scale', 0.05)) * 100, 0)}% a depth, × the party's size, ×${fmt(Number(mine.hp_mult ?? 1), 1)} here` }),
+		card('Health by depth', lines({ series: [1, 2, 3, 4].map((p, i) => ({ key: p, label: `party of ${p}`, color: PARTY_COLORS[i], points: depths.map((d) => ({ x: d, y: creatureBars(def, d, p, mine).totalHp })) })), width: 420, height: 180, xFormat: (d) => String(d), format: (v) => fmt(v, 0), markers: false }), { meta: `+${fmt(Number(C.constant('depth_hp_scale', 0.05)) * 100, 0)}% a depth, × the party's size, ×${fmt(Number(mine.hp_mult ?? 1), 1)} here${bars.bars > 1 ? ` · all ${bars.bars} phases together` : ''}` }),
 		card('Traits and dice', h('div', { class: 'col' }, kv([
 			['Traits', traitText(traits)],
 			['Escorts', escorts.length ? escortText(escorts) : 'none'],
@@ -252,8 +282,7 @@ function creaturesPage(root, route, ctx) {
 
 // Every die's moves as rows (mark, name and number, words, a pip a face, how often it fires),
 // then the matches, the moves on no face, and the moves the fight calls.
-function facesView(def, key, groups, r) {
-	const moves = def.moves || [];
+function facesView(def, moves, key, groups, r) {
 	const sampled = (name) => r.moves[moves.findIndex((m) => m.name === name)] || null;
 	const rate = (s) => (s ? [h('div', { class: 'fm-rate' }, `${fmt(s.fireRate, s.fireRate > 0 && s.fireRate < 0.1 ? 3 : 2)}× an action`), moveNote(s) ? h('div', { class: 'tiny muted' }, moveNote(s)) : null] : []);
 	const row = (move, right, extra = '') => {
@@ -297,6 +326,22 @@ function facesView(def, key, groups, r) {
 	if (called.length) out.push(h('div', { class: 'face-sub' }, 'Called by the fight'));
 	for (const move of called) out.push(row(move, rate(sampled(move.name)), triggerWords(move, def).toLowerCase()));
 	return out;
+}
+// What happens when a phase's health runs out, as the game's own chip says it.
+const PHASE_RULE = 'When its health runs out it stays on 1 health, and on its next action it gets back up at full health with everything on it shed.';
+// A rising boss's phases: the health in each, and what each rise gives it (its name, its traits
+// by name, its words). The one the page is showing is marked.
+function phasesCard(key, bars, bar) {
+	const row = (at, name, body) => h('div', { class: 'row tight' }, chip(`Phase ${at}`, { class: at === bar ? 'accent' : '' }), name ? h('b', {}, name) : null, h('span', { class: 'small text-2' }, ...body));
+	const rows = [row(1, 'As written', [`${bars.barHp} health`])];
+	for (const rise of bars.rises) {
+		rows.push(row(rise.bar, rise.name, [`${bars.barHp} health · `, ...keywords(rise.words)]));
+	}
+	const riftBars = Math.trunc(Number(C.constant('rift_bars', 3)));
+	const remembered = C.keys('mines').some((k) => C.mine(k).endless && (C.mine(k).wardens || []).includes(key));
+	let rule = `Each phase has ${bars.healthPct}% of its health, ${bars.totalHp} in all here. ${PHASE_RULE} The first time a player meets it the later phases are not shown. What a rise does as it happens (creatures called, faces and dice grown), Wrathful's Strength and Leeching's healing are not played in the numbers below.`;
+	if (remembered && riftBars > bars.bars) rule += ` Remembered in the Rift it has ${riftBars} phases: each rise past the ones written here gives it one trait the seed picks.`;
+	return card('Phases', h('div', { class: 'col' }, ...rows, note(rule, 'plain')), { meta: `${bars.bars} phases · ${bars.healthPct}% of its health each${bars.fall === 'dive' ? ' · goes under as it falls' : ''}` });
 }
 function escortText(escorts) {
 	const counts = {};
@@ -344,6 +389,10 @@ export function wardenText(mine) {
 		let text = `${mine.name || 'This mine'} has no bottom: a Warden hall every ${every} floors, the remembered bosses in turn (${(mine.wardens || []).map(name).join(', ')})`;
 		if (mine.unmade && Number(mine.unmade_every ?? 0) > 0) text += `, and every ${Patterns.ordinal(Number(mine.unmade_every))} Warden is ${name(mine.unmade)} instead, the cycle skipping that slot`;
 		text += `. So the first ten halls: ${first.map((k, i) => `${i + 1} ${name(k)}`).join(', ')}.`;
+		// The smaller Wardens it remembers (sim/descent.gd stands_between): one at the landing
+		// halfway between two halls, in turn, each with a trait more.
+		const between = mine.remembered_wardens || [];
+		if (between.length && every % 2 === 0) text += ` Halfway between two halls (depth ${every / 2}, ${every / 2 + every}, ...) stands one of the Wardens from above, remembered with a trait more, in turn: ${between.map(name).join(', ')}.`;
 		return text;
 	}
 	return `Wardens ${(mine.wardens || []).map(name).join(', ')} guard depths ${(mine.warden_depths || []).join(', ')}${mine.boss ? `, and ${name(mine.boss)} the bottom at ${mine.depth}` : ''}.`;

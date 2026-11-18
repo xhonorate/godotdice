@@ -9,6 +9,7 @@ import * as Rules from './rules.js';
 import * as Stone from './stone.js';
 import * as Forge from './forge.js';
 import { makeRng } from './rng.js';
+import { satMul, satMulDiv } from './numbers.js';
 
 // A bowl from what the browser is set to: each entry is a shape, or an object carrying the
 // variations that die was made with.
@@ -327,13 +328,17 @@ export function creatureMoves(def, phase = 0) {
 }
 
 // Everything a creature is in a phase (sim/creatures.gd traits_for): its written traits, its
-// old-style gimmick read as one, and whatever the phase adds or takes away (0 or false removes).
-export function traitsFor(def, phase = 0) {
+// old-style gimmick read as one, whatever the phase adds or takes away (0 or false removes), and
+// what a boss has taken each time it got back up: `bar` is the bar it is on (1: its first), so
+// the written traits of every rise before it are counted in (a rise whose trait the seed picks
+// adds nothing here).
+export function traitsFor(def, phase = 0, bar = 1) {
 	const out = { ...(def.traits || {}) };
 	const gimmick = String(def.gimmick || '');
 	if (gimmick && !(gimmick in out)) out[gimmick] = true;
 	const phases = def.phases || [];
 	if (phase > 0 && phases[phase - 1]) Object.assign(out, phases[phase - 1].traits || {});
+	for (const rise of risesOf(def).slice(0, Math.max(0, bar - 1))) Object.assign(out, rise.traits || {});
 	for (const key of Object.keys(out)) {
 		const value = out[key];
 		if (value === false || (typeof value === 'number' && value <= 0)) delete out[key];
@@ -346,6 +351,100 @@ export function traitValue(traits, name, fallback = 0) {
 	if (value === undefined || value === null) return fallback;
 	if (typeof value === 'boolean') return value ? 1 : 0;
 	return Math.trunc(Number(value) || 0);
+}
+
+// --- bars and the named traits (sim/creatures.gd, November 18, 2026) -----------------------------
+// A mine's final boss has to be beaten more than once: its entry carries `rising`
+// {health_pct, fall, rises: [{name, text, traits, effects, roll}]}. Each bar is `health_pct` of
+// its health; when one runs out it stays on 1 health and gets back up at its next action with
+// the next rise's traits. A player reads a bar as a phase.
+
+const risesOf = (def) => (def && def.rising && typeof def.rising === 'object' && Array.isArray(def.rising.rises) ? def.rising.rises : []);
+
+// What a bar is called where its rise has no name of its own (bar_title): "Second phase".
+export function barTitle(index) {
+	return `${['First', 'Second', 'Third', 'Fourth', 'Fifth'][Math.max(0, Math.min(4, Math.trunc(index)))]} phase`;
+}
+
+// What a rise gives, as a player reads it (rise_words): "Gains Molten. 2 Rail Rats join it."
+export function riseWords(rise) {
+	const names = Object.keys((rise && rise.traits) || {}).map((key) => C.traitName(key));
+	const parts = [];
+	if (names.length) parts.push(`Gains ${names.join(' and ')}.`);
+	else if (Math.trunc(Number((rise && rise.roll) ?? 0)) > 0) parts.push('Gains a trait, picked as the fight opens.');
+	if (rise && String(rise.text || '')) parts.push(String(rise.text));
+	return parts.join(' ');
+}
+
+// A creature's bars at a depth (sim/creatures.gd make): how many, the share of its health in
+// each, one bar's health and all of them together, and what each rise gives. One bar of its
+// whole health for anything not written to rise.
+export function creatureBars(def, depth = 1, party = 1, mine = null) {
+	const whole = Forge.creatureHp(def, depth, party, mine);
+	const rises = risesOf(def);
+	if (!rises.length) return { bars: 1, healthPct: 100, barHp: whole, totalHp: whole, fall: '', rises: [] };
+	const healthPct = Math.max(1, Math.min(100, Math.trunc(Number(def.rising.health_pct ?? 100))));
+	const barHp = Math.max(1, satMulDiv(whole, healthPct, 100));
+	return { bars: 1 + rises.length, healthPct, barHp, totalHp: satMul(barHp, 1 + rises.length), fall: String(def.rising.fall || ''),
+		rises: rises.map((rise, index) => ({ bar: index + 2, name: String(rise.name || ''), title: String(rise.name || '') || barTitle(index + 1), text: String(rise.text || ''),
+			traits: { ...(rise.traits || {}) }, roll: Math.trunc(Number(rise.roll ?? 0)), words: riseWords(rise) })) };
+}
+
+// The damage a face is written to deal the party, all its hits together, before the mine weighs
+// it (written_damage). Nought when it deals none or its size cannot be read off the page.
+const OWN_SIDE = ['self', 'allies', 'allies_other', 'ally_low'];
+const isPlain = (value) => typeof value === 'number';
+export function writtenDamage(move) {
+	let total = 0;
+	for (const effect of (move && move.effects) || []) {
+		if (!effect || typeof effect !== 'object' || String(effect.kind || '') !== 'damage' || OWN_SIDE.includes(String(effect.target ?? 'heroes'))) continue;
+		const amount = effect.amount ?? 0;
+		const times = effect.repeat ?? 1;
+		if (!isPlain(amount) || !isPlain(times) || effect.per_reroll) continue;
+		total += Math.trunc(amount) * Math.max(1, Math.trunc(times));
+	}
+	return total;
+}
+
+// One move with a status riding its damage (ride): a share of the face's written damage, rounded
+// up and never more than `rider_most` stacks, counted once a face however many hits it is. A
+// face that already lays that status lays twice as much instead. `shares` is status to share,
+// in percent. The move is returned as it was when nothing rides it, and copied when something does.
+export function ride(move, shares) {
+	let out = move;
+	const most = Math.max(1, Math.trunc(Number(C.constant('rider_most', 5))));
+	for (const status of Object.keys(shares || {})) {
+		let lays = false;
+		let aimed = 'heroes';
+		for (const effect of out.effects || []) {
+			if (!effect || typeof effect !== 'object' || OWN_SIDE.includes(String(effect.target ?? 'heroes'))) continue;
+			if (String(effect.kind || '') === status) lays = true;
+			else if (String(effect.kind || '') === 'damage') aimed = String(effect.target ?? 'heroes');
+		}
+		const weight = writtenDamage(out);
+		if (!lays && weight <= 0) continue;
+		if (out === move) out = structuredClone(move);
+		if (lays) {
+			for (const effect of out.effects) if (String(effect.kind || '') === status && isPlain(effect.amount ?? 0)) effect.amount = Math.trunc(effect.amount ?? 0) * 2;
+			continue;
+		}
+		const stacks = Math.max(1, Math.min(most, Math.ceil(weight * Number(shares[status]) / 100)));
+		out.effects.push({ kind: status, target: aimed, amount: stacks });
+		if (String(out.text || '')) out.text = `${out.text}, and {${out.effects.length - 1}} ${C.title(status)}`;
+	}
+	return out;
+}
+
+// A creature's moves as it throws them (moves_for): Venomous and Molten put Poison and Burn on
+// every face that deals damage. `traits` is what it is right now (traitsFor).
+export function riddenMoves(moves, traits) {
+	const shares = {};
+	for (const [key, status] of Object.entries(C.RIDERS)) {
+		const share = traitValue(traits, key);
+		if (share > 0) shares[status] = share;
+	}
+	if (!Object.keys(shares).length) return moves;
+	return (moves || []).map((move) => ride(move, shares));
 }
 
 // The mine's damage multiplier as a whole percentage, grown by a Rising creature's share for
@@ -372,14 +471,20 @@ export function nextNthIn(move, action) {
 // Damage per move follows sim/creatures.gd resolved_move: pct(raw, damage_pct) + damage_bonus
 // + rally and Escalate weighed like the roll, with the enrage the fight adds on top; what it does
 // for itself (block, heals) grows with its health and the block it strips with its blows; `once` moves are taken as spent after action 1
-// and an Escalating creature as having spent every earlier action in this phase.
-export function creatureTurn({ key, depth = 1, party = 1, phase = 0, turn = 1, action = 1, mineKey = '', emerging = false, samples = 6000, seed = 3 }) {
+// and an Escalating creature as having spent every earlier action in this phase. `bar` is which
+// of a rising boss's bars it is on (1: its first): the traits of the rises before it are on, and
+// a Venomous or Molten creature's damaging faces lay their Poison or Burn (riddenMoves). What a
+// rise does as it happens (the creatures it calls, the faces and dice it grows), Wrathful's
+// Strength and Leeching's healing are not played here.
+export function creatureTurn({ key, depth = 1, party = 1, phase = 0, bar = 1, turn = 1, action = 1, mineKey = '', emerging = false, samples = 6000, seed = 3 }) {
 	const def = C.creature(key);
 	const mine = mineKey ? C.mine(mineKey) : null;
 	phase = Math.max(0, Math.min(phase | 0, (def.phases || []).length));
 	action = Math.max(1, action | 0);
-	const moves = creatureMoves(def, phase);
-	const traits = traitsFor(def, phase);
+	const bars = creatureBars(def, depth, party, mine);
+	bar = Math.max(1, Math.min(bar | 0, bars.bars));
+	const traits = traitsFor(def, phase, bar);
+	const moves = riddenMoves(creatureMoves(def, phase), traits);
 	const dice = (def.dice || []).map((k, i) => Dice.dieFrom(k, `${key}_d${i}`));
 	// An action die's moves, face by face: the face it lands on is the move it makes.
 	const named = (def.dice || []).map(faceNames);
@@ -492,7 +597,8 @@ export function creatureTurn({ key, depth = 1, party = 1, phase = 0, turn = 1, a
 		damageHist.set(turnDamage, (damageHist.get(turnDamage) || 0) + 1);
 	}
 	return {
-		key, depth, party, phase, turn, action, mineKey, emerging: Boolean(emerging), samples, hp: Forge.creatureHp(def, depth, party, mine),
+		// `hp` is one bar's health, as the game's creature carries it; `totalHp` every bar's together.
+		key, depth, party, phase, bar, turn, action, mineKey, emerging: Boolean(emerging), samples, hp: bars.barHp, bars: bars.bars, healthPct: bars.healthPct, totalHp: bars.totalHp,
 		damageBonus, damagePct: pct, damageMult: scale.damage, enrage, traits,
 		escorts: (def.escorts || []).slice(), echo: def.echo ? { ...def.echo } : null, summonOnly: Boolean(def.summon_only),
 		meanDamage: damageSum / samples,

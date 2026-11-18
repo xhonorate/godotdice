@@ -10,6 +10,9 @@ export const KINDS = ['all_odd', 'all_even', 'always', 'pair', 'two_pair', 'trip
 	// as a number or in a window (`max`), a scale (see hand.js), every die a crown or a 1, the
 	// colors the rail has fired this turn (the fight says how many), sets by size (`max`).
 	'high_count', 'total_at_most', 'total_window', 'scale', 'all_faces', 'colors', 'set',
+	// Equinox: the odd dice and the even dice differ in number by no more than the rung (a wild
+	// is both, so it counts for neither side).
+	'balanced',
 	'each_turn', 'every_nth_turn', 'emerge', 'on_death', 'hp_below', 'action_begin', 'countdown'];
 // The kinds a creature reads from the turn rather than from a die: each fires at most once an
 // action, on its first die (on_death never during an action: it fires when the creature dies;
@@ -190,7 +193,8 @@ export function evaluate(trigger, cutStep, a, context = {}) {
 		}
 		case 'all_odd': case 'all_even': {
 			const parity = kind === 'all_odd' ? a.odd : a.even;
-			result.active = a.dice_count >= Math.max(2, need) && parity === a.dice_count;
+			// An Equinox earlier this turn has every die count as both, so the count can run past the dice.
+			result.active = a.dice_count >= Math.max(2, need) && parity >= a.dice_count;
 			result.dice = allDice(a); result.value = a.total; result.count = parity;
 			break;
 		}
@@ -198,8 +202,14 @@ export function evaluate(trigger, cutStep, a, context = {}) {
 			const wantedOdd = kind === 'odd';
 			const have = wantedOdd ? a.odd : a.even;
 			if (have >= need) {
-				result.active = true; result.dice = Hand.matching(a, (v) => (v % 2 === 1) === wantedOdd); result.count = have; result.value = have;
+				// After an Equinox every die is of both parities (`both_parities`, Hand.bothParities).
+				result.active = true; result.dice = I(a.both_parities) > 0 ? allDice(a) : Hand.matching(a, (v) => (v % 2 === 1) === wantedOdd); result.count = have; result.value = have;
 			}
+			break;
+		}
+		case 'balanced': {
+			const apart = Math.abs(I(a.odd) - I(a.even));
+			if (apart <= need && I(a.dice_count) > 0) { result.active = true; result.dice = allDice(a); result.count = I(a.dice_count); result.value = apart; }
 			break;
 		}
 		case 'distinct':
@@ -357,7 +367,7 @@ export function label(trigger, cutStep) {
 		case 'always': return `${readSide(trigger, cutStep) === 'low' ? 'low' : 'high'} ×${Math.max(1, need)}`;
 		case 'pair': case 'triple': case 'quad': case 'quint': case 'full_house': case 'two_pair': return need > 1 ? `${need}+` : 'any';
 		case 'straight': case 'odd': case 'even': case 'distinct': case 'held': case 'rerolled': case 'resonance': case 'low_count': case 'crowns': case 'skip_straight': case 'distinct_dominant': return `×${need}`;
-		case 'crowns_at_most': return `≤${need}`;
+		case 'crowns_at_most': case 'balanced': return `≤${need}`;
 		case 'value': { const wanted = (trigger.values || [7]).join('/'); return need > 1 ? `${wanted} ×${need}` : wanted; }
 		case 'pyrite': return `≥${need} pyrite`;
 		case 'fizzles': case 'kills': return need > 1 ? `×${need}` : '';
@@ -430,6 +440,7 @@ export function words(trigger, cutStep) {
 		case 'straight': return `A straight of ${need}: ${need} consecutive values in any order.`;
 		case 'odd': return `At least ${dice(need)} showing odd values.`;
 		case 'even': return `At least ${dice(need)} showing even values.`;
+		case 'balanced': return need <= 0 ? 'As many odd dice as even ones.' : `Odd dice and even dice no more than ${need} apart in number.`;
 		case 'distinct': return trigger.high_crown ? `At least ${dice(need)} with no two alike, the highest a crown.` : `At least ${dice(need)} with no two alike.`;
 		case 'value': return `At least ${need} ${need === 1 ? 'die' : 'dice'} showing a ${(trigger.values || [7]).join(' or ')}.`;
 		case 'pyrite': return `At least ${need} Pyrite.`;
@@ -483,7 +494,7 @@ export const KIND_NAMES = {
 	at_least: 'High die', total_pct_at_least: 'Total ≥ % of max', total_pct_at_most: 'Total ≤ % of max', high_pct_at_least: 'Die ≥ % of its top',
 	held: 'Held dice', rerolled: 'Rerolled dice', resonance: 'Resonance', low_count: 'Low dice', crowns: 'Crowns', crowns_at_most: 'Few crowns',
 	skip_straight: 'Skip straight', distinct_dominant: 'Dominant high die', pyrite: 'Pyrite in hand', fizzles: 'Earlier fizzles', kills: 'Kills this turn', all_odd: 'All odd', all_even: 'All even',
-	high_count: 'High dice', total_at_most: 'Low total', total_window: 'Total in a window', scale: 'Scale', all_faces: 'Every die a crown or a 1', colors: 'Colors fired', set: 'Sets by size',
+	high_count: 'High dice', total_at_most: 'Low total', total_window: 'Total in a window', scale: 'Scale', all_faces: 'Every die a crown or a 1', colors: 'Colors fired', set: 'Sets by size', balanced: 'Odd and even balanced',
 	each_turn: 'Each action', every_nth_turn: 'Every nth action', emerge: 'When it comes up', on_death: 'When it dies',
 	hp_below: 'Health falls to', action_begin: 'Action opens', countdown: 'Countdown',
 };

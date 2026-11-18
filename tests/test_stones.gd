@@ -260,8 +260,9 @@ func _test_birthstones_and_references() -> void:
 			var kind: String = str(def.get("kind", "damage"))
 			var scale: String = str(def.get("scale", "carat" if kind in DeepRules.SCALED_BY_DEFAULT else "procs"))
 			## A Transcendent counts exactly what it was designed to: one fire for every pair, five
-			## carats, every gem after it. Its weight swells everything else it does.
-			var exact: bool = DeepContent.is_transcendent(str(key)) and kind in ["fire_neighbours", "force_after", "absorbed", "gem_rank"]
+			## carats, every gem after it, a face a point, every die both parities. Its weight swells
+			## everything else it does (a Mosaic's goes carry the weight inside them, `_mosaic`).
+			var exact: bool = DeepContent.is_transcendent(str(key)) and kind in ["fire_neighbours", "force_after", "absorbed", "gem_rank", "ratchet", "both_parities", "mosaic"]
 			var cost: bool = kind in DeepRules.HOSTILE and str(def.get("target", "")) == "self"
 			## A Flawless Stake's percent is flat by the owner's ruling (Nov 7 2026): its weight raises how much it may stake.
 			var staked: bool = def.has("all_in")

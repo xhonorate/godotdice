@@ -108,7 +108,10 @@ const KEYWORD_HINTS: Dictionary = {
  "a scale": "The longest climb across your dice from the smallest die to the largest, each showing more than the one before it.",
  "the scale": "The longest climb across your dice from the smallest die to the largest, each showing more than the one before it.",
  "perfect scale": "All five dice in the scale: each die, from the smallest to the largest, showing more than the one before it.",
- "envenom": "Every hit its owner lands that gets past Block also applies 1 Poison a stack. Lasts the fight."
+ "envenom": "Every hit its owner lands that gets past Block also applies 1 Poison a stack. Lasts the fight.",
+ ## The second five Transcendents (November 18, 2026).
+ "half of its size": "A die's low half is 1 to half its size, the high half the rest: 1-3 and 4-6 on a d6, 1-10 and 11-20 on a d20. A raised face does not move the line.",
+ "random effect": "Mosaic: one of damage, Block, Poison, healing, Pyrite or Resonance, drawn at random, the same one perhaps twice. The first is 1x, the next 2x and so on; Cut raises every number, and carat all but Resonance."
 }
 ## The mark each chamber kind is drawn with, anywhere a chamber is shown.
 ## An oddity wears the swirl; the question mark is a dark mouth's alone.

@@ -25,8 +25,8 @@ A rule that both the day's seam and the tier carry counts twice where it can add
 | 2 | Cold Start | One fewer reroll on the first turn of every fight. | `run_mods.first_turn_rerolls`, `_begin_turn` |
 | 3 | Short Rest | Resting heals 25% instead of 35%. | `rest_amount` |
 | 4 | Prowlers | Elites half again as common, and from depth 2 instead of 3. | `mine_of`, `_chart` |
-| 5 | Champions | The strongest creature in an elite fight gets a trait: Steadfast, Sturdy, Splits, Spiked (3), Regenerating (4% a turn), Warded (2) or Jagged (every blow on it costs its thrower 1 health; added November 13, 2026). | `_harden_the_fight` |
-| 6 | Worn | Everyone starts the run at 85% health. | `_dress_for_the_hazard` |
+| 5 | Champions | The strongest creature in an elite fight gets a trait: one of the eight named traits the Rift rolls (Steadfast, Sturdy, Splits, Jagged, Venomous, Molten, Wrathful, Leeching; docs/BESTIARY.md section 16), or Spiked (3), Regenerating (4% a turn) or Warded (2). Since November 18, 2026 it is called after it ("Molten Slag Hound") and wears its look. | `_harden_the_fight` |
+| 6 | Narrow Shaft | Only the first 3 stones in the loadout go down, counted left to right; the rest stay in the vault (replaced Worn, 85% starting health, on November 18, 2026). Loadout luck counts the three that go. The Descend card crosses out the stones left home. Not on the daily dig, which lends its own rail. | `new_run`, `DeepDescent.rail_limit` / `left_behind`, `socket_strip` `barred` |
 | 7 | Warden's Pride | Wardens and bosses +20% health and one more Ward. | `_start_fight`, `_harden_the_fight` |
 | 8 | Thin Hoards | Hoards have one pedestal fewer, and half as often an opal. | `_offer_hoard` |
 | 9 | Early Enrage | Enrage on turn 6, +3 a turn (was 7, +2). | `DeepBattle.enrage_turn` |
@@ -42,7 +42,7 @@ A rule that both the day's seam and the tier carry counts twice where it can add
 | 19 | Cursed Run | Beating a Warden locks a face on one of your dice (the daily hazard). | fight settle |
 | 20 | Crown's Court | The Hollow Crown fights beside one of the Rift's Remembered bosses. | `_start_fight` `court` |
 
-Ideas left on the bench in review: Hard Bargains (merchants a quarter dearer, no promised merchant), Cunning, Short Wick, Narrow Shaft, Hungry Void, Drought.
+Ideas left on the bench in review: Hard Bargains (merchants a quarter dearer, no promised merchant), Cunning, Short Wick, Hungry Void, Drought.
 
 ## Heavier stones
 

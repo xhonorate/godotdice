@@ -1156,10 +1156,11 @@ func wear_birthstone(character_key: String, key: String) -> void:
 	DeepAudio.play("dice_lock", {"volume": 0.7})
 	profile_changed.emit()
 
-func socket_strip(parent: Node, character_key: String, loadout: Dictionary, edge: float, labelled: bool = false, on_click: Callable = Callable()) -> void:
+func socket_strip(parent: Node, character_key: String, loadout: Dictionary, edge: float, labelled: bool = false, on_click: Callable = Callable(), barred: Array = [], barred_tip: String = "") -> void:
 	## A delver's sockets at a glance: the stones their loadout sets, a lock on each socket
 	## not yet bought, and the Birthstone at the end. With `on_click`, each socket is a button
-	## that is handed its index.
+	## that is handed its index. A socket in `barred` keeps its stone home (Narrow Shaft): the
+	## stone is dimmed under a red cross, and `barred_tip` says why.
 	var sockets: Array = DeepContent.character(character_key).get("sockets", [])
 	for index in range(sockets.size()):
 		var socket_color: String = str(sockets[index])
@@ -1170,6 +1171,8 @@ func socket_strip(parent: Node, character_key: String, loadout: Dictionary, edge
 			holder = DeepUi.vbox(parent, 3)
 			(holder as VBoxContainer).alignment = BoxContainer.ALIGNMENT_CENTER
 		var slot: Control = kit_socket(holder, socket_color, set_stone if set_stone is Dictionary else {}, edge, locked)
+		if barred.has(index) and set_stone is Dictionary:
+			bar_socket(slot, edge, barred_tip)
 		if on_click.is_valid():
 			var at: int = index
 			slot.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -1192,6 +1195,17 @@ func socket_strip(parent: Node, character_key: String, loadout: Dictionary, edge
 	kit_socket(birth_holder, "BIRTHSTONE", birthstone, edge)
 	if labelled:
 		DeepUi.label(birth_holder, "Birthstone", 11, HomeParts.birth_name_tone(birthstone), HORIZONTAL_ALIGNMENT_CENTER)
+
+func bar_socket(slot: Control, edge: float, tip: String) -> void:
+	## A stone that stays home this run: dimmed, under a red cross that says why.
+	for child in slot.get_children():
+		(child as CanvasItem).modulate = Color(1, 1, 1, 0.4)
+	var cross := DeepUi.icon(slot, "cross_out", edge * 0.7, DeepUi.BAD)
+	cross.name = "Barred"
+	cross.position = Vector2.ONE * edge * 0.15
+	cross.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if not tip.is_empty():
+		slot.tooltip_text = tip + ("\n" + slot.tooltip_text if not slot.tooltip_text.is_empty() else "")
 
 func kit_socket(parent: Node, socket_color: String, stone: Dictionary, edge: float = 40.0, locked: bool = false) -> Control:
 	## One socket of the loadout at a glance: its ring, and the stone in it if there is one,

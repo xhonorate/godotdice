@@ -208,6 +208,17 @@ var _foes_pill: PanelContainer
 var _banner: Label
 var _banner_sub: Label
 var _banner_box: VBoxContainer
+## The title card a boss gets back up under (`_rise_card`): a crown over its name, and the
+## phase's name between the name and the small line. Hidden for every other title.
+var _banner_mark: TextureRect
+var _banner_phase: Label
+## A boss down on its last point (DeepBattle._stand): the room dims by a third and a heartbeat
+## is heard until it gets back up. Both follow the fight's state, so a guest who joins late
+## sees and hears them too.
+var _fall_dim: ColorRect
+var _fall_tween: Tween = null
+var _fallen_now: bool = false
+var _heart: Timer = null
 var _dock: PanelContainer
 ## The dock's border as it was last drawn: gold under the reader's own page in a party, the
 ## seat color of whoever else's page is up.
@@ -383,7 +394,7 @@ var _trigger_flags: Dictionary = {}
 ## a Raise, a Match): the dice it changed turn over to the faces they now show and wear the
 ## gem's emblem until the turn is over (F2, November 13, 2026). By "player|die": the turn, the
 ## gem's skill, its color and what the die showed before.
-const REWRITES: Array = ["raise_low", "raise_high", "set_match", "graft_pairs", "flip_low", "flip_high"]
+const REWRITES: Array = ["raise_low", "raise_high", "set_match", "graft_pairs", "flip_low", "flip_high", "ratchet"]
 var _rewritten: Dictionary = {}
 var _pending_regrown: Dictionary = {}
 var _battery_tween: Tween:
@@ -700,6 +711,12 @@ func _build_hud() -> void:
 		_inspect_creature(id, "")
 		return true)
 	add_child(_picker)
+	## Under the tags and the dock, over the room: what dims it while a boss is down.
+	_fall_dim = ColorRect.new()
+	_fall_dim.color = Color(0.02, 0.02, 0.05, 0.0)
+	_fall_dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_fall_dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_fall_dim)
 	_plates_layer = Control.new()
 	_plates_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_plates_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -749,9 +766,17 @@ func _build_hud() -> void:
 	_banner_box.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_banner_box.position.y = BANNER_TOP
 	_banner_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	_banner_mark = DeepUi.icon(_banner_box, "crown", DeepUi.glyph_px(26), Color("ff8a5a"))
+	_banner_mark.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_banner_mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_banner_mark.visible = false
 	_banner = DeepUi.title(_banner_box, "", 46, DeepUi.ACCENT, HORIZONTAL_ALIGNMENT_CENTER)
 	_banner.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.7))
 	_banner.add_theme_constant_override("outline_size", 10)
+	_banner_phase = DeepUi.title(_banner_box, "", 30, Color("ffb066"), HORIZONTAL_ALIGNMENT_CENTER)
+	_banner_phase.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.75))
+	_banner_phase.add_theme_constant_override("outline_size", 8)
+	_banner_phase.visible = false
 	_banner_sub = DeepUi.label(_banner_box, "", 16, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
 	_banner_sub.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
 	_banner_sub.add_theme_constant_override("outline_size", 5)
@@ -1037,6 +1062,36 @@ func show_state(battle: Dictionary, at_depth: int, new_forecast: Dictionary = {}
 	_rebuild_chamber()
 	_place_creatures()
 	_sync()
+	_sync_fallen()
+
+func _sync_fallen() -> void:
+	## Whether a boss is down on its last point right now: the room dims by a third and its
+	## heart is heard, until it has got back up (or the fight has ended some other way).
+	var down: bool = false
+	if str(state.get("phase", "")) != "over":
+		for foe in state.get("enemies", []):
+			if bool(foe.get("fallen", false)) and int(foe.get("hp", 0)) > 0:
+				down = true
+	if down == _fallen_now:
+		return
+	_fallen_now = down
+	if _headless or not is_inside_tree():
+		_fall_dim.color.a = 0.34 if down else 0.0
+		return
+	if _fall_tween != null and _fall_tween.is_valid():
+		_fall_tween.kill()
+	_fall_tween = create_tween().set_ignore_time_scale(true)
+	_fall_tween.tween_property(_fall_dim, "color:a", 0.34 if down else 0.0, 0.5 if down else 0.25).set_trans(Tween.TRANS_SINE)
+	if _heart == null:
+		_heart = Timer.new()
+		_heart.wait_time = 1.05
+		_heart.ignore_time_scale = true
+		_heart.timeout.connect(func() -> void: DeepAudio.play("heartbeat", {"volume": 0.8, "gap": 0.2}))
+		add_child(_heart)
+	if down:
+		_heart.start()
+	else:
+		_heart.stop()
 
 func wants_forecast(battle: Dictionary) -> bool:
 	## Whether show_state would take a new forecast for this state: while planning, or with
@@ -5493,6 +5548,8 @@ func perform(event: Dictionary) -> void:
 				for name in event.get("due", []):
 					_fx.ring_wave(Vector3(up.global_position.x, 0.0, up.global_position.z), Color("ffb05a"), 3.5, 0.6)
 					_float_world(up.global_position + Vector3(0, up.anchor.y + 0.6, 0), str(name) + "!", Color("ffb05a"), 22)
+		"enemy_rise":
+			_boss_rises(event)
 		"enemy_end":
 			var who: String = str(event.get("unit", ""))
 			var down: CrystalCreature = _creature(who)
@@ -7075,6 +7132,10 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 				## Said by its note, once, and only if it really did.
 				if bool(effect.get("restarted", false)) and _page_for(by) != null:
 					_page_for(by).outcomes.clear()
+			"both_parities":
+				## Equinox: every die is odd and even to the gems after it, this turn.
+				if mine:
+					_float_at(_tray_box, "Every die odd and even" + (" twice" if int(effect.get("times", 1)) > 1 else ""), Color.WHITE, 15)
 			"strength_guard", "mortar", "poison_safe", "envenom_thorns", "gild_block", "carry_rerolls":
 				if mine and anchor != null:
 					var said: String = {"strength_guard": "Strength on Block", "mortar": "Mortar loaded", "poison_safe": "Poison is harmless", "envenom_thorns": "Thorns envenomed",
@@ -7084,9 +7145,15 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 				## The phantoms themselves fly into the row over the tray (`_sync_phantoms`).
 				if mine:
 					_float_at(_tray_box, kind.replace("_", " ").capitalize(), Color.WHITE, 15)
-			"raise_low", "raise_high", "set_match", "graft_pairs", "flip_low", "flip_high", "rethrow", "gild", "upgrade_faces":
+			"raise_low", "raise_high", "set_match", "graft_pairs", "flip_low", "flip_high", "rethrow", "gild", "upgrade_faces", "ratchet":
+				if kind == "ratchet" and bool(effect.get("nothing", false)):
+					continue
 				if mine:
-					_float_at(_tray_box, kind.replace("_", " ").capitalize(), Color.WHITE, 15)
+					## Zenith's and Nadir's say which way the faces went, and for how long.
+					var said: String = kind.replace("_", " ").capitalize()
+					if kind == "ratchet":
+						said = ("Faces raised" if int(effect.get("step", 1)) > 0 else "Faces lowered") + (" for good" if bool(effect.get("permanent", false)) else "")
+					_float_at(_tray_box, said, Color.WHITE, 15)
 					for id in _dice_views:
 						var view: Control = _dice_views[id]
 						_burst(self, _center_of(view), color, 6, 80.0, 0.4, 4.0)
@@ -7181,6 +7248,13 @@ func _impact(who: String, hit: Dictionary, color: Color, mine: bool, by: String 
 		_rout(hit.get("routed", []))
 	var creature: CrystalCreature = _creature(who)
 	if creature == null or not is_instance_valid(creature):
+		return
+	## A boss down on its last point: the blow lands with a dull knock and takes nothing.
+	if bool(hit.get("standing", false)):
+		var dull: Vector3 = creature.centre()
+		_sound_at(dull, "knock_dull", 0.7)
+		creature.hit(0.25)
+		_float_world(dull + Vector3(0, 0.6, 0), "0", Color("b9bdca"), 24)
 		return
 	var foe: Dictionary = DeepBattle.enemy(state, who)
 	var max_hp: float = float(maxi(1, int(foe.get("max_hp", 1)))) if not foe.is_empty() else 20.0
@@ -7409,6 +7483,9 @@ func _dress(creature: CrystalCreature, foe: Dictionary) -> void:
 	## What is on it, worn on the model (creature_wear.gd): the party's statuses, its block as
 	## a stone crust, a stun as a slump.
 	creature.wear_statuses(foe.get("statuses", {}), float(foe.get("block", 0)) / float(maxi(1, int(foe.get("max_hp", 1)))))
+	## The named traits it has (Molten, Jagged, ...), each with a look of its own that stays for
+	## the fight, and the grey slump of a boss down on its last point.
+	creature.wear_traits(DeepCreatures.named_traits(foe), bool(foe.get("fallen", false)) and int(foe.get("hp", 0)) > 0)
 
 func _due_next(foe: Dictionary) -> bool:
 	## Whether something it has been counting toward lands on its next action: a countdown at
@@ -7613,12 +7690,108 @@ func _hit_extras(hit: Dictionary, creature: CrystalCreature, at: Vector3) -> voi
 	if int(hit.get("heads_cut", 0)) > 0:
 		_fx.shards(at + Vector3(0, 0.5, 0), Color("c070ff"), 6 * int(hit.heads_cut), 4.0, 0.14, 1.0)
 		_float_world(at + Vector3(-0.6, 1.4, 0), ("A head off" if int(hit.heads_cut) == 1 else "%d heads off" % int(hit.heads_cut)) + " · %d left" % int(hit.get("heads", 0)), Color("d8a6ef"), 18)
+	## Its health has run out and it has another phase to come: it stays on its last point.
+	if bool(hit.get("fell", false)):
+		_boss_falls(creature, at)
+	## Wrathful: the blow fed it a point of Strength, and it swells.
+	if hit.get("wrath", null) is Dictionary and creature != null and is_instance_valid(creature):
+		creature.bulk_up()
 	if bool(hit.get("risen", false)):
 		_fx.splash(Vector3(at.x, 0.2, at.z), Color("8fd0e8"), 50, 4.5, 1.1)
 		_sound_at(at, "splash", 0.7)
 		_float_world(at + Vector3(0, 1.4, 0), "Gets back up!", Color("8fd0e8"), 22)
 		if creature != null and is_instance_valid(creature):
 			creature.spawn(0.15)
+
+func _boss_falls(creature: CrystalCreature, at: Vector3) -> void:
+	## A boss's health running out with a phase still to come (owner, November 18, 2026): the
+	## blow is felt as a kill would be, but it stays on its feet on one point. The dim and the
+	## heartbeat follow the state (`_sync_fallen`); the grey slump is its own look (creature_wear).
+	if _headless or _fx == null:
+		return
+	_sound_at(at, "boss_fall", 0.95)
+	DeepAudio.rumble(0.6, 0.9, 0.25)
+	ScreenFx.hold(0.22)
+	_camera.add_trauma(0.6)
+	_screen_fx.kick(1.1)
+	_fx.ring_wave(Vector3(at.x, 0.0, at.z), Color("d8dcea"), 4.5, 0.7)
+	_fx.dust_fall(50)
+	_float_world(at + Vector3(0, 1.3, 0), "Cannot die this turn", Color("e8ebf5"), 20)
+
+func _boss_rises(event: Dictionary) -> void:
+	## A fallen boss getting back up: a breath drawn in, then the hit as it stands. What was on
+	## it bursts off, a shock ring crosses the floor in the colour of what it took, the screen
+	## shakes, and a title card names the phase. Its new look and its full bar are already on
+	## it: the state came before this event.
+	if _headless or _fx == null:
+		return
+	var who: String = str(event.get("unit", ""))
+	var up: CrystalCreature = _creature(who)
+	var gained: Array = event.get("traits", [])
+	var tone: Color = EffectChips.trait_tone(str(gained[0])) if not gained.is_empty() else Color("ffb066")
+	DeepAudio.play("boss_rise", {"volume": 1.0})
+	## What it sheds comes off the tag one at a time while the breath is drawn.
+	var shed: Array = event.get("shed", [])
+	for index in range(mini(shed.size(), 4)):
+		var word: String = str(shed[index]).capitalize()
+		_later_do(0.12 + 0.14 * float(index), func() -> void:
+			var tag: Variant = _plates.get(who, null)
+			if tag != null and is_instance_valid(tag):
+				_float_at(tag, "%s shed" % word, DeepUi.MUTED, 15))
+	## The hit lands with the sound's own (0.7 seconds in).
+	_later_do(0.7, func() -> void:
+		var risen: CrystalCreature = _creature(who)
+		if risen == null:
+			return
+		var feet := Vector3(risen.global_position.x, 0.0, risen.global_position.z)
+		risen.rise_burst(tone)
+		risen.flash(3.0)
+		_fx.ring_wave(feet, tone, 7.0, 0.9)
+		_fx.ring_wave(feet, Color.WHITE, 4.0, 0.5, 0.1)
+		_fx.flash(risen.centre(), tone, 12.0, 12.0, 0.5, 2.0)
+		_fx.sparks(risen.centre(), tone, 70, 7.0, 1.0, 0.07)
+		_fx.dust_fall(60)
+		_camera.add_trauma(0.9)
+		_screen_fx.kick(1.4)
+		_screen_fx.blink(tone, 0.3)
+		DeepAudio.rumble(0.8, 1.0, 0.3)
+		_rise_card(str(event.get("creature", "")), str(event.get("name", "")), int(event.get("bar", 2)), tone))
+	## What it does as it rises (rats called, prisms back, another die) plays like a move's,
+	## once the title card has had the room to itself.
+	for result in event.get("effects", []):
+		var done: Dictionary = result
+		_later_do(2.15, func() -> void: _enemy_effect(done, _creature(who)))
+
+func _rise_card(creature_name: String, phase_name: String, bar: int, tone: Color) -> void:
+	## The title card: a crown, the boss's name, the phase's name in the colour of what it gave,
+	## and which phase it is. Held 1.2 seconds on the screen's own clock; any press lets it go.
+	_announce(creature_name, Color("fff6e6"), DeepCreatures.bar_title(bar - 1).to_upper(), 1.2, true)
+	_banner_mark.visible = true
+	_banner_mark.modulate = tone.lightened(0.15)
+	_banner_phase.text = phase_name
+	_banner_phase.add_theme_color_override("font_color", tone.lightened(0.2))
+	_banner_phase.visible = not phase_name.is_empty()
+	_banner_box.position.y = _banner_top()
+	_banner_box.pivot_offset = _banner_box.get_combined_minimum_size() * 0.5
+	_card_up = true
+
+## A title card is up (`_rise_card`): the next press lets it go early.
+var _card_up: bool = false
+
+func _input(event: InputEvent) -> void:
+	if not _card_up:
+		return
+	if _banner_box.modulate.a <= 0.01:
+		_card_up = false
+		return
+	var pressed: bool = (event is InputEventMouseButton and event.pressed) or (event is InputEventScreenTouch and event.pressed) or (event is InputEventKey and event.pressed and not event.echo)
+	if not pressed:
+		return
+	_card_up = false
+	if _banner_tween != null and _banner_tween.is_valid():
+		_banner_tween.kill()
+	_banner_tween = create_tween().set_ignore_time_scale(true)
+	_banner_tween.tween_property(_banner_box, "modulate:a", 0.0, 0.15)
 
 func _flee(creature: CrystalCreature, stolen: int = 0) -> void:
 	## Off into the dark with what it took: no shards, no spoils, only a shower of the
@@ -7861,6 +8034,12 @@ func _enemy_effect(effect: Dictionary, creature: CrystalCreature) -> void:
 			var absorbed: int = int(effect.get("absorbed", 0))
 			if loss > 0:
 				_react(target_id, "wince", 0.9)
+			## Leeching: the health the blow took goes back to the creature that threw it.
+			if effect.get("leeched", null) is Dictionary and creature != null and is_instance_valid(creature):
+				var crimson := Color("ff5a72")
+				_fx.beam(_before_me(1.6, -0.7) if target_id == local_id else source + Vector3(0, 0.4, 2.4), source, crimson, 0.4, 0.1)
+				_fx.rise(source, crimson, 16, 0.6)
+				_float_world(source + Vector3(0.5, 1.0, 0), "+%s Leeched" % DeepUi.number(int(effect.leeched.get("amount", 0))), crimson, 16)
 			if target_id == local_id:
 				var unit: Dictionary = me()
 				var ratio: float = clampf(float(loss) / float(maxi(1, int(unit.get("max_hp", 60)))), 0.0, 1.0)
@@ -9485,6 +9664,8 @@ func _banner_top() -> float:
 func _announce(text: String, color: Color, sub: String = "", hold: float = 1.1, real_time: bool = false) -> void:
 	## A title across the room: it lands large and settles, holds, and fades. `real_time` plays
 	## it on the screen's own clock, for a title said while the fight's is racing.
+	_banner_mark.visible = false
+	_banner_phase.visible = false
 	_banner.text = text
 	_banner.add_theme_color_override("font_color", color)
 	_banner_sub.text = sub

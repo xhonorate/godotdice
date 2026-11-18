@@ -273,6 +273,8 @@ static func glyph_for(described: Dictionary) -> String:
 		"straight": return "straight%d" % clampi(int(described.get("need", 3)), 3, 5)
 		"odd": return "odd"
 		"even": return "even"
+		## Equinox's: as many odd dice as even ones, drawn with its own half-day, half-night disc.
+		"balanced": return "day_night"
 		"distinct": return "distinct"
 		"value": return _drawn("one_die", "face") if _reads_ones(described) else "face"
 		"at_most", "below": return "low"
@@ -532,6 +534,8 @@ static func strip(described: Dictionary) -> Dictionary:
 			for index in range(clampi(need, 1, 5)):
 				faces.append([2 + index * 2, RUN_TONE])
 			return _spec(faces, "", described.words)
+		"balanced":
+			return _spec([[1, RUN_TONE], [2, OTHER_TONE], [3, RUN_TONE], [4, OTHER_TONE]], "≈", described.words)
 		"distinct":
 			var faces: Array = []
 			for index in range(clampi(need, 1, 5)):

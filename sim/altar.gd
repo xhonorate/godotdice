@@ -6,8 +6,11 @@ extends RefCounted
 ## how. The circle lights for a set it knows and stays cold for anything else; the rules are
 ## tried in order and the first that fits wins:
 ##
-##   1. Five named gems, the recipe a Transcendent lists as `altar.from` (five distinct skills
-##      out of that list): that Transcendent. Rainbow Seam's list is the six Seams.
+##   1. A Transcendent's own recipe: five distinct skills that all wake on the activation its
+##      `altar.trigger` names (Gemini's is "pair": any five different pair gems; a list takes
+##      gems of any of them, Equinox's odd and even), or five
+##      distinct skills out of the list it names as `altar.from` (Rainbow Seam's is the six
+##      Seams, Black Opal's five of the opals).
 ##   2. Five gems of one of the six colors, repeats allowed: that color's Seam.
 ##   3. Five gems of five different colors, Opal counting as one: an opal drawn at random from
 ##      the ordinary ones. Never a Transcendent.
@@ -51,7 +54,7 @@ static func recipe_for(stones: Array) -> Dictionary:
 		skills.append(str(stone.get("skill", "")))
 		colors.append(DeepStone.color(stone))
 	for key in DeepContent.transcendents():
-		if _distinct_within(skills, DeepContent.skill(key).get("altar", {}).get("from", [])):
+		if _answers(skills, DeepContent.skill(key).get("altar", {})):
 			return {"kind": "transcendent", "skill": key}
 	var first: String = str(colors[0])
 	if first in DeepContent.color_KEYS and colors.all(func(c: Variant) -> bool: return str(c) == first):
@@ -66,14 +69,35 @@ static func recipe_for(stones: Array) -> Dictionary:
 		return {"kind": "opal", "skill": ""}
 	return {}
 
-static func _distinct_within(skills: Array, from: Array) -> bool:
-	## Five different skills, every one of them on the list.
+static func _answers(skills: Array, recipe: Dictionary) -> bool:
+	## Five different skills, every one of them waking on the recipe's trigger or on its list.
+	## One trigger, or a list of them (Equinox takes the odd gems and the even ones together).
+	var wakes: Array = recipe.trigger if recipe.get("trigger", null) is Array else ([str(recipe.trigger)] if recipe.has("trigger") else [])
+	var from: Array = recipe.get("from", [])
+	if wakes.is_empty() and from.is_empty():
+		return false
 	var seen: Array = []
 	for key in skills:
-		if seen.has(key) or not from.has(key):
+		if seen.has(key):
+			return false
+		if not wakes.is_empty() and not wakes.has(str(DeepContent.skill(key).get("trigger", {}).get("kind", ""))):
+			return false
+		if wakes.is_empty() and not from.has(key):
 			return false
 		seen.append(key)
 	return true
+
+static func trigger_gems(trigger: Variant) -> Array:
+	## Every gem a trigger recipe takes: the skills that wake on it (or on any of a list), less
+	## Transcendents and the Birthstone-only ones no altar ever sees.
+	var wakes: Array = trigger if trigger is Array else [str(trigger)]
+	var out: Array = []
+	for key in DeepContent.section("skills"):
+		var def: Dictionary = DeepContent.skill(str(key))
+		if wakes.has(str(def.get("trigger", {}).get("kind", ""))) and str(def.get("rarity", "")) != DeepContent.TRANSCENDENT and not def.get("tags", []).has("birthstone"):
+			out.append(str(key))
+	out.sort()
+	return out
 
 static func lit(stones: Array) -> bool:
 	return not recipe_for(stones).is_empty()

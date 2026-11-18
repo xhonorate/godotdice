@@ -354,7 +354,10 @@ export function evaluate(stone, hand, c = {}) {
 	const wearing = colors(stone, String(c.socket || ''));
 	// A fight may hand in its own reading of the hand (`c.analyze`), remembered while the hand
 	// stands still; it is only ever asked about the hand itself, never a lens's copy.
-	const a = c.analyze && working === hand ? c.analyze(wearing) : Hand.analyze(working, wearing);
+	let a = c.analyze && working === hand ? c.analyze(wearing) : Hand.analyze(working, wearing);
+	// An Equinox earlier this turn: every die counts as odd and as even (Hand.bothParities). The
+	// fight's reading is shared, so the change goes on a copy.
+	if (I((c.unit || {}).parity_both) > 0) { a = { ...a }; Hand.bothParities(a, I(c.unit.parity_both)); }
 	const trigger = skill.trigger || { kind: 'always' };
 	const trig = Patterns.evaluate(trigger, eff.cut_step, a, { resonance: I(c.resonance), pyrite: Rules.pyrite(c.unit || {}), fizzles: I(c.fizzles), kills: I(c.kills) });
 	if (!trig.active && (hasModifier(mods, 'always_fires') || c.force_fire)) {

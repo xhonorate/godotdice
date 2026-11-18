@@ -1588,6 +1588,18 @@ func _bestiary(app: Control) -> void:
 				home._bestiary_leaf = leaf
 				home.open("bestiary", true)
 				await _fits(screen, "the bestiary on %s, page %d" % [str(key), leaf])
+	## A boss the player has watched get back up says its phases on its field notes (November
+	## 18, 2026): the mark is set for this page alone, so no fight after it shows its bars.
+	for key in DeepContent.section("creatures"):
+		if not DeepContent.creature(str(key)).has("rising") or not app.profile.bestiary.has(str(key)):
+			continue
+		app.profile.bestiary[str(key)].risen = 1
+		home._bestiary_pick = str(key)
+		home._bestiary_leaf = 0
+		home.open("bestiary", true)
+		await _fits(screen, "the bestiary on %s, its phases shown" % str(key))
+		check(home.find_child("BestiaryPhases", true, false) != null, "%s seen to rise shows its phases" % str(key))
+		app.profile.bestiary[str(key)].erase("risen")
 	var kept: Dictionary = app.profile.bestiary.get("THE_HOLLOW_CROWN", {})
 	app.profile.bestiary.erase("THE_HOLLOW_CROWN")
 	home._bestiary_pick = "THE_HOLLOW_CROWN"

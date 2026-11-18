@@ -16,7 +16,7 @@ Everything here is data in `content/deep_cut.json` under `mines`, read by `sim/f
 | VI  | The Hollow (key `GEODE`; the Geode until October 12, 2026) | 32      | 12, 24  | 32         | ≤ 12              | 17                     | +4   | ×19 / ×3.7                                        | Florin                 |
 | ∞   | The Rift                                                   | endless | every 8 | —          | ≤ 13, +1 a Warden | 17, +1 a Warden, to 24 | +5   | ×34, doubling every 8 floors / ×4.8, +15% every 8 | —                      |
 
-Landings still come every fourth floor and still wander a floor either way, Wardens with them; the bottom floor never moves. Every mine has its own two Wardens and its own final boss (see [the Bestiary](BESTIARY.md)); the Rift's are the bosses above it, remembered, with the Infinite Void every fifth.
+Landings still come every fourth floor and still wander a floor either way, Wardens with them; the bottom floor never moves. Every mine has its own two Wardens and its own final boss (see [the Bestiary](BESTIARY.md)); the Rift's are the bosses above it, remembered, with the Infinite Void every fifth. Since November 18, 2026 a mine's final boss has to be beaten more than once (two phases, three for the Hollow Crown and the Infinite Void), and the Rift also remembers the ten smaller Wardens of the first five mines, one at each landing halfway between two of its bosses (floors 4, 12, 20 and so on). See [the Bestiary](BESTIARY.md), section 16.
 
 ## Creatures: who lives where
 

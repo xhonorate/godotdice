@@ -62,6 +62,9 @@ var rest: Vector2 = Vector2.ZERO
 var panel: PanelContainer
 var _box: VBoxContainer
 var _name: Label
+## Beside the name, for a boss that gets back up: the name of the bar it is on, and a pip a bar.
+var _phase: Label
+var _pips: Pips
 var _bar: HealthBar
 var _pills: HBoxContainer
 var _dice: Control
@@ -105,9 +108,24 @@ func _init() -> void:
 	add_child(panel)
 	_box = DeepUi.vbox(panel, 4)
 	_box.mouse_filter = Control.MOUSE_FILTER_PASS
-	_name = DeepUi.label(_box, "", 12, DeepUi.PAPER)
+	var head := DeepUi.hbox(_box, 6)
+	head.mouse_filter = Control.MOUSE_FILTER_PASS
+	## The panel is made as wide as the name needs (`_relayout`): it is never cut short.
+	_name = DeepUi.label(head, "", 12, DeepUi.PAPER)
 	_name.add_theme_font_override("font", DeepUi.bold_font())
-	_name.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	_phase = DeepUi.label(head, "", 11, Color("ffb066"))
+	_phase.add_theme_font_override("font", DeepUi.bold_font())
+	_phase.visible = false
+	var gap := Control.new()
+	gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(gap)
+	_pips = Pips.new()
+	_pips.visible = false
+	head.add_child(_pips)
+	Tips.attach(_pips, func() -> Control:
+		var said: Dictionary = EffectChips.bars_entry(_foe)
+		return Plates.words(str(said.get("title", "Phases")), str(said.get("text", "")), "", Color("ff8f7a")), {"tone": Color("ff8f7a")})
 	_bar = HealthBar.new()
 	_box.add_child(_bar)
 	_pills = DeepUi.hbox(_box, 4)
@@ -236,6 +254,17 @@ func update(foe: Dictionary, battle: Dictionary, targeted: bool, preview: int) -
 			DeepUi.pulse(self, 1.05, 0.3)
 	_name.text = str(foe.get("name", "")).to_upper()
 	_name.add_theme_color_override("font_color", Color("ffb0a0") if _warden else DeepUi.PAPER)
+	## A boss that gets back up: a pip a bar once they are shown (hidden until someone has
+	## watched it rise), and the name of the bar it is on in the colour of what that gave it.
+	var bars: int = int(foe.get("bars", 1))
+	var on_bar: int = int(foe.get("bar", 1))
+	_pips.visible = bars > 1 and (bool(foe.get("bars_shown", false)) or on_bar > 1)
+	_pips.show_bars(bars, on_bar, bool(foe.get("fallen", false)))
+	var called: String = str(foe.get("bar_name", ""))
+	_phase.text = called.to_upper()
+	_phase.visible = not called.is_empty()
+	var named: Array = DeepCreatures.named_traits(foe)
+	_phase.add_theme_color_override("font_color", EffectChips.trait_tone(str(named.back())) if not named.is_empty() else Color("ffb066"))
 	var max_hp: int = maxi(1, int(foe.get("max_hp", 1)))
 	var hp: int = maxi(0, int(foe.get("hp", 0)))
 	var block: int = int(foe.get("block", 0))
@@ -304,7 +333,10 @@ func _sync_chips(foe: Dictionary, battle: Dictionary) -> void:
 	var shown: Array = []
 	for chip in EffectChips.for_enemy(foe, battle):
 		var key: String = str(chip.get("key", ""))
-		if key == "block" or str(chip.get("span", "")) == "trait":
+		## A named trait (Molten, Jagged, ...) is on the tag as well as the ledger: it is what
+		## the Rift rolled it, or what it took as it rose, and the body wears it.
+		var named: bool = key.begins_with("trait_") and DeepContent.REMEMBERED_TRAITS.has(key.trim_prefix("trait_"))
+		if key == "block" or (str(chip.get("span", "")) == "trait" and not named):
 			continue
 		shown.append(chip)
 	for name in pinned:
@@ -880,6 +912,10 @@ func _relayout() -> void:
 	## As wide as its pills or its name, whichever is wider: a name is never cut short.
 	var name_size: int = _name.get_theme_font_size(&"font_size")
 	var named: float = DeepUi.bold_font().get_string_size(_name.text, HORIZONTAL_ALIGNMENT_LEFT, -1, name_size).x + 4.0
+	if _phase.visible:
+		named += 6.0 + DeepUi.bold_font().get_string_size(_phase.text, HORIZONTAL_ALIGNMENT_LEFT, -1, _phase.get_theme_font_size(&"font_size")).x + 2.0
+	if _pips.visible:
+		named += 12.0 + _pips.custom_minimum_size.x
 	var wide: float = maxf(WARDEN_WIDTH if _warden else MIN_WIDTH, _inset + maxf(_pills.get_combined_minimum_size().x, named) + 12.0)
 	_name.custom_minimum_size.x = 0.0
 	_bar.custom_minimum_size.x = maxf(40.0, wide - _inset - 10.0)
@@ -956,6 +992,49 @@ func _get_tooltip(_at: Vector2) -> String:
 	return ""
 
 # --- its health ----------------------------------------------------------------------------------
+
+class Pips extends Control:
+	## A boss's bars as diamonds, left to right: dark for a bar it has lost, lit for the one it
+	## is on and those to come. The one it is on is cracked open while it is down on its last
+	## point, waiting to get back up.
+	const LIT := Color("ff6f61")
+	const EDGE := Color("ffe9c4")
+	const SPENT := Color("2a2530")
+	var bars: int = 1
+	var bar: int = 1
+	var fallen: bool = false
+
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_PASS
+		size_flags_vertical = Control.SIZE_SHRINK_CENTER
+
+	func edge() -> float:
+		return DeepUi.glyph_px(11)
+
+	func show_bars(count: int, on: int, down: bool) -> void:
+		if count == bars and on == bar and down == fallen and custom_minimum_size.x > 0.0:
+			return
+		bars = count
+		bar = on
+		fallen = down
+		var e: float = edge()
+		custom_minimum_size = Vector2(float(maxi(1, bars)) * e + float(maxi(0, bars - 1)) * e * 0.3, e)
+		queue_redraw()
+
+	func _draw() -> void:
+		var e: float = edge()
+		for index in range(bars):
+			var centre := Vector2(e * 0.5 + float(index) * e * 1.3, size.y * 0.5)
+			var half: float = e * 0.5 - 1.0
+			var points := PackedVector2Array([centre + Vector2(0, -half), centre + Vector2(half, 0), centre + Vector2(0, half), centre + Vector2(-half, 0)])
+			var spent: bool = index < bar - 1
+			var cracked: bool = fallen and index == bar - 1
+			draw_colored_polygon(points, SPENT if spent or cracked else LIT)
+			var line: Color = Color(EDGE, 0.35) if spent else (LIT if cracked else EDGE)
+			draw_polyline(PackedVector2Array([points[0], points[1], points[2], points[3], points[0]]), line, 1.5, true)
+			if cracked:
+				draw_line(centre + Vector2(-half * 0.2, -half * 0.7), centre + Vector2(half * 0.15, 0), LIT, 1.5, true)
+				draw_line(centre + Vector2(half * 0.15, 0), centre + Vector2(-half * 0.1, half * 0.7), LIT, 1.5, true)
 
 class HealthBar extends Control:
 	## Its health: on a blow the fill holds a beat, then eases out to its new share (longer for

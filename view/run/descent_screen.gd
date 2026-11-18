@@ -85,6 +85,7 @@ const SHRINE_WORDS: Dictionary = {"pair": ["Pair", "Gems that need two dice alik
 	"straight": ["Straight", "Gems that need a run of values."], "skip_straight": ["Skip straight", "Gems that need a run of all odd or all even values."],
 	"odd": ["Odd dice", "Gems that count the dice showing odd values."], "even": ["Even dice", "Gems that count the dice showing even values."],
 	"all_odd": ["All odd", "Gems that need every die odd."], "all_even": ["All even", "Gems that need every die even."],
+	"balanced": ["Odd and even", "Gems that need about as many odd dice as even ones."],
 	"distinct": ["Different values", "Gems that count dice with no two alike."], "distinct_dominant": ["One above the rest", "Gems that need the top die to outroll the rest."],
 	"value": ["One number", "Gems that need a die showing one exact number."], "at_most": ["A low die", "Gems that need a die at or under their line."],
 	"below": ["A low die", "Gems that need a die under their line."], "at_least": ["A high die", "Gems that need your highest die at or over their line."],

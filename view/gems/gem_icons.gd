@@ -576,6 +576,8 @@ const SKILL_EMBLEMS := {
 	"PLACER": "placer_stones", "DIVIDEND": "sprouting_coin", "GILDING": "gilded_die", "RATTLE": "knocking_dice",
 	"SEDIMENT": "settled_jar", "OVERTURN": "turned_die", "LODESTONE": "magnet", "BIRTHRIGHT": "crowned_gem", "TUMBLE": "rolling_boulder", "SPECTRUM": "six_cuts",
 	"INVERT": "negative_gem",
+	## The second five Transcendents (November 18, 2026).
+	"ZENITH": "rising_burst", "NADIR": "sinking_burst", "MOSAIC": "tesserae", "SYZYGY": "orbit_line", "EQUINOX": "day_night",
 	"PINFIRE": "pin_sparks", "CONTRA_LUZ": "backlit_gem", "HYDROPHANE": "drop_die"}
 
 static func emblem(skill_key: String) -> String:
@@ -918,6 +920,35 @@ static func _rock(centre: Vector2, radius: float, turn: float, wobble: Array) ->
 	for index in wobble.size():
 		var angle := turn + TAU * float(index) / float(wobble.size())
 		out.append(centre + Vector2(cos(angle), sin(angle)) * radius * float(wobble[index]))
+	return out
+
+static func _upside_down(shapes: Array) -> Array:
+	## Turned upside down about the square's middle line: how Nadir's mark mirrors Zenith's.
+	var out: Array = []
+	for shape in shapes:
+		if shape.has("circle"):
+			var circle: Array = shape.circle
+			out.append({"op": shape.op, "circle": [circle[0], 1.0 - float(circle[1]), circle[2]]})
+		else:
+			var poly := PackedVector2Array()
+			for point in shape.poly:
+				poly.append(Vector2(point.x, 1.0 - point.y))
+			out.append({"op": shape.op, "poly": poly})
+	return out
+
+static func _sun_ray(centre: Vector2, angle: float, from: float, to: float, width: float) -> PackedVector2Array:
+	## A ray `width` wide where it leaves `from` and coming to a point at `to`.
+	var step := Vector2(cos(angle), sin(angle))
+	var side := step.orthogonal() * (width * 0.5)
+	var base := centre + step * from
+	return PackedVector2Array([base + side, centre + step * to, base - side])
+
+static func _half_disc(centre: Vector2, radius: float, left: bool) -> PackedVector2Array:
+	## Half a disc, cut down its middle, the round side to the left or the right.
+	var out := PackedVector2Array()
+	var from: float = PI * 0.5 if left else -PI * 0.5
+	for point in _along(centre, radius, radius, from, from + PI, 24):
+		out.append(point)
 	return out
 
 static func _emblem_shapes(glyph: String) -> Array:
@@ -1631,6 +1662,49 @@ static func _emblem_shapes(glyph: String) -> Array:
 				{"op": "add", "poly": _drop(Vector2(0.18, 0.76 - edge * 1.6), Vector2(0.18, 0.76), edge * 0.9)},
 				{"op": "add", "poly": _regular(Vector2(0.5, 0.72), edge * 1.12, 6)},
 				{"op": "add", "circle": [0.82, 0.72, edge]}])
+		"rising_burst":
+			# Zenith: the sun breaking over the horizon at full height, seven long rays fanned over it.
+			var sun := Vector2(0.5, 0.80)
+			var built: Array = [ {"op": "add", "poly": _rounded(0.04, 0.84, 0.96, 0.94, 0.04)}]
+			var half := PackedVector2Array()
+			for point in _along(sun, 0.22, 0.22, PI, TAU, 24):
+				half.append(point)
+			built.append({"op": "add", "poly": half})
+			for index in 7:
+				var angle: float = PI + PI * (float(index) + 0.5) / 7.0
+				var reach: float = 0.74 if index % 2 == 1 else 0.60
+				built.append({"op": "add", "poly": _sun_ray(sun, angle, 0.29, reach, 0.13)})
+			return _fitted(built)
+		"sinking_burst":
+			# Nadir: Zenith's sun turned upside down, hanging under the horizon.
+			return _upside_down(_emblem_shapes("rising_burst"))
+		"tesserae":
+			# Mosaic: tiles laid in a grid, the middle one set on its point.
+			var built: Array = []
+			for row in 3:
+				for col in 3:
+					var x: float = 0.06 + col * 0.32
+					var y: float = 0.06 + row * 0.32
+					if row == 1 and col == 1:
+						built.append({"op": "add", "poly": _diamond(Vector2(0.5, 0.5), 0.15, 0.15)})
+					else:
+						built.append({"op": "add", "poly": _rect(x, y, x + 0.24, y + 0.24)})
+			return _fitted(built)
+		"orbit_line":
+			# Syzygy: a sun with two worlds on its orbit, both on one line through it.
+			return _fitted([ {"op": "add", "poly": _band(Vector2(0.5, 0.5), 0.40, 0.18, 0.055, 0.0, TAU, 0.0, 56)},
+				{"op": "add", "circle": [0.5, 0.5, 0.13]},
+				{"op": "sub", "circle": [0.10, 0.5, 0.13]},
+				{"op": "add", "circle": [0.10, 0.5, 0.09]},
+				{"op": "sub", "circle": [0.90, 0.5, 0.13]},
+				{"op": "add", "circle": [0.90, 0.5, 0.09]}])
+		"day_night":
+			# Equinox: a disc half day, half night, split clean down the middle.
+			var night: Array = [ {"op": "add", "poly": _half_disc(Vector2(0.5, 0.5), 0.44, true)},
+				{"op": "add", "poly": _band(Vector2(0.5, 0.5), 0.39, 0.39, 0.10, -PI * 0.5, PI * 0.5, 0.0, 28)},
+				{"op": "add", "circle": [0.66, 0.5, 0.09]},
+				{"op": "sub", "poly": _rect(0.465, 0.0, 0.535, 1.0)}]
+			return _fitted(night)
 		"negative_gem":
 			# Invert: a stone split down a mirror line into itself and its negative, the left half
 			# solid with a smaller stone cut out of it, the right half only a rim with that stone solid.

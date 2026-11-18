@@ -33,7 +33,8 @@ const UNTUNED: PackedStringArray = ["ui_tap", "ui_hover", "ui_back", "die_tumble
 	"enemy_windup", "enemy_strike", "hit_slam", "hit_bite", "hit_claw", "hit_breath", "hit_spit", "hit_lash", "hit_peck",
 	"hit_drill", "hit_erupt", "hit_burst", "hit_pull", "hit_drink", "creature_die", "cave_rumble", "ore", "pick_strike",
 	"rock_break", "footstep", "rockfall", "crumble", "tunnel", "lift", "buy", "sell", "keep", "chisel", "loupe_spin",
-	"reel_lever", "reel_tick", "reel_stop", "geode_crack", "gem_shatter", "flame", "splash", "claw", "poison", "tally"]
+	"reel_lever", "reel_tick", "reel_stop", "geode_crack", "gem_shatter", "flame", "splash", "claw", "poison", "tally",
+	"boss_fall", "heartbeat", "knock_dull", "boss_rise"]
 ## The count is pitched by the Tally itself, tick by tick up the music's scale (see
 ## DeepMusic.tonic and the battle screen's Tally); every other sound that rings follows the
 ## key of the piece playing (`DeepMusic.key_shift`), so a ping is never a tritone off the music.

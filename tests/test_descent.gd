@@ -207,7 +207,8 @@ func _test_open_and_tunnels() -> void:
 	check(DeepDescent.is_landing(4) and DeepDescent.is_landing(8) and not DeepDescent.is_landing(5), "landings every four depths")
 	check(DeepDescent.is_warden_depth(8) and DeepDescent.is_warden_depth(12) and DeepDescent.is_warden_depth(16) and not DeepDescent.is_warden_depth(4) and not DeepDescent.is_warden_depth(24),
 		"the Quarry's Wardens at 8 and 12 and its boss on the bottom floor, 16")
-	check(DeepDescent.is_warden_depth(8, "RIFT") and DeepDescent.is_warden_depth(40, "RIFT") and not DeepDescent.is_warden_depth(12, "RIFT"), "the Rift has a Warden every eighth floor")
+	check(DeepDescent.is_warden_depth(8, "RIFT") and DeepDescent.is_warden_depth(40, "RIFT") and DeepDescent.is_warden_depth(12, "RIFT") and not DeepDescent.is_warden_depth(10, "RIFT"),
+		"the Rift has a boss every eighth floor and a smaller Warden halfway between (tests/test_phases.gd)")
 	## The written depths are only roughly where the Wardens stand: this run's own schedule
 	## says which landing each of them guards.
 	var guards: Array = state.schedule.wardens
@@ -2289,9 +2290,21 @@ func _test_hazard_runs() -> void:
 	var plain: Dictionary = DeepDescent.new_run(config(500, true))
 	check(DeepDescent.hazard_tier(plain) == 0 and not plain.has("hazard_mods") and not DeepDescent.has_mod(plain, "OLD_BLOOD"), "an ordinary run carries no hazard")
 	var six: Dictionary = DeepDescent.new_run(hazard_config(500, 6))
-	check(DeepDescent.hazard_tier(six) == 6 and six.hazard_mods.size() == 6 and DeepDescent.has_mod(six, "WORN") and not DeepDescent.has_mod(six, "WARDENS_PRIDE"), "a Hazard 6 run carries six hazards")
+	check(DeepDescent.hazard_tier(six) == 6 and six.hazard_mods.size() == 6 and DeepDescent.has_mod(six, "NARROW_SHAFT") and not DeepDescent.has_mod(six, "WARDENS_PRIDE"), "a Hazard 6 run carries six hazards")
 	var ada: Dictionary = six.players[0]
-	check(int(ada.hp) == int(ceil(float(ada.max_hp) * 0.85)), "Worn starts everyone at 85%% health (%d of %d)" % [int(ada.hp), int(ada.max_hp)])
+	check(int(ada.hp) == int(ada.max_hp), "nothing on Hazard 6 takes health at the start (%d of %d)" % [int(ada.hp), int(ada.max_hp)])
+	## Narrow Shaft: only the first three stones set go down, left to right; empty sockets do not count.
+	var heavy: Dictionary = hazard_config(502, 6)
+	heavy.players[0].sockets = 6
+	heavy.players[0].rail = [stone("STRIKE", 20, 4, 3, "n_strike"), null, stone("GUARD", 20, 4, 3, "n_guard"), stone("MEND", 20, 4, 3, "n_mend"), stone("CLEAVE", 20, 4, 3, "n_cleave"), stone("CRUSH", 20, 4, 3, "n_crush")]
+	var narrow: Dictionary = DeepDescent.player(DeepDescent.new_run(heavy), "a")
+	var went: Array = narrow.rail.filter(func(each: Variant) -> bool: return each is Dictionary).map(func(each: Dictionary) -> String: return str(each.skill))
+	check(went == ["STRIKE", "GUARD", "MEND"] and int(narrow.loadout_stones) == 3 and is_zero_approx(float(narrow.loadout_luck)), "Narrow Shaft takes the first three stones down and leaves the rest: %s" % str(went))
+	check(DeepDescent.left_behind(heavy.players[0].rail, 6, DeepDescent.rail_limit(6)) == [4, 5] and DeepDescent.left_behind(heavy.players[0].rail, 6, DeepDescent.rail_limit(5)).is_empty(), "the sockets left home are the ones past the third stone, and none below the tier")
+	var five: Dictionary = hazard_config(502, 5)
+	five.players[0].sockets = 6
+	five.players[0].rail = heavy.players[0].rail
+	check(DeepDescent.player(DeepDescent.new_run(five), "a").rail.filter(func(each: Variant) -> bool: return each is Dictionary).size() == 5, "below Narrow Shaft every stone goes down")
 	check(int(ada.run_mods.get("first_turn_rerolls", 0)) == -1, "Cold Start takes a reroll from every fight's first turn")
 	check(int(DeepDescent.mine_of(six).get("hazard", 0)) == 6 and not DeepDescent.mine_of(plain).has("hazard"), "the rock knows the tier")
 	## A Cursed Run on the day and on the tier adds up.

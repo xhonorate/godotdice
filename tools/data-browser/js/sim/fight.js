@@ -31,7 +31,7 @@ export const HAND_KINDS = ['raise_low', 'raise_high', 'set_match', 'flip_low', '
 export const CLEANSED = ['poison', 'burn', 'stun', 'curse', 'marked', 'dulled', 'clouded', 'festering', 'scorched'];
 export const STOPPERS = ['stun', 'die_steal', 'clouded', 'dice_dread'];
 export const SELF_KINDS = ['amplify_next', 'cut_step_next', 'grant_reroll', 'retrigger_previous', 'quality_bonus', 'sparkle',
-	'coin_flip', 'resonance', 'replay_color', 'replay_fizzled', 'rank_buff', 'repeat_next', 'void_copy', 'gem_rank', 'upgrade_faces', 'stake', 'appraise',
+	'coin_flip', 'resonance', 'replay_color', 'replay_fizzled', 'rank_buff', 'repeat_next', 'void_copy', 'gem_rank', 'upgrade_faces', 'stake', 'appraise', 'ratchet', 'both_parities',
 	'fire_neighbours', 'force_after', 'absorbed',
 	'phantom_roll', 'rethrow', 'gild', 'soak', 'each_after', 'on_block', 'fire_birthstone', 'spectrum', 'stone_chance',
 	'double_resonance', 'keep_phantoms', 'bonus_die', 'double_resonance_next', 'lose_pyrite', 'reflect_blows', 'invert_previous',
@@ -338,6 +338,8 @@ function resetRail(unit) {
 	unit.socket_plays = {};
 	unit.force_after = {};
 	unit.fired_colors = [];
+	// An Equinox's word holds for the turn it fired in.
+	unit.parity_both = 0;
 	unit.gem_results = {};
 	unit.resonance_mult = 1;
 	unit.second_act = false;
@@ -553,7 +555,9 @@ export function resolveGem(state, unit, socket, opts, rng) {
 		applied.procs = procs;
 		// A forecast does not know which debuff a Hex will draw, so it draws none (applyOne).
 		if (dry && kind === 'random_debuff') applied.dry = true;
-		if (HAND_KINDS.includes(kind) || SELF_KINDS.includes(kind)) {
+		// Each go of a Mosaic is its own blow, guard or gift, drawn as it lands (mosaic).
+		if (kind === 'mosaic') results.push(...mosaic(state, unit, applied, rng, dry, reactions, socket, previousSocket));
+		else if (HAND_KINDS.includes(kind) || SELF_KINDS.includes(kind)) {
 			applied.reactions = reactions;
 			// A skill this socket only wears (a Doublet's, a Black Opal's) is not this stone's to spend.
 			applied.borrowed = Boolean(opts.as_skill) || Boolean(stone.worn_from);
@@ -619,7 +623,9 @@ export function resolveBirthstone(state, unit, opts, rng) {
 	const replay = Boolean(opts.replay);
 	const promised = I(unit.repeat_next);
 	unit.repeat_next = 0;
-	const a = whatifPhantomCrowns(unit, def, readHand(unit));
+	let a = whatifPhantomCrowns(unit, def, readHand(unit));
+	// An Equinox earlier this turn: every die counts as odd and as even (on a copy: the reading is shared).
+	if (I(unit.parity_both) > 0) { a = { ...a }; Hand.bothParities(a, I(unit.parity_both)); }
 	// A Birthright fires it mid-rail at a share of the Resonance so far.
 	let resonance = satMulDiv(I(unit.resonance), Math.max(0, opts.share ?? 100), 100);
 	// On Fire: last turn's High Roller doubled the whole total it reads this turn.
@@ -1138,6 +1144,54 @@ function joinRail(state, unit, at, stone) {
 	if (unit.initial_rail && at <= unit.initial_rail.length) unit.initial_rail.splice(at, 0, null);
 }
 
+// One face a point higher or lower (never below 1), and the die's top kept honest (sim/battle.gd _ratchet_face).
+function ratchetFace(die, at, step) {
+	const faces = die.faces || [];
+	if (at < 0 || at >= faces.length) return;
+	faces[at].value = Math.max(1, I(faces[at].value ?? 1) + step);
+	if ('top' in die) {
+		let physical = 0;
+		for (const face of faces) if ((face.kind || 'plain') !== 'blank') physical = Math.max(physical, I(face.value));
+		die.top = step > 0 ? Math.max(I(die.top), physical) : Math.min(I(die.top), Math.max(1, physical));
+	}
+}
+
+// A die as it was before the fight first laid a hand on it, kept to be given back (diceAfterFight).
+// `grown` is how many sizes a Standing Ovation had already put on it: they come off the copy too.
+function rememberDie(unit, die) {
+	const kept = unit.fight_dice || (unit.fight_dice = {});
+	const id = String(die.id || '');
+	if (id in kept) return;
+	let at = 0;
+	(unit.dice || []).forEach((d, index) => { if (String(d.id || '') === id) at = index; });
+	kept[id] = { was: cloneDie(die), at, grown: I((unit.fight_grown || {})[id]) };
+}
+
+// Mosaic: as many goes as its amount, each a random one of the table's effects at the stone's
+// Cut, the first 1x and each after `climb` more (1x, 2x, 3x; a Flawless one 1x, 3x, 5x).
+// Everything but Resonance grows with the stone's weight. A forecast draws nothing.
+function mosaic(state, unit, effect, rng, dry, reactions, socket, previousSocket) {
+	const out = [];
+	if (dry) return out;
+	const table = effect.table || {};
+	const keys = Rules.MOSAIC_EFFECTS.filter((k) => k in table);
+	if (!keys.length) return out;
+	const climb = Math.max(1, I(effect.climb ?? 1));
+	const weight = Number(effect.weight ?? 1);
+	const cut = Math.max(0, Math.min(I(effect.cut_step), Patterns.STEPS - 1));
+	for (let go = 0; go < Math.max(0, I(effect.amount)); go++) {
+		const pick = keys[rng.randiRange(0, keys.length - 1)];
+		const times = 1 + go * climb;
+		let worth = satMul(I(table[pick][cut]), times);
+		if (pick !== 'resonance') worth = satFloor(worth * weight);
+		const each = { kind: pick, target: Rules.defaultTarget(pick), amount: worth, repeat: 1, procs: 1, scaled: pick !== 'resonance', reactions };
+		const did = pick === 'resonance' ? [selfEffect(state, unit, each, socket, previousSocket, dry, rng)] : apply(state, unit, each, rng, '', reactions);
+		for (const result of did) { result.mosaic = { go: go + 1, times }; out.push(result); }
+		if (done(state)) break;
+	}
+	return out;
+}
+
 // Whether a die the trigger matched may still be raised: judged by the face it shows now
 // against the trigger's line; a wild matched every line and is raised once a firing.
 function underLine(roll, line, raised) {
@@ -1319,6 +1373,49 @@ export function selfEffect(state, unit, effect, socket, previousSocket, dry, rng
 			if (dry || !woken.length) out.nothing = true; else state.queue = woken.concat(state.queue);
 			break;
 		}
+		case 'ratchet': {
+			// Zenith (step 1): every die in the high half of its size has the face it shows raised a
+			// point. Nadir (step -1): every die in the low half has it lowered one, never below 1.
+			// For the fight (the fight gives the die back, rememberDie), or for the run.
+			const step = I(effect.step ?? 1) >= 0 ? 1 : -1;
+			const permanent = Boolean(effect.permanent);
+			const turned = [];
+			for (const roll of unit.hand) {
+				if (roll.phantom || ['wild', 'blank'].includes(roll.kind || 'plain')) continue;
+				const size = roll.shape ? Dice.sizeOf(roll.shape) : Math.max(1, I(roll.top ?? roll.value));
+				const low = I(roll.value) * 2 <= size;
+				if ((step > 0 && low) || (step < 0 && (!low || I(roll.value) <= 1))) continue;
+				for (const die of unit.dice) {
+					if (String(die.id) !== String(roll.die_id)) continue;
+					const at = I(roll.face ?? -1);
+					if (at < 0 || at >= die.faces.length) break;
+					if (!permanent) rememberDie(unit, die);
+					ratchetFace(die, at, step);
+					// For the run: a copy the fight is keeping to give back takes the change too.
+					if (permanent) {
+						const kept = (unit.fight_dice || {})[String(die.id)];
+						if (kept) ratchetFace(kept.was, at, step);
+					}
+					roll.value = Math.max(1, I(roll.value) + step);
+					if ('base' in roll) roll.base = Math.max(1, I(roll.base) + step);
+					roll.top = Dice.top(die);
+					turned.push(String(die.id));
+					break;
+				}
+			}
+			out.dice = turned;
+			out.step = step;
+			out.permanent = permanent;
+			if (!turned.length) out.nothing = true;
+			touchHand(unit);
+			break;
+		}
+		case 'both_parities':
+			// Equinox: for the rest of the turn every die is odd and even to every gem after it
+			// (Hand.bothParities), twice over for a Flawless one.
+			unit.parity_both = Math.max(I(unit.parity_both), Math.max(1, amount));
+			out.times = I(unit.parity_both);
+			break;
 		case 'force_after': {
 			// A Certainty: every gem after it fires this turn whatever the dice show (set on a forecast too).
 			const standing = unit.force_after || {};
@@ -2215,16 +2312,27 @@ function shrinkGrown(unit) {
 // The bowl a player walks out of a fight with (sim/battle.gd dice_after_fight), as copies: no
 // die a Hot Streak lent, a die a Flawless Dread grew back at its size, and a Standing Ovation's
 // sizes off again, each die filed down by as many as it grew and keeping its own faces. What
-// was done for good stays done. (The game also hands back the dice a creature ground, blanked
+// was done for good stays done, and a die a Zenith or a Nadir turned for the fight is handed
+// back from the copy kept of it. (The game also hands back the dice a creature ground, blanked
 // or broke for the fight, from the copies it kept; a dummy does none of that.)
 export function diceAfterFight(unit) {
 	const dice = unit.dice.filter((d) => !d.bonus).map(cloneDie);
 	const dread = unit.grown_dice || {};
 	const ovation = unit.fight_grown || {};
+	// A die a Zenith or a Nadir turned for the fight comes back from the copy kept of it (rememberDie).
+	const kept = unit.fight_dice || {};
 	for (const die of dice) {
 		const id = String(die.id || '');
 		if (id in dread) Dice.resize(die, -I(dread[id]));
-		if (id in ovation) Dice.resize(die, -I(ovation[id]));
+		if (id in ovation && !(id in kept)) Dice.resize(die, -I(ovation[id]));
+	}
+	const ids = Object.keys(kept).sort((a, b) => I(kept[a].at) - I(kept[b].at));
+	for (const id of ids) {
+		const was = cloneDie(kept[id].was || {});
+		if (I(kept[id].grown) > 0) Dice.resize(was, -I(kept[id].grown));
+		const index = dice.findIndex((d) => String(d.id || '') === id);
+		if (index >= 0) dice[index] = was;
+		else dice.splice(Math.max(0, Math.min(I(kept[id].at ?? dice.length), dice.length)), 0, was);
 	}
 	return dice;
 }

@@ -33,6 +33,7 @@ func _run() -> void:
 	_chips()
 	await _ledger()
 	await _tags()
+	await _phases()
 	await _screen()
 	await _events()
 	viewport.free()
@@ -199,7 +200,7 @@ func _ledger() -> void:
 	await process_frame
 	check(panel.rows().has("Topple") and panel.rows().has("Summon"), "moves no face carries yet are listed, with when they come")
 	check(Look.traits(crown).any(func(c: Dictionary) -> bool: return str(c.title) == "Sturdy"), "the Crown's Sturdy is one of its traits")
-	check(Look.meaning("Sturdy", crown).contains("15%") and Look.meaning("Acid Armour", {"key": "SPORE_SLIME", "traits": {}}).contains("Poison"), "a keyword's meaning reads the creature's own number")
+	check(Look.meaning("Sturdy", crown).contains("25%") and Look.meaning("Acid Armour", {"key": "SPORE_SLIME", "traits": {}}).contains("Poison"), "a keyword's meaning reads the creature's own number")
 	for word in ["Marked", "Poison", "Burn", "Curse", "Dulled", "Festering", "Strength", "Stunned", "Drink", "Breaks", "Acid Armour", "Sturdy", "Steadfast", "Waterlogged"]:
 		check(not Look.meaning(word).is_empty(), "the keyword %s is explained on hover" % word)
 	var rtl := RichTextLabel.new()
@@ -236,6 +237,36 @@ func _ledger() -> void:
 	panel.free()
 
 # --- the tags ------------------------------------------------------------------------------------
+
+func _phases() -> void:
+	## A boss that gets back up (November 18, 2026): a pip a phase on its tag once it has been
+	## watched rising, the name of the phase it is on, and what it is while it is down.
+	var f: Dictionary = fight(["THE_DRILL"])
+	var drill: Dictionary = f.state.enemies[0]
+	var tag: Control = Tag.new()
+	viewport.add_child(tag)
+	tag.update(drill, f.state, false, 0)
+	await process_frame
+	check(int(drill.bars) == 2 and not tag._pips.visible and not tag._phase.visible, "a boss nobody has watched get up shows no pips")
+	check(not Look.traits(drill).any(func(c: Dictionary) -> bool: return str(c.key).begins_with("trait_bars")), "and its ledger says nothing of its phases")
+	drill.bars_shown = true
+	tag.update(drill, f.state, false, 0)
+	check(tag._pips.visible and tag._pips.bars == 2 and tag._pips.bar == 1 and not tag._pips.fallen, "once it has been seen rising: a pip a phase")
+	var known: Array = Look.traits(drill).filter(func(c: Dictionary) -> bool: return str(c.key).begins_with("trait_bars"))
+	check(known.size() == 1 and str(known[0].title) == "Phase 1 of 2" and str(known[0].text).contains("Redline") and str(known[0].text).contains("Gains Molten"), "and the ledger says which phase it is on and what the next gives: %s" % str(known))
+	drill.block = 0
+	drill.statuses.erase("ward")
+	DeepBattle._damage(f.state, f.state.players[0], drill, 999999, f.rng.dice)
+	tag.update(drill, f.state, false, 0)
+	check(tag._pips.fallen and tag.chips()._chips.has("fallen"), "down on its last point: the pip cracks and a chip says it cannot die this turn: %s" % str(tag.chips()._chips.keys()))
+	DeepBattle._rise(f.state, drill, f.rng.creatures, false)
+	tag.update(drill, f.state, false, 0)
+	await process_frame
+	check(tag._pips.bar == 2 and not tag._pips.fallen and tag._phase.visible and str(tag._phase.text) == "REDLINE", "risen: the second pip, and the phase's name by its own")
+	check(tag.chips()._chips.has("trait_molten") and not tag.chips()._chips.has("fallen"), "what it took is a chip on the tag: %s" % str(tag.chips()._chips.keys()))
+	check(tag.size.x >= tag._name.get_minimum_size().x + tag._phase.get_minimum_size().x + tag._pips.custom_minimum_size.x, "and the tag is wide enough for all of it")
+	check(str(tag._name.text) == "THE DRILL", "its name is never cut short")
+	tag.queue_free()
 
 func _tags() -> void:
 	var f: Dictionary = fight(["CAVE_TICK", "THE_HOLLOW_CROWN", "THE_DROWNED_CHOIR"])
@@ -279,7 +310,14 @@ func _tags() -> void:
 	crown.pinned = {"gift_rerolls": true}
 	big.update(crown, f.state, false, 0)
 	var crown_chips: Array = big.chips()._chips.keys()
-	check(crown_chips.has("pinned_gift_rerolls") and not crown_chips.has("trait_sturdy"), "a pinned Lantern is a chip; Sturdy stays in the ledger: %s" % str(crown_chips))
+	## Since November 18, 2026 a named trait (Sturdy, Molten, Jagged, ...) is a chip on the tag as
+	## well: the Rift rolls them, a boss takes them as it rises, and the body wears them.
+	check(crown_chips.has("pinned_gift_rerolls") and crown_chips.has("trait_sturdy"), "a pinned Lantern is a chip, and so is a named trait: %s" % str(crown_chips))
+	var assayer: Dictionary = DeepCreatures.make("THE_ASSAYER", "e7", 1, 1, {})
+	DeepCreatures.prepare(assayer)
+	big.update(assayer, f.state, false, 0)
+	check(not big.chips()._chips.keys().any(func(k: Variant) -> bool: return str(k).begins_with("trait_")), "what else a creature always is (the Assayer's carat cap) stays in the ledger: %s" % str(big.chips()._chips.keys()))
+	big.update(crown, f.state, false, 0)
 	crown.traits.erase("gift_rerolls")
 	crown.pinned = {}
 	big.update(crown, f.state, false, 0)

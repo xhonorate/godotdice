@@ -310,7 +310,7 @@ func _add_member(id: String, member: Dictionary) -> void:
 		"ready": bool(said.get("ready", false)), "connected": true, "last_depth": int(said.get("last_depth", 0)), "last_outcome": str(said.get("last_outcome", "")),
 		"last_warden_unbeaten": bool(said.get("last_warden_unbeaten", false)), "gold": int(said.get("gold", 0)), "insured": bool(said.get("insured", false)), "sockets": int(said.get("sockets", DeepProfile.starting_rail_cap())),
 		"daily_state": str(said.get("daily_state", "locked")), "showcase": said.get("showcase", []),
-		"hazard_top": int(said.get("hazard_top", 0)), "hazard_open": said.get("hazard_open", [])}
+		"hazard_top": int(said.get("hazard_top", 0)), "hazard_open": said.get("hazard_open", []), "seen_rise": said.get("seen_rise", [])}
 	lobby.members[id] = record
 	if not lobby.order.has(id):
 		lobby.order.append(id)
@@ -450,6 +450,10 @@ static func clean_member_fields(fields: Dictionary) -> Dictionary:
 			"hazard_top":
 				if (value is int or value is float) and is_finite(float(value)):
 					out.hazard_top = clampi(int(value), 0, DeepContent.hazard_max())
+			"seen_rise":
+				## The bosses a member has watched get back up (their bars are shown to the party).
+				if value is Array and value.size() <= 64 and value.all(func(k: Variant) -> bool: return k is String and DeepContent.section("creatures").has(k)):
+					out.seen_rise = value
 			"hazard_open":
 				## The mines a member has open on their highest Hazard tier.
 				if value is Array and value.size() <= 16 and value.all(func(k: Variant) -> bool: return k is String and DeepContent.section("mines").has(k)):
@@ -620,7 +624,8 @@ func start_run(seed_value: int = 0) -> Dictionary:
 		players.append({"id": id, "name": str(shown.get(id, member.name)), "character": member.character, "rail": member.get("rail", []), "dice": member.get("dice", []),
 			"birthstone": DeepContent.birthstone_key(str(member.character), str(member.get("birthstone", ""))),
 			"last_depth": int(member.get("last_depth", 0)), "last_outcome": str(member.get("last_outcome", "")), "last_warden_unbeaten": bool(member.get("last_warden_unbeaten", false)),
-			"sockets": int(member.get("sockets", DeepProfile.starting_rail_cap())), "insured": bool(member.get("insured", false))})
+			"sockets": int(member.get("sockets", DeepProfile.starting_rail_cap())), "insured": bool(member.get("insured", false)),
+			"seen_rise": member.get("seen_rise", [])})
 	var chosen_seed: int = seed_value if seed_value != 0 else randi()
 	## Every run its own id, whatever its seed: the fare is charged once per run id and a
 	## share of a run is handed over once per run id, so a seed typed in again must not make

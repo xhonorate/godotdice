@@ -8,7 +8,7 @@ import { I, sat, satAdd, satMul, satFloor } from './numbers.js';
 export const OPS = ['+', '-', '*', 'min', 'max', 'floor_div', 'pct', 'if', 'ge', 'eq'];
 export const TERMS = ['rolled', 'value', 'second', 'count', 'high', 'low', 'total', 'max_total', 'missing', 'odd', 'even',
 	'distinct', 'held', 'rerolled', 'dice', 'count_value', 'count_at_most', 'count_at_least', 'run_high', 'run_length',
-	'set_value', 'set_count', 'sum_low', 'sum_high', 'block', 'block_lost', 'healed', 'dealt', 'hp', 'max_hp', 'hp_missing', 'gold',
+	'set_value', 'set_count', 'sum_low', 'sum_high', 'high_dice', 'high_sum', 'block', 'block_lost', 'healed', 'dealt', 'hp', 'max_hp', 'hp_missing', 'gold',
 	'resonance', 'previous_amount', 'carat', 'cut', 'clarity', 'depth', 'turn', 'party', 'crowns', 'high_crown', 'low_dice', 'pyrite', 'pot', 'enemy_poison', 'fizzles',
 	'swell', 'held_gems', 'biggest_hit', 'party_heaviest_carat', 'party_best_turn', 'party_richest', 'turns_acted', 'living_players', 'strength', 'pairs', 'even_read',
 	'crown_total', 'run_fires', 'fight_resonance', 'pair_count', 'pairs_total', 'rerolls_left', 'run_kills', 'run_breaks', 'healed_all', 'self_dots',
@@ -24,6 +24,9 @@ export const EFFECT_KINDS = ['damage', 'block', 'heal', 'gold', 'poison', 'stun'
 	'replay_rail', 'tick_poison', 'stone_drop', 'pot', 'dice_upgrade', 'ward', 'retain', 'charged', 'marked',
 	'regeneration', 'spikes', 'dulled', 'clouded', 'lifeline', 'max_hp', 'max_hp_loss', 'damage_curse', 'detonate', 'wager', 'stake', 'upgrade_faces', 'gem_rank', 'appraise',
 	'fire_neighbours', 'force_after', 'absorbed',
+	// Zenith and Nadir step the faces the dice show, a Mosaic draws its goes at random from its
+	// table, an Equinox has every die count odd and even (sim/rules.gd; fight.js).
+	'ratchet', 'mosaic', 'both_parities',
 	'mar_die', 'grind_die', 'lock_die', 'break_die', 'downgrade_die', 'break_gem',
 	'summon', 'purge', 'burrow', 'festering', 'scorched', 'burn', 'strength', 'die_lock', 'steal_gold',
 	'empower_next', 'rally', 'grow_die', 'swell', 'hold_gem', 'bury_socket', 'exhibit', 'charge',
@@ -38,6 +41,8 @@ export const EFFECT_KINDS = ['damage', 'block', 'heal', 'gold', 'poison', 'stun'
 // What a random debuff (a Hex) may draw, and what an `of_target` amount reads off each target (sim/rules.gd).
 export const RANDOM_DEBUFFS = ['clouded', 'die_steal', 'dice_dread', 'marked', 'stun'];
 export const OF_TARGET = ['hp_missing', 'afflictions', 'block'];
+// What a Mosaic may draw: the six things the six colors do.
+export const MOSAIC_EFFECTS = ['damage', 'block', 'poison', 'heal', 'gold', 'resonance'];
 // The creature-only kinds: a skill or an inclusion may not use them.
 export const CREATURE_KINDS = ['summon', 'purge', 'burrow', 'festering', 'scorched', 'burn', 'die_lock', 'steal_gold',
 	'empower_next', 'rally', 'grow_die', 'swell', 'hold_gem', 'bury_socket', 'exhibit', 'charge',
@@ -61,6 +66,8 @@ export const EFFECT_OPTIONS = ['chain_on_kill', 'missing_hp_bonus', 'from_result
 	'piercing', 'split_party', 'pick', 'creature', 'pct', 'permanent', 'shape', 'cap', 'turns', 'cancel_pct', 'guard_pct', 'store', 'release',
 	'hurt', 'add', 'flat', 'stones', 'of_status', 'gift', 'overflow', 'resonance_cap', 'shows', 'every_gem', 'elite', 'best_of', 'shrink', 'both_ends',
 	'of', 'pattern', 'keep_all', 'least',
+	// A ratchet's direction, and a mosaic's effects by Cut and how fast its goes climb.
+	'step', 'table', 'climb',
 	// A creature's etch that only runs when the etchings before it found no face (sim/rules.gd);
 	// the list a random debuff draws from; a share of what each target has (`of_target`).
 	'fallback', 'from', 'of_target', 'for_fight',
@@ -121,7 +128,7 @@ export function term(name, node, c) {
 		case 'value': return I(trig.value);
 		case 'second': return I(trig.second);
 		case 'count': return I(trig.count);
-		case 'high': case 'low': case 'total': case 'max_total': case 'odd': case 'even': case 'distinct': case 'held': case 'rerolled': case 'crowns': case 'high_crown': case 'low_dice':
+		case 'high': case 'low': case 'total': case 'max_total': case 'odd': case 'even': case 'distinct': case 'held': case 'rerolled': case 'crowns': case 'high_crown': case 'low_dice': case 'high_dice': case 'high_sum':
 			return I(a[name]);
 		case 'missing': return Math.max(0, (I(a.max_total)) - (I(a.total)));
 		case 'even_read': {
@@ -270,6 +277,8 @@ export function resolveEffect(def, c, magnitude, hostileSide = 'enemy') {
 	// No cap short of the ceiling.
 	const out = { kind, target: String(def.target || defaultTarget(kind, hostileSide)), amount: sat(final),
 		raw, repeat, scaled: scale === 'carat', procs: proc.procs, proc_chance: proc.chance, dice: ((c.trig || {}).dice || []).slice() };
+	// A Mosaic works out each go itself: it needs the stone's weight and Cut to do it.
+	if (kind === 'mosaic') { out.weight = magnitude; out.cut_step = I(c.cut); }
 	// A face raised by one proc is judged again by the next, against the line the trigger drew.
 	if (kind === 'upgrade_faces') {
 		const trig = c.trig || {};
@@ -294,6 +303,7 @@ export function amountWords(expr, cutStep = null) {
 			party_best_turn: "the party's best turn", party_richest: 'the richest purse', strength: 'its Strength', turns_acted: 'actions taken', living_players: 'players standing', pot: 'the pot', dealt: 'damage dealt', hp: 'health', max_hp: 'max health', hp_missing: 'missing health',
 			pair_count: 'pairs', pairs_total: 'the pairs added up', rerolls_left: 'rerolls unused', run_kills: 'kills this run', run_breaks: 'times your Block broke', healed_all: 'healing done, past full too', self_dots: 'your Poison and Burn',
 			matched: 'dice that match another', trophies: 'Trophies', envenom: 'your Envenomed', crown_steps: 'sizes over a d4 of your crowns', one_steps: 'sizes over a d4 of your 1s',
+			high_dice: 'dice in the high half', high_sum: 'the high dice added up', low_dice: 'dice in the low half',
 			fight_ones: '1s counted this fight', fresh_ones: '1s new this turn', target_curse: 'Curse on the target', colors: 'colors fired' };
 		return names[expr.term] || expr.term;
 	}
@@ -363,6 +373,10 @@ export function effectWords(effect, cutStep = null) {
 		prize: n === '1' ? 'every set pays its Prize' : `every set pays its Prize ${n} times`, quilt: `every color that fired gives its gift, worth ${n}`,
 		second_act: 'every die is thrown again and the whole rail plays once more', grow_dice: `every die ${n === '1' ? 'a size' : `${n} sizes`} bigger for the fight`,
 		fight_count: `counts ${n} more 1s this fight`,
+		// The Transcendents' own (sim/rules.gd).
+		ratchet: `${Number(effect.step ?? 1) < 0 ? 'every low die shows 1 less' : 'every high die shows 1 more'}${effect.permanent ? ', for good' : ' for the fight'}`,
+		mosaic: `${n} random ${n === '1' ? 'effect' : 'effects'}, each stronger than the last`,
+		both_parities: n === '1' ? 'every die counts as odd and even this turn' : `every die counts as odd and even this turn, ${n} times over`,
 		// Elites only, and rare.
 		mar_die: 'mars a face of one of your dice (blank or locked)',
 		grind_die: showing ? `every face your dice show loses 1${effect.permanent ? ', for good' : ' for the fight'}` : `your ${pick === 'high' ? 'highest die' : 'die'} loses 1 from its top face${effect.permanent ? ' for good' : ' for the fight'}`,

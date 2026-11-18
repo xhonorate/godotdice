@@ -242,7 +242,7 @@ func member() -> Dictionary:
 		"gold": int(profile.get("gold", 0)), "insured": bool(profile.get("outfit", {}).get("insure", false)), "sockets": DeepProfile.open_sockets(profile, character_key),
 		"daily_state": DeepEconomy.daily_state(profile), "showcase": DeepProfile.showcase(profile),
 		"hazard_top": DeepProfile.hazard_top(profile), "hazard_open": DeepProfile.open_mines(profile, DeepProfile.hazard_top(profile)),
-		"brought": profile.get("brought", {})}
+		"brought": profile.get("brought", {}), "seen_rise": DeepBestiary.risers(profile)}
 
 func _kit(loadout: Dictionary) -> Dictionary:
 	## What the lobby is told whenever the profile changes: who goes down, wearing what,
@@ -251,7 +251,7 @@ func _kit(loadout: Dictionary) -> Dictionary:
 	## started, never the fall just come home from.
 	var fields: Dictionary = {}
 	for key in ["character", "birthstone", "rail", "dice", "gold", "insured", "sockets", "daily_state", "showcase", "hazard_top", "hazard_open",
-			"last_depth", "last_outcome", "last_warden_unbeaten", "brought"]:
+			"last_depth", "last_outcome", "last_warden_unbeaten", "brought", "seen_rise"]:
 		fields[key] = loadout[key]
 	return fields
 

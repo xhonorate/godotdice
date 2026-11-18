@@ -31,6 +31,12 @@ static func make(key: String, id: String, depth: int, party: int, scale: Diction
 	hp_scale *= maxf(0.01, float(scale.get("hp", 1.0)))
 	## Deep in the Rift the scale runs past what a whole number holds: it stops at the ceiling.
 	var hp: int = maxi(1, DeepRules.sat_floor(roundf(float(def.get("hp", 10)) * hp_scale)))
+	## A boss that has to be beaten more than once (`rising`): every bar holds a share of the
+	## health written for it, and what it takes each time it gets back up is settled here,
+	## before the fight, so every guest sees the same creature.
+	var rises: Array = rises_for(def, extra, rng)
+	if not rises.is_empty():
+		hp = maxi(1, DeepRules.sat_muldiv(hp, clampi(int(def.rising.get("health_pct", 100)), 1, 100), 100))
 	var dice: Array = []
 	var index: int = 0
 	for die_ref in def.get("dice", []):
@@ -40,8 +46,8 @@ static func make(key: String, id: String, depth: int, party: int, scale: Diction
 	for trait_key in extra.get("traits", {}):
 		traits[str(trait_key)] = extra.traits[trait_key]
 	var name: String = str(def.get("name", key))
-	if not str(extra.get("name_prefix", "")).is_empty():
-		name = str(extra.name_prefix) + name
+	if not str(extra.get("named", "")).is_empty():
+		name = named(name, str(extra.named))
 	## The gems a creature walks in holding (the Collector's own Strike and Bulwark): kept like
 	## the ones it takes, but nobody's to have back.
 	var held: Array = []
@@ -62,7 +68,90 @@ static func make(key: String, id: String, depth: int, party: int, scale: Diction
 		"held_gems": held, "swell": 0, "rally_bonus": 0, "empowered": 0, "charging": {},
 		"reflect": 0, "mirror": 0, "absorb": [], "extra_dice": [], "stopped": false, "seen_colors": [],
 		"hurt_by": {}, "hurt_by_color": {}, "biggest_hit": 0, "hardest_gem": {},
-		"escorts": [], "escort_of": "", "summoned": false, "fled": false, "stun_guard": false, "death_turn": 0}
+		"escorts": [], "escort_of": "", "summoned": false, "fled": false, "stun_guard": false, "death_turn": 0,
+		## The bars of a boss that rises (see `rises_for`): which one it is on, how many it has,
+		## what each rise to come gives it, and whether it is down on its last point waiting to.
+		"bar": 1, "bars": 1 + rises.size(), "rises": rises, "fallen": false, "bar_name": ""}
+
+# --- bars ---------------------------------------------------------------------------------
+##
+## A mine's final boss has to be beaten more than once (owner, November 18, 2026). Its content
+## entry carries `rising`: {health_pct, fall, rises: [{name, traits, effects, roll}]}. Each bar
+## is `health_pct` of its written health. When a bar runs out it stays on 1 health and nothing
+## kills it (`DeepBattle._stand`); at its next action it gets back up (`DeepBattle._rise`) with
+## the next rise's traits and effects. `roll` is how many named traits the seed picks for that
+## rise. `extra.bars` asks for more bars than it is written with (the Rift: three), each of the
+## added rises one rolled trait; `extra.one_bar` for none at all (a Crown's Court guest).
+
+static func rises_for(def: Dictionary, extra: Dictionary, rng: RandomNumberGenerator) -> Array:
+	var rising: Dictionary = def.get("rising", {})
+	if rising.is_empty() or bool(extra.get("one_bar", false)):
+		return []
+	## Every named trait it has or is written to take, so no roll hands it one twice.
+	var has: Array = def.get("traits", {}).keys() + extra.get("traits", {}).keys()
+	for written in rising.get("rises", []):
+		has.append_array(written.get("traits", {}).keys())
+	var out: Array = []
+	for written in rising.get("rises", []):
+		var rise: Dictionary = {"name": str(written.get("name", "")), "text": str(written.get("text", "")), "traits": written.get("traits", {}).duplicate(), "effects": written.get("effects", []).duplicate(true)}
+		_roll_into(rise, int(written.get("roll", 0)), has, rng)
+		out.append(rise)
+	for _more in range(maxi(0, int(extra.get("bars", 0)) - 1 - out.size())):
+		var added: Dictionary = {"name": "", "text": "", "traits": {}, "effects": []}
+		_roll_into(added, 1, has, rng)
+		out.append(added)
+	return out
+
+static func _roll_into(rise: Dictionary, count: int, has: Array, rng: RandomNumberGenerator) -> void:
+	## Named traits picked for a rise by the seed. A rise with no name of its own is called
+	## after the first of them.
+	if rng == null:
+		return
+	for _each in range(maxi(0, count)):
+		var key: String = DeepContent.roll_trait(rng, has)
+		if key.is_empty():
+			break
+		rise.traits[key] = DeepContent.REMEMBERED_VALUES[key]
+		has.append(key)
+		if str(rise.get("name", "")).is_empty():
+			rise.name = DeepContent.trait_name(key)
+
+static func named(name: String, trait_key: String) -> String:
+	## A creature called after the trait it was rolled: "The Molten Drill", "Jagged Slag Hound".
+	return titled(name, DeepContent.trait_name(trait_key))
+
+static func titled(name: String, word: String) -> String:
+	if word == "Splits":
+		word = "Splitting"
+	if name.begins_with("The "):
+		return "The %s %s" % [word, name.substr(4)]
+	return "%s %s" % [word, name]
+
+static func rise_words(rise: Dictionary) -> String:
+	## What a rise gives, as a player reads it: "Gains Molten. 2 Rail Rats join it."
+	var names: Array = rise.get("traits", {}).keys().map(func(key: Variant) -> String: return DeepContent.trait_name(str(key)))
+	var parts: Array = []
+	if not names.is_empty():
+		parts.append("Gains %s." % " and ".join(names))
+	elif int(rise.get("roll", 0)) > 0:
+		parts.append("Gains a trait, picked as the fight opens.")
+	if not str(rise.get("text", "")).is_empty():
+		parts.append(str(rise.text))
+	return " ".join(parts)
+
+static func named_traits(enemy: Dictionary) -> Array:
+	## The named traits it has right now, in the order they are listed: what it wears on its
+	## body (view/creatures/creature_wear.gd) and shows as chips.
+	return DeepContent.REMEMBERED_TRAITS.filter(func(key: String) -> bool: return has_trait(enemy, key))
+
+static func bar_title(index: int) -> String:
+	## What a bar is called where it has no name of its own, as a player reads it: "Second
+	## phase", "Third phase". (A phase is the stage; its bar is the health it has in it.)
+	return str(["First", "Second", "Third", "Fourth", "Fifth"][clampi(index, 0, 4)]) + " phase"
+
+static func bar_health(enemy: Dictionary) -> int:
+	## The health of all its bars together, for anything that asks how big it is.
+	return DeepRules.sat_mul(int(enemy.get("max_hp", 1)), maxi(1, int(enemy.get("bars", 1))))
 
 # --- action dice ------------------------------------------------------------------------
 ##
@@ -247,7 +336,76 @@ static func phase_for(enemy: Dictionary) -> int:
 static func moves_for(enemy: Dictionary) -> Array:
 	var def: Dictionary = definition(enemy)
 	var phase: int = phase_for(enemy)
-	return def.get("phases", [])[phase - 1].get("moves", []) if phase > 0 else def.get("moves", [])
+	var moves: Array = def.get("phases", [])[phase - 1].get("moves", []) if phase > 0 else def.get("moves", [])
+	return _ridden(enemy, moves, phase)
+
+static func _ridden(enemy: Dictionary, moves: Array, phase: int) -> Array:
+	## Venomous and Molten (owner, November 18, 2026): its moves as it throws them, each face
+	## that deals damage laying Poison or Burn as well (see `ride`). Worked out once for the
+	## traits it has and kept on the creature: a blow asks for its moves several times.
+	var shares: Dictionary = {}
+	for trait_key in DeepContent.RIDERS:
+		var share: int = trait_value(enemy, str(trait_key), 0)
+		if share > 0:
+			shares[str(DeepContent.RIDERS[trait_key])] = share
+	if shares.is_empty():
+		return moves
+	var sig: String = "%s|%s|%d|%s" % [str(enemy.get("key", "")), str(enemy.get("echo_of", "")), phase, str(shares)]
+	var kept: Variant = enemy.get("ridden", null)
+	if kept is Dictionary and str(kept.get("sig", "")) == sig:
+		return kept.moves
+	var out: Array = []
+	for move in moves:
+		out.append(ride(move, shares))
+	enemy.ridden = {"sig": sig, "moves": out}
+	return out
+
+static func written_damage(move: Dictionary) -> int:
+	## The damage a face is written to deal the party, all its hits together, before the mine
+	## weighs it. Zero when it deals none or its size cannot be read off the page.
+	var total: int = 0
+	for effect in move.get("effects", []):
+		if not effect is Dictionary or str(effect.get("kind", "")) != "damage" or str(effect.get("target", "heroes")) in ["self", "allies", "allies_other", "ally_low"]:
+			continue
+		var amount: Variant = effect.get("amount", 0)
+		var times: Variant = effect.get("repeat", 1)
+		if not (amount is int or amount is float) or not (times is int or times is float) or bool(effect.get("per_reroll", false)):
+			continue
+		total += int(amount) * maxi(1, int(times))
+	return total
+
+static func ride(move: Dictionary, shares: Dictionary) -> Dictionary:
+	## One move with a status riding its damage: a share of the face's written damage, rounded
+	## up and never more than `rider_most` stacks, counted once a face however many hits it is.
+	## A face that already lays that status lays twice as much instead. The stacks are read
+	## off the written number, so the mine weighs them once, at the tick, like any creature's.
+	var out: Dictionary = move
+	var most: int = maxi(1, int(DeepContent.constant("rider_most", 5)))
+	for status in shares:
+		var lays: bool = false
+		var aimed: String = "heroes"
+		for effect in out.get("effects", []):
+			if not effect is Dictionary or str(effect.get("target", "heroes")) in ["self", "allies", "allies_other", "ally_low"]:
+				continue
+			if str(effect.get("kind", "")) == str(status):
+				lays = true
+			elif str(effect.get("kind", "")) == "damage":
+				aimed = str(effect.get("target", "heroes"))
+		var weight: int = written_damage(out)
+		if not lays and weight <= 0:
+			continue
+		if is_same(out, move):
+			out = move.duplicate(true)
+		if lays:
+			for effect in out.effects:
+				if str(effect.get("kind", "")) == str(status) and (effect.get("amount", 0) is int or effect.get("amount", 0) is float):
+					effect.amount = int(effect.amount) * 2
+			continue
+		var stacks: int = clampi(int(ceil(float(weight) * float(shares[status]) / 100.0)), 1, most)
+		out.effects.append({"kind": str(status), "target": aimed, "amount": stacks})
+		if not str(out.get("text", "")).is_empty():
+			out.text = "%s, and {%d} %s" % [str(out.text), out.effects.size() - 1, str(status).capitalize()]
+	return out
 
 static func traits_for(enemy: Dictionary) -> Dictionary:
 	## Everything the creature is at this moment: its written traits, its old-style gimmick
@@ -266,7 +424,7 @@ static func traits_for(enemy: Dictionary) -> Dictionary:
 		out[str(key)] = enemy.traits[key]
 	for key in out.keys():
 		var value: Variant = out[key]
-		if (value is bool and not value) or ((value is int or value is float) and float(value) <= 0.0):
+		if value == null or (value is bool and not value) or ((value is int or value is float) and float(value) <= 0.0):
 			out.erase(key)
 	return out
 

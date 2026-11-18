@@ -499,16 +499,25 @@ export function wardenFor(mine, depth) {
 	const wardens = mine?.wardens || [];
 	if (!mine?.endless && mine?.boss && depth === mineBottom(mine)) return String(mine.boss);
 	if (!wardens.length) return String(mine?.boss || '');
-	if (mine.endless) return endlessWarden(mine, Math.max(1, Math.floor(depth / Math.max(1, Number(mine.warden_every ?? C.constant('endless_warden_every', 8))))));
+	// The Rift's smaller Wardens, at the landing halfway between two of its bosses (sim/descent.gd stands_between).
+	if (standsBetween(mine, depth)) return String(mine.remembered_wardens[Math.floor(depth / wardenEvery(mine)) % mine.remembered_wardens.length]);
+	if (mine.endless) return endlessWarden(mine, Math.max(1, Math.floor(depth / wardenEvery(mine))));
 	const listed = mine.warden_depths || [];
 	let index = listed.indexOf(depth);
 	if (index < 0) index = wardens.length - 1;
 	return String(wardens[Math.min(index, wardens.length - 1)]);
 }
 
+const wardenEvery = (mine) => Math.max(1, Number(mine?.warden_every ?? C.constant('endless_warden_every', 8)));
+
+export function standsBetween(mine, depth) {
+	const every = wardenEvery(mine);
+	return Boolean(mine?.endless) && (mine.remembered_wardens || []).length > 0 && every % 2 === 0 && depth > 0 && depth % every === every / 2;
+}
+
 export function isWarden(depth, mine = null) {
 	if (depth <= 0) return false;
-	if (mine?.endless) return depth % Math.max(1, Number(mine.warden_every ?? C.constant('endless_warden_every', 8))) === 0;
+	if (mine?.endless) return depth % wardenEvery(mine) === 0 || standsBetween(mine, depth);
 	if ((mine?.warden_depths || []).includes(depth)) return true;
 	return depth === mineBottom(mine);
 }

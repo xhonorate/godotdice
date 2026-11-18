@@ -14,6 +14,8 @@ extends RefCounted
 ##   full_house          a set of three and a set of two, the triple at or above the rung
 ##   straight            a run at least the rung long
 ##   odd / even          at least the rung many dice of that parity
+##   balanced            the odd dice and the even dice differ in number by no more than the rung
+##                       (Equinox; a wild is both, so it counts for neither side)
 ##   distinct            at least the rung many different values; `high_crown` asks the highest die
 ##                       to be a crown as well (Clean Kill)
 ##   value               at least the rung many dice showing one of `values`
@@ -62,7 +64,7 @@ extends RefCounted
 const KINDS: Array = ["all_odd", "all_even", "always", "pair", "two_pair", "triple", "full_house", "quad", "quint", "straight",
 	"odd", "even", "distinct", "value", "at_most", "at_least", "total_pct_at_least", "total_pct_at_most",
 	"high_pct_at_least", "held", "rerolled", "resonance", "low_count", "crowns", "crowns_at_most", "skip_straight", "distinct_dominant", "pyrite", "fizzles", "below", "kills",
-	"high_count", "total_at_most", "total_window", "scale", "all_faces", "colors", "set",
+	"high_count", "total_at_most", "total_window", "scale", "all_faces", "colors", "set", "balanced",
 	"each_turn", "every_nth_turn", "emerge", "on_death", "hp_below", "action_begin", "countdown",
 	## A creature's action dice: a move fires when its own face lands (`face`), or when the
 	## faces it names have landed together in one action (`match`). See creatures.gd.
@@ -200,7 +202,8 @@ static func evaluate(trigger: Dictionary, cut_step: int, a: Dictionary, context:
 				result.count = int(run.get("length", 0))
 		"all_odd", "all_even":
 			var parity: int = int(a.get("odd" if kind == "all_odd" else "even", 0))
-			result.active = int(a.get("dice_count", 0)) >= maxi(2, need) and parity == int(a.get("dice_count", 0))
+			## An Equinox earlier this turn has every die count as both, so the count can run past the dice.
+			result.active = int(a.get("dice_count", 0)) >= maxi(2, need) and parity >= int(a.get("dice_count", 0))
 			result.dice = _all_dice(a)
 			result.value = int(a.get("total", 0))
 			result.count = parity
@@ -209,9 +212,19 @@ static func evaluate(trigger: Dictionary, cut_step: int, a: Dictionary, context:
 			var have: int = int(a.get("odd" if wanted_odd else "even", 0))
 			if have >= need:
 				result.active = true
-				result.dice = DeepHand.matching(a, func(v: int) -> bool: return (v % 2 == 1) == wanted_odd)
+				## After an Equinox every die is of both parities (`both_parities`, DeepHand.both_parities).
+				result.dice = _all_dice(a) if int(a.get("both_parities", 0)) > 0 else DeepHand.matching(a, func(v: int) -> bool: return (v % 2 == 1) == wanted_odd)
 				result.count = have
 				result.value = have
+		"balanced":
+			var apart: int = absi(int(a.get("odd", 0)) - int(a.get("even", 0)))
+			if apart <= need and int(a.get("dice_count", 0)) > 0:
+				result.active = true
+				result.dice = _all_dice(a)
+				result.count = int(a.get("dice_count", 0))
+				result.value = apart
+			else:
+				result.reason = "%d odd and %d even: %d apart." % [int(a.get("odd", 0)), int(a.get("even", 0)), apart]
 		"distinct":
 			## `high_crown`: the highest die has to be on its top face as well (Clean Kill's).
 			if int(a.get("distinct", 0)) >= need and (not bool(trigger.get("high_crown", false)) or int(a.get("high_crown", 0)) > 0):
@@ -494,7 +507,7 @@ static func describe(trigger: Dictionary, cut_step: int) -> Dictionary:
 			label = "%d+" % need if need > 1 else ""
 		"straight", "odd", "even", "distinct", "held", "rerolled", "resonance", "low_count", "crowns", "skip_straight", "distinct_dominant":
 			label = "×%d" % need
-		"crowns_at_most":
+		"crowns_at_most", "balanced":
 			label = "≤%d" % need
 		"value":
 			var wanted: Array = trigger.get("values", [7])
@@ -573,6 +586,10 @@ static func words(trigger: Dictionary, cut_step: int) -> String:
 		"straight": return "A straight of %d: %d consecutive values in any order." % [need, need]
 		"odd": return "At least %s showing odd values." % _dice(need)
 		"even": return "At least %s showing even values." % _dice(need)
+		"balanced":
+			if need <= 0:
+				return "As many odd dice as even ones."
+			return "Odd dice and even dice no more than %d apart in number." % need
 		"distinct":
 			if bool(trigger.get("high_crown", false)):
 				return "At least %s with no two alike, the highest a crown." % _dice(need)

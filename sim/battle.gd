@@ -23,7 +23,9 @@ extends RefCounted
 ## and TICK_GAP more for every round after it, since the view plays them one at a time; so
 ## does a gem or a Birthstone that ticks Poison early (`ticks_span`).
 const BASE_DURATION: Dictionary = {"turn_begin": 0.8, "resolution_begin": 0.4, "rail_begin": 0.3, "gem_fire": 0.4,
-	"gem_fizzle": 0.2, "birthstone": 0.9, "rail_end": 0.3, "skip": 0.6, "enemy_begin": 0.25, "enemy_roll": 0.75, "enemy_ability": 0.47, "enemy_move": 0.35, "enemy_end": 0.2, "tick": 0.6, "battle_over": 1.2}
+	"gem_fizzle": 0.2, "birthstone": 0.9, "rail_end": 0.3, "skip": 0.6, "enemy_begin": 0.25, "enemy_roll": 0.75, "enemy_ability": 0.47, "enemy_move": 0.35, "enemy_end": 0.2, "tick": 0.6, "battle_over": 1.2,
+	## A boss getting back up (`_rise`): the shock, the bar sweeping full and the title card.
+	"enemy_rise": 2.8}
 ## The beat the rounds of a tick are played on, one after another.
 const TICK_GAP: float = 0.35
 ## A combo's windup holds a breath longer than a plain one, and a roll that could decide the
@@ -84,7 +86,7 @@ const BIRTH_LEAD: float = 0.25
 const TALLY_KINDS: Array = ["damage", "block", "heal", "poison", "gold", "spikes", "regeneration", "retain"]
 const HAND_KINDS: Array = ["raise_low", "raise_high", "set_match", "flip_low", "flip_high", "phantom_high", "phantom_low", "graft_pairs"]
 const SELF_KINDS: Array = ["amplify_next", "cut_step_next", "grant_reroll", "retrigger_previous", "quality_bonus", "sparkle",
-	"coin_flip", "resonance", "replay_color", "replay_fizzled", "rank_buff", "repeat_next", "void_copy", "gem_rank", "upgrade_faces", "stake", "appraise",
+	"coin_flip", "resonance", "replay_color", "replay_fizzled", "rank_buff", "repeat_next", "void_copy", "gem_rank", "upgrade_faces", "stake", "appraise", "ratchet", "both_parities",
 	"fire_neighbours", "force_after", "absorbed",
 	"phantom_roll", "rethrow", "gild", "soak", "each_after", "on_block", "fire_birthstone", "spectrum", "stone_chance",
 	"double_resonance", "keep_phantoms", "bonus_die", "double_resonance_next", "lose_pyrite", "reflect_blows", "invert_previous",
@@ -287,34 +289,52 @@ static func begin(players: Array, creature_keys: Array, context: Dictionary, rng
 		## left the bank already — it comes back only if he wins.
 		if str(unit.get("passive", {}).get("kind", "")) == "pot_share":
 			stake(unit, DeepRules.pyrite(unit) * int(unit.passive.get("amount", 10)) / 100)
-	## A Rift Warden is one of the earlier bosses remembered with one trait more, picked by
-	## the seed before the fight so every guest sees the same creature.
+	## A Rift Warden is one of the earlier bosses or Wardens remembered with one named trait
+	## more, picked by the seed before the fight so every guest sees the same creature. A
+	## boss comes back with `bars` bars (three), whatever it had upstairs.
 	var extra: Dictionary = {}
-	if bool(context.get("remembered", false)):
-		extra = _remembered(str(context.get("extra_trait", "")), rng_creatures)
-	## Crown's Court: the boss at this place in the row is one the Rift remembers.
+	if bool(context.get("remembered", false)) and not creature_keys.is_empty():
+		extra = _remembered(str(creature_keys[0]), str(context.get("extra_trait", "")), rng_creatures, int(context.get("bars", 0)))
+	## Crown's Court: the boss at this place in the row is one the Rift remembers, with its one
+	## trait and a single bar.
 	var court: int = int(context.get("court", -1))
+	## The bosses someone in the party has already watched get back up: their bars are shown.
+	var seen_rise: Array = context.get("seen_rise", [])
 	state.next_enemy = 0
 	for index in range(creature_keys.size()):
 		var key: String = str(creature_keys[index])
 		var own: Dictionary = extra if index == 0 else {}
 		if index == court:
-			own = _remembered("", rng_creatures)
+			own = _remembered(key, "", rng_creatures, -1)
 		var foe: Dictionary = DeepCreatures.make(key, _enemy_id(state), state.threat, players.size(), context.get("scale", {}), rng_creatures, own)
 		if not own.is_empty():
 			foe.remembered = str(own.get("remembered", ""))
+		foe.bars_shown = int(foe.get("bars", 1)) > 1 and seen_rise.has(key)
 		state.enemies.append(foe)
 		_bring_escorts(state, foe, rng_creatures)
 	_begin_turn(state, rng_dice, rng_creatures)
 	return state
 
-static func _remembered(chosen: String, rng: RandomNumberGenerator) -> Dictionary:
-	## What a boss the Rift remembers comes back with: one trait more, picked by the seed
-	## before the fight so every guest sees the same creature.
+static func _remembered(key: String, chosen: String, rng: RandomNumberGenerator, bars: int = 0) -> Dictionary:
+	## What a creature the Rift remembers comes back with: one named trait more, never one it
+	## has or is written to take as it rises, picked by the seed before the fight so every
+	## guest sees the same creature. It is called after it: "The Jagged Drill". `bars` above
+	## nothing asks for that many bars (`DeepCreatures.rises_for`); below, for one only.
+	var def: Dictionary = DeepContent.creature(key)
+	var has: Array = def.get("traits", {}).keys()
+	for written in def.get("rising", {}).get("rises", []):
+		has.append_array(written.get("traits", {}).keys())
 	var remembered: String = chosen
 	if remembered.is_empty():
-		remembered = str(DeepRng.pick(rng, DeepContent.REMEMBERED_TRAITS))
-	return {"name_prefix": "The Remembered ", "traits": {remembered: 25 if remembered == "sturdy" else true}, "remembered": remembered}
+		remembered = DeepContent.roll_trait(rng, has)
+	var extra: Dictionary = {}
+	if not remembered.is_empty():
+		extra = {"named": remembered, "traits": {remembered: DeepContent.REMEMBERED_VALUES.get(remembered, true)}, "remembered": remembered}
+	if bars > 0:
+		extra.bars = bars
+	elif bars < 0:
+		extra.one_bar = true
+	return extra
 
 static func enrage_turn(state: Dictionary) -> int:
 	## The turn a fight's creatures enrage on: the pack's, or sooner under Early Enrage.
@@ -657,7 +677,7 @@ static func step(state: Dictionary, rng_dice: RandomNumberGenerator, rng_creatur
 		_close_cleared(state)
 		return step(state, rng_dice, rng_creatures)
 	## The queue ran dry without a turn_end: close the turn anyway.
-	return _end_turn(state, rng_dice, rng_creatures)
+	return _perform(state, {"kind": "turn_end"}, rng_dice, rng_creatures)
 
 static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGenerator, rng_creatures: RandomNumberGenerator) -> Dictionary:
 	match str(s.kind):
@@ -690,6 +710,8 @@ static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGen
 			unit.damp_carry = 0
 			unit.force_after = {}
 			unit.fired_colors = []
+			## An Equinox's word holds for the turn it fired in.
+			unit.parity_both = 0
 			unit.gem_results = {}
 			unit.resonance_mult = 1
 			unit.second_act = false
@@ -788,6 +810,16 @@ static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGen
 			var foe: Dictionary = enemy(state, str(s.unit))
 			if foe.is_empty() or int(foe.hp) <= 0 or done(state):
 				return {}
+			## Down on its last point since the party's turn: it gets back up, and then acts
+			## (the owner's pick; `rise_then_acts` 0 makes getting up its whole action).
+			if bool(foe.get("fallen", false)):
+				var goes_on: bool = int(DeepContent.constant("rise_then_acts", 1)) > 0
+				if goes_on:
+					state.queue.push_front({"kind": "enemy_begin", "unit": foe.id})
+				var risen: Dictionary = _rise(state, foe, rng_creatures, goes_on)
+				if not goes_on:
+					DeepCreatures.finish(foe)
+				return risen
 			DeepCreatures.prepare(foe)
 			DeepCreatures.refresh_bonuses(foe, state)
 			foe.acting = true
@@ -997,6 +1029,13 @@ static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGen
 		"tick":
 			return _tick(state, rng_creatures)
 		"turn_end":
+			## One that fell after its own action (a tick, a thorn, a mortar) gets back up
+			## before the next turn opens: nobody is handed a turn against a boss they cannot hurt.
+			if not done(state):
+				for foe in state.enemies:
+					if bool(foe.get("fallen", false)) and int(foe.hp) > 0:
+						state.queue.push_front({"kind": "turn_end"})
+						return _rise(state, foe, rng_creatures, false)
 			return _end_turn(state, rng_dice, rng_creatures)
 	return {}
 
@@ -1398,7 +1437,10 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 		## A forecast does not know which debuff a Hex will draw, so it draws none (`_apply_one`).
 		if dry and kind == "random_debuff":
 			applied.dry = true
-		if kind in HAND_KINDS or kind in SELF_KINDS:
+		if kind == "mosaic":
+			## Each go is its own blow, guard or gift, drawn as it lands (`_mosaic`).
+			results.append_array(_mosaic(state, unit, applied, rng, dry, reactions, socket, previous_socket))
+		elif kind in HAND_KINDS or kind in SELF_KINDS:
 			applied.reactions = reactions
 			## A skill this socket only wears (a Doublet's, a Black Opal's) is not this stone's to spend.
 			applied.borrowed = not str(opts.get("as_skill", "")).is_empty() or not str(stone.get("worn_from", "")).is_empty()
@@ -1555,6 +1597,7 @@ static func resolve_birthstone(state: Dictionary, unit: Dictionary, opts: Dictio
 	## or killed the creature, since the throw.
 	numb_hand(state, unit)
 	var a: Dictionary = DeepHand.analyze(unit.hand)
+	DeepHand.both_parities(a, int(unit.get("parity_both", 0)))
 	## A Birthright fires it mid-rail at a share of the Resonance so far.
 	var resonance: int = DeepRules.sat_muldiv(int(unit.get("resonance", 0)), maxi(0, int(opts.get("share", 100))), 100)
 	## On Fire: last turn's High Roller doubled the whole total it reads this turn.
@@ -2979,6 +3022,50 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 			out.sockets = changed
 			out.rank = rank
 			_credit_buff(unit, rank, socket)
+		"ratchet":
+			## Zenith (step 1): every die in the high half of its size has the face it shows raised a
+			## point. Nadir (step -1): every die in the low half has it lowered one, never below 1.
+			## For the fight (the fight gives the die back, `_remember_die`), or for the run.
+			var step: int = 1 if int(effect.get("step", 1)) >= 0 else -1
+			var permanent: bool = bool(effect.get("permanent", false))
+			var turned: Array = []
+			for roll in unit.hand:
+				if bool(roll.get("phantom", false)) or roll.has("numb") or str(roll.get("kind", "plain")) in ["wild", "blank"]:
+					continue
+				var size: int = DeepDice.size_of(str(roll.shape)) if roll.has("shape") else maxi(1, int(roll.get("top", roll.value)))
+				var low: bool = int(roll.value) * 2 <= size
+				if (step > 0 and low) or (step < 0 and (not low or int(roll.value) <= 1)):
+					continue
+				for die in unit.dice:
+					if str(die.id) != str(roll.die_id):
+						continue
+					var at: int = int(roll.get("face", -1))
+					if at < 0 or at >= die.faces.size():
+						break
+					if not permanent:
+						_remember_die(unit, die)
+					_ratchet_face(die, at, step)
+					## For the run: a copy the fight is keeping to give back takes the change too.
+					if permanent:
+						var kept: Dictionary = unit.get("fight_dice", {}).get(str(die.id), {})
+						if not kept.is_empty():
+							_ratchet_face(kept.was, at, step)
+					roll.value = maxi(1, int(roll.value) + step)
+					if roll.has("base"):
+						roll.base = maxi(1, int(roll.base) + step)
+					roll.top = DeepDice.top(die)
+					turned.append(str(die.id))
+					break
+			out.dice = turned
+			out.step = step
+			out.permanent = permanent
+			if turned.is_empty():
+				out.nothing = true
+		"both_parities":
+			## Equinox: for the rest of the turn every die is odd and even to every gem after it
+			## (DeepHand.both_parities), twice over for a Flawless one.
+			unit.parity_both = maxi(int(unit.get("parity_both", 0)), maxi(1, amount))
+			out.times = int(unit.parity_both)
 		"upgrade_faces":
 			## Only the first die it matches, in the order they sit in the hand, that still meets
 			## the gem's line: a proc after the first finds the face it raised past the line and
@@ -4311,7 +4398,16 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 			## An action die grows another like one it was written with (`template`).
 			var written: Array = DeepCreatures.definition(target).get("dice", [])
 			var model: Variant = written[clampi(int(effect.get("template", 0)), 0, written.size() - 1)] if not written.is_empty() else null
-			if target.get("dice", []).size() < cap and model is Dictionary and not model.get("faces", []).is_empty():
+			if target.get("dice", []).size() < cap and effect.has("copy") and int(effect.copy) >= 0 and int(effect.copy) < target.get("dice", []).size():
+				## One of its dice over again as it stands now, grown faces and all (the Hollow Crown's last bar).
+				var twin_die: Dictionary = target.dice[int(effect.copy)].duplicate(true)
+				twin_die.id = "%s_d%d" % [str(target.id), target.dice.size()]
+				twin_die.erase("top")
+				target.dice.append(twin_die)
+				if bool(target.get("acting", false)):
+					target.suppressed = int(target.get("suppressed", 0)) + 1
+				out.die = twin_die.duplicate(true)
+			elif target.get("dice", []).size() < cap and model is Dictionary and not model.get("faces", []).is_empty():
 				var head: Dictionary = DeepCreatures.face_die(model, "%s_d%d" % [str(target.id), target.dice.size()], DeepCreatures.moves_for(target))
 				target.dice.append(head)
 				## A head grown mid-action first throws at its next action.
@@ -4890,6 +4986,89 @@ static func _rise_again(unit: Dictionary) -> bool:
 	unit.hp = maxi(1, int(unit.max_hp) / 2)
 	return true
 
+static func _stand(state: Dictionary, unit: Dictionary) -> bool:
+	## A boss with a bar still to come (`DeepCreatures.rises_for`) whose health has just run
+	## out: it stays on 1 health, and until it gets back up (`_rise`) nothing takes that. No
+	## kill is counted and nothing it left behind is paid: that waits for its last bar.
+	if str(unit.get("side", "")) != "enemy" or int(unit.get("hp", 0)) > 0 or bool(unit.get("fallen", false)) or bool(unit.get("fled", false)):
+		return false
+	if unit.get("rises", []).is_empty():
+		return false
+	unit.hp = 1
+	unit.fallen = true
+	unit.fell_turn = int(state.get("turn", 0))
+	## The Undertow goes under the water as it falls, and comes up biting.
+	if str(DeepCreatures.definition(unit).get("rising", {}).get("fall", "")) == "dive":
+		unit.burrowed = true
+	return true
+
+static func _rise(state: Dictionary, foe: Dictionary, rng: RandomNumberGenerator, acts: bool) -> Dictionary:
+	## A fallen boss gets back up (owner, November 18, 2026): every affliction is shed, its
+	## block is what it walked in behind, its health is a full bar, and it takes what its next
+	## rise gives it (traits for the rest of the fight, and whatever it does as it rises). It
+	## keeps its Strength, the faces it turned, the dice it grew, what it called and what it
+	## took. `acts`: it rises as its action opens and goes on to take it; otherwise it fell
+	## after acting and rises as the turn closes.
+	var rise: Dictionary = foe.rises.pop_front() if not foe.get("rises", []).is_empty() else {}
+	foe.fallen = false
+	foe.erase("fell_turn")
+	foe.bar = int(foe.get("bar", 1)) + 1
+	foe.bar_name = str(rise.get("name", ""))
+	foe.bars_shown = true
+	var shed: Array = []
+	for status in CLEANSED:
+		if int(foe.statuses.get(status, 0)) > 0:
+			shed.append(status)
+		foe.statuses.erase(status)
+	if int(foe.get("dread_turns", 0)) > 0:
+		shed.append("dread")
+	if int(foe.get("stolen_dice", 0)) > 0:
+		shed.append("bound")
+	foe.dread_turns = 0
+	foe.stolen_dice = 0
+	foe.clouded_move = -1
+	foe.skip_streak = 0
+	foe.stun_guard = false
+	for held in ["mark_spent", "marks_kept", "plague", "plague_stone", "stacked_by", "poison_at_tick"]:
+		foe.erase(held)
+	foe.block = DeepRules.sat_floor(roundf(float(DeepCreatures.definition(foe).get("block", 0)) * float(foe.get("hp_scale", 1.0))))
+	foe.hp = int(foe.max_hp)
+	foe.hp_at_turn = int(foe.hp)
+	foe.hurt_by = {}
+	foe.hurt_by_color = {}
+	foe.biggest_hit = 0
+	foe.hardest_gem = {}
+	## One that fell after its action comes up out of the water here; one about to act comes
+	## up as that action opens, biting (`enemy_begin`).
+	if not acts:
+		foe.burrowed = false
+	var gained: Array = []
+	for trait_key in rise.get("traits", {}):
+		foe.traits[str(trait_key)] = rise.traits[trait_key]
+		gained.append(str(trait_key))
+	var results: Array = []
+	if not rise.get("effects", []).is_empty():
+		var move: Dictionary = {"name": str(rise.get("name", "")), "kind": "ready", "trigger": {"kind": "rise"}, "effects": rise.effects}
+		var trig: Dictionary = {"active": true, "dice": [], "kind": "rise", "value": 0, "count": 0}
+		var resolved: Dictionary = DeepCreatures.resolved_move(foe, state, move, -1, trig, false, -1)
+		var reactions: Dictionary = {}
+		for effect in resolved.effects:
+			results.append_array(_apply(state, foe, effect, rng, "", reactions))
+	## The enrage clock runs on through every phase (the owner's pick). `rise_restarts_enrage` 1
+	## starts it again here, so each phase has its own calm turns.
+	if int(DeepContent.constant("rise_restarts_enrage", 0)) > 0:
+		state.enrage_turn = int(state.get("turn", 0)) + int(DeepContent.constant("enrage_turn", 7))
+	DeepCreatures.prepare(foe)
+	DeepCreatures.refresh_bonuses(foe, state)
+	## The run notes who has been seen getting up, so its bars are shown the next time (`DeepBestiary`).
+	if not state.get("rose", null) is Array:
+		state.rose = []
+	if not state.rose.has(str(foe.get("key", ""))):
+		state.rose.append(str(foe.get("key", "")))
+	return _event(state, "enemy_rise", {"unit": str(foe.id), "bar": int(foe.bar), "bars": int(foe.get("bars", 1)), "name": str(foe.bar_name),
+		"creature": str(foe.get("name", "")), "traits": gained, "shed": shed, "hp_after": int(foe.hp), "max_hp": int(foe.max_hp),
+		"block_after": int(foe.block), "effects": results, "acts": acts})
+
 static func _cut_heads(foe: Dictionary, loss: int) -> int:
 	## A Crystal Hydra: every share of its health lost since its last action cuts a head off,
 	## down to one. They grow back two for one as it next acts (`enemy_begin`).
@@ -5113,6 +5292,48 @@ static func _grind(die: Dictionary, at: int) -> void:
 				physical_top = maxi(physical_top, int(face.value))
 		die.top = mini(int(die.top), maxi(1, physical_top))
 
+static func _ratchet_face(die: Dictionary, at: int, step: int) -> void:
+	## One face a point higher or lower (never below 1), and the die's top kept honest.
+	var faces: Array = die.get("faces", [])
+	if at < 0 or at >= faces.size():
+		return
+	faces[at].value = maxi(1, int(faces[at].get("value", 1)) + step)
+	if die.has("top"):
+		var physical_top: int = 0
+		for face in faces:
+			if str(face.get("kind", "plain")) != "blank":
+				physical_top = maxi(physical_top, int(face.value))
+		die.top = maxi(int(die.top), physical_top) if step > 0 else mini(int(die.top), maxi(1, physical_top))
+
+static func _mosaic(state: Dictionary, unit: Dictionary, effect: Dictionary, rng: RandomNumberGenerator, dry: bool, reactions: Dictionary, socket: int, previous_socket: int) -> Array:
+	## Mosaic: as many goes as its amount, each a random one of the table's effects at the
+	## stone's Cut, the first 1x and each after `climb` more (1x, 2x, 3x; a Flawless one 1x, 3x,
+	## 5x). Everything but Resonance grows with the stone's weight. A forecast draws nothing.
+	var out: Array = []
+	if dry:
+		return out
+	var table: Dictionary = effect.get("table", {})
+	var keys: Array = DeepRules.MOSAIC_EFFECTS.filter(func(k: String) -> bool: return table.has(k))
+	if keys.is_empty():
+		return out
+	var climb: int = maxi(1, int(effect.get("climb", 1)))
+	var weight: float = float(effect.get("weight", 1.0))
+	var cut: int = clampi(int(effect.get("cut_step", 0)), 0, DeepPatterns.STEPS - 1)
+	for go in range(maxi(0, int(effect.get("amount", 0)))):
+		var pick: String = str(keys[rng.randi_range(0, keys.size() - 1)])
+		var times: int = 1 + go * climb
+		var worth: int = DeepRules.sat_mul(int(table[pick][cut]), times)
+		if pick != "resonance":
+			worth = DeepRules.sat_floor(float(worth) * weight)
+		var each: Dictionary = {"kind": pick, "target": DeepRules.default_target(pick), "amount": worth, "repeat": 1, "procs": 1, "scaled": pick != "resonance", "reactions": reactions}
+		var did: Array = [_self_effect(state, unit, each, socket, previous_socket, dry, rng)] if pick == "resonance" else _apply(state, unit, each, rng, "", reactions)
+		for result in did:
+			result.mosaic = {"go": go + 1, "times": times}
+			out.append(result)
+		if done(state):
+			break
+	return out
+
 static func _remember_die(unit: Dictionary, die: Dictionary) -> void:
 	## A die as it was before the fight first laid a hand on it, kept to be given back.
 	if not unit.has("fight_dice"):
@@ -5198,6 +5419,12 @@ static func _damage(state: Dictionary, source: Dictionary, target: Dictionary, a
 			raw -= sent
 			out.raw = raw
 	var is_enemy_target: bool = str(target.get("side", "")) == "enemy"
+	## Down on its last point (`_stand`): nothing takes that until it has got back up.
+	if is_enemy_target and bool(target.get("fallen", false)):
+		out.merge({"absorbed": 0, "hp_loss": 0, "hp_after": int(target.hp), "block_after": int(target.block), "standing": true}, true)
+		if settle:
+			_check_outcome(state)
+		return out
 	if is_enemy_target and str(source.get("side", "")) == "player" and not reactive:
 		## A mirror held up: the next blow on it goes straight back at whoever threw it.
 		if int(target.get("mirror", 0)) > 0 and raw > 0:
@@ -5279,6 +5506,12 @@ static func _damage(state: Dictionary, source: Dictionary, target: Dictionary, a
 			target.gold = int(target.gold) - stolen
 			source.stolen_gold = int(source.get("stolen_gold", 0)) + stolen
 			out.stolen = stolen
+		## Leeching (owner, November 18, 2026): it heals for the health its blows take, weighed
+		## the way its own health is (a blow's weight taken off, its health's put on).
+		if loss > 0 and not reactive and str(source.get("side", "")) == "enemy" and int(source.get("hp", 0)) > 0 and DeepCreatures.has_trait(source, "leeching"):
+			var fed: int = _heal(source, maxi(1, DeepRules.sat_muldiv(loss, DeepCreatures.health_pct(source), maxi(1, DeepCreatures.damage_pct(source)))))
+			if fed > 0:
+				out.leeched = {"unit": str(source.id), "amount": fed, "hp_after": int(source.hp)}
 	else:
 		source.dealt = DeepRules.sat_add(int(source.get("dealt", 0)), loss)
 		tally_add(source, "damage", loss)
@@ -5379,11 +5612,22 @@ static func _damage(state: Dictionary, source: Dictionary, target: Dictionary, a
 			twin.held_gems = []
 			twin.stolen_gold = 0
 			twin.charging = {}
+			## Nor does it carry the original's bars: the half that splits off dies once.
+			twin.rises = []
+			twin.bars = 1
+			twin.bar = 1
+			twin.bars_shown = false
 			state.enemies.insert(state.enemies.find(target) + 1, twin)
 			out.split = twin.id
 		if _rise_again(target):
 			out.risen = true
 			out.hp_after = target.hp
+		if _stand(state, target):
+			out.fell = true
+			out.hp_after = target.hp
+			## The point it keeps was not taken: what the blow says it took and where it left
+			## the bar add up to where the bar was.
+			out.hp_loss = maxi(0, int(out.get("hp_loss", 0)) - 1)
 		if int(target.hp) > 0:
 			var crossed: Array = _thresholds(state, target, rng)
 			if not crossed.is_empty():
@@ -5427,6 +5671,11 @@ static func _damage(state: Dictionary, source: Dictionary, target: Dictionary, a
 		source.hp = int(source.hp) - cut
 		tally_add(source, "taken", cut)
 		out.jagged = {"unit": str(source.id), "amount": cut, "hp_after": int(source.hp), "by": str(target.id)}
+	## Wrathful (owner, November 18, 2026): every blow it takes gives it Strength for the fight.
+	var wrath: int = DeepCreatures.trait_value(target, "wrathful", 0) if is_enemy_target else 0
+	if not reactive and not pure and amount > 0 and wrath > 0 and str(source.get("side", "")) == "player" and int(target.hp) > 0:
+		target.statuses.strength = mini(99, int(target.statuses.get("strength", 0)) + wrath)
+		out.wrath = {"unit": str(target.id), "amount": wrath, "strength": int(target.statuses.strength)}
 	var spikes: int = int(target.statuses.get("spikes", 0))
 	if not reactive and not pure and amount > 0 and spikes > 0 and not reactions.has(str(target.id)) and int(source.get("hp", 0)) > 0:
 		reactions[str(target.id)] = true
@@ -5741,6 +5990,10 @@ static func _tick_wound(state: Dictionary, unit: Dictionary, tick: Dictionary, r
 	if _rise_again(unit):
 		tick.risen = true
 		tick.hp_after = unit.hp
+	if _stand(state, unit):
+		tick.fell = true
+		tick.hp_after = unit.hp
+		tick.amount = maxi(0, int(tick.get("amount", 0)) - 1)
 	if int(unit.hp) <= 0:
 		if str(unit.get("side", "")) == "player":
 			## A tick that takes a player down counts as a down, as a blow's does.
@@ -5762,7 +6015,8 @@ static func _tick(state: Dictionary, rng: RandomNumberGenerator = null) -> Dicti
 	var ticks: Array = []
 	_settle_marks(state)
 	for unit in state.players + state.enemies:
-		if int(unit.hp) <= 0 or bool(unit.get("downed", false)):
+		## A boss down on its last point sheds everything as it gets up: nothing ticks on it meanwhile.
+		if int(unit.hp) <= 0 or bool(unit.get("downed", false)) or bool(unit.get("fallen", false)):
 			continue
 		var tick: Dictionary = _poison_tick(state, unit, rng)
 		if not tick.is_empty():

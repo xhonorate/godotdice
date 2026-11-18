@@ -161,6 +161,18 @@ static func _notes(home: Control, page: Control, key: String, record: Dictionary
 	if not tip.is_empty():
 		DeepUi.section(page, "eye", "Remember", DeepUi.ACCENT_HI, 11)
 		DeepUi.wrap(page, tip, 12, DeepUi.PAPER)
+	## A boss this player has watched get back up: its phases, and what each one gives it
+	## (the desk's lines; a finger held on one says what its traits do).
+	var phases: Array = BestiaryPage.phase_lines(home.profile, key)
+	if not phases.is_empty():
+		DeepUi.section(page, "heart", "Phases", DeepUi.ACCENT, 11).name = "BestiaryPhases"
+		for line in phases:
+			var said := DeepUi.hbox(page, int(DeepUi.pt(4)))
+			said.tooltip_text = str(line.tip)
+			## Passed on, so a drag that starts on the line still scrolls the page.
+			said.mouse_filter = Control.MOUSE_FILTER_PASS if not str(line.tip).is_empty() else Control.MOUSE_FILTER_IGNORE
+			DeepUi.icon(said, str(line.glyph), DeepUi.glyph_px(12), DeepUi.PAPER).size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+			DeepUi.wrap(said, str(line.words), 12, DeepUi.PAPER).size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	DeepUi.section(page, "star", "Your record", DeepUi.ACCENT, 11)
 	var row := DeepUi.hbox(page, int(DeepUi.pt(14)))
 	for entry in [["eye", str(int(record.get("met", 0))), "met"], ["sword", str(int(record.get("slain", 0))), "slain"],

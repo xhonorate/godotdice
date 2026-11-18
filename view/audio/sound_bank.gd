@@ -52,7 +52,10 @@ const NAMES: PackedStringArray = [
 	"grade_peerless", "star", "keep", "sell", "chisel", "gleam", "tally", "die_break",
 	"altar_hum", "altar_fizzle", "altar_make", "transcendent", "hollow_drop", "hollow_rise",
 	"reel_lever", "reel_tick", "reel_stop", "geode_crack", "jackpot", "contract_seal", "gem_shatter", "infinity",
-	"flame", "splash", "mirror", "claw", "hammer_strike"]
+	"flame", "splash", "mirror", "claw", "hammer_strike",
+	## A boss that gets back up (November 18, 2026): its fall, the heartbeat while it is down,
+	## a blow landing on it for nothing, and its rise.
+	"boss_fall", "heartbeat", "knock_dull", "boss_rise"]
 
 ## A sound replaced by hand (a master bounced from a DAW and brought in with
 ## `node tools/sound/import.mjs sound <name> <file>`) sits here, and is played instead of the
@@ -983,4 +986,35 @@ static func _bake(name: String) -> AudioStreamWAV:
 			DeepKit.felt(s, 0.03, 190.0, 0.35)
 			s.noise(0.03, 0.08, 0.15, 5000.0, 1500.0, 5.0)
 			return DeepKit.fin(s, 0.6)
+		# --- a boss that gets back up -----------------------------------------------------------
+		"boss_fall":
+			## Something very heavy going down: a sub dropping to the floor, a thud, the room after.
+			s = DeepSynth.new(1.6, 6130)
+			s.tone(0.0, 0.9, 70.0, 26.0, 0.8, "sine", 2.0, 0.002)
+			s.noise(0.0, 0.25, 0.25, 1800.0, 200.0, 2.4, 0.002)
+			s.rumble(0.05, 1.3, 0.4)
+			return DeepKit.fin(s, 0.9)
+		"heartbeat":
+			## Two low thumps, the second softer: played once a beat while it is down.
+			s = DeepSynth.new(0.7, 6131)
+			s.tone(0.0, 0.16, 62.0, 38.0, 0.7, "sine", 3.0, 0.004)
+			s.noise(0.0, 0.05, 0.06, 300.0, 120.0, 3.0, 0.002)
+			s.tone(0.26, 0.2, 52.0, 32.0, 0.55, "sine", 3.0, 0.004)
+			return DeepKit.fin(s, 0.6)
+		"knock_dull":
+			## A blow that does nothing: felt on stone, no ring to it.
+			s = DeepSynth.new(0.3, 6132)
+			DeepKit.felt(s, 0.0, 120.0, 0.5)
+			s.tone(0.0, 0.12, 110.0, 70.0, 0.4, "sine", 4.0, 0.001)
+			s.noise(0.0, 0.03, 0.12, 900.0, 300.0, 4.5, 0.0005)
+			return DeepKit.fin(s, 0.55)
+		"boss_rise":
+			## A breath drawn in, then the hit as it stands: stone, a sub, the room shaking, a growl under.
+			s = DeepSynth.new(2.4, 6133)
+			DeepKit.riser(s, 0.0, 0.7, 0.3, 82.0)
+			DeepKit.stone(s, 0.7, 1.5, 180.0)
+			s.tone(0.7, 0.9, 58.0, 30.0, 0.85, "sine", 2.2, 0.001)
+			s.rumble(0.75, 1.3, 0.4)
+			DeepKit.growl(s, 0.8, 0.9, 0.3, 18.0, 6134)
+			return DeepKit.fin(s, 0.95)
 	return null

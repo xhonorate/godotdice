@@ -202,7 +202,7 @@ func triggers() -> void:
 	check(cast(f, "DOUBLE_DOWN", [1, 1, 3, 4, 5]).kind == "gem_fire", "Double Down accepts two ones")
 	check(DeepContent.skill("SPALL").rarity == "COMMON" and DeepContent.skill("ANCHOR").rarity == "COMMON", "rarities updated")
 	check(DeepContent.section("skills").size() - DeepContent.transcendents().size() == 104, "all 104 skills that can be found are present")
-	check(DeepContent.transcendents().size() == 6, "and the six that are only made at an altar")
+	check(DeepContent.transcendents().size() == 11, "and the eleven that are only made at an altar")
 	for key in ["CROSSCUT", "DETONATE", "SHELTER", "MORTAR", "SIPHON", "STAKE", "APEX", "ENRICH", "APPRAISE", "GILDED_ARMOR", "TAILINGS"]:
 		check(DeepForge.skill_pool(DeepContent.mine("RIFT")).has(key), key + " is in the deepest pool")
 	## Invert was set aside with these once; it came back on October 24, 2026 as the Reverse Image gem.

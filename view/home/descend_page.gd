@@ -209,7 +209,8 @@ static func _going_down(home: Control, side: VBoxContainer) -> void:
 	DeepUi.pill(pills, "gem", str(birth.get("name", "Birthstone")), birth_tone, 11, str(birth.get("text", ""))).name = "WornStone"
 	var loadout: Dictionary = DeepProfile.loadout(home.profile, current)
 	var rail := DeepUi.hbox(box, 6)
-	home.socket_strip(rail, current, loadout, 44.0, false, func(index: int) -> void: home.edit_loadout(current, index))
+	var home_bound: Array = barred(home, current)
+	home.socket_strip(rail, current, loadout, 44.0, false, func(index: int) -> void: home.edit_loadout(current, index), home_bound, barred_tip(home))
 	var dice := DeepUi.hbox(box, 6)
 	dice.mouse_filter = Control.MOUSE_FILTER_PASS
 	dice.tooltip_text = home.OWN_DICE
@@ -226,7 +227,9 @@ static func _going_down(home: Control, side: VBoxContainer) -> void:
 	## it, on a line of its own under the dice (S3).
 	var light: float = _loadout_luck(home, current)
 	var luck: Dictionary = luck_said(loaded(home, current))
-	if light != 0.0:
+	if not home_bound.is_empty():
+		DeepUi.stat(dice, "cross_out", "%d stay home" % home_bound.size(), DeepUi.BAD, 12).tooltip_text = barred_tip(home)
+	elif light != 0.0:
 		var said := DeepUi.stat(dice, "gem", "%s %s" % [str(luck.short), MineMap.luck_stars(light).strip_edges()], DeepUi.GOOD if light > 0.0 else DeepUi.BAD, 12)
 		said.tooltip_text = str(luck.tip)
 		var why := DeepUi.wrap(box, str(luck.why), 12, DeepUi.MUTED)
@@ -248,7 +251,20 @@ static func loaded(home: Control, character: String) -> int:
 	for index in range(mini(rail.size(), DeepProfile.open_sockets(home.profile, character))):
 		if rail[index] is Dictionary:
 			stones += 1
-	return stones
+	## Narrow Shaft lets only the first few down: luck counts what goes.
+	var limit: int = DeepDescent.rail_limit(int(home.lobby.get("hazard", 0)))
+	return stones if limit < 0 else mini(stones, limit)
+
+static func barred(home: Control, character: String) -> Array:
+	## The sockets whose stones the party's Hazard tier keeps home (Narrow Shaft): every stone
+	## past the first three, left to right. [] below that tier.
+	return DeepDescent.left_behind(DeepProfile.loadout(home.profile, character).rail, DeepProfile.open_sockets(home.profile, character),
+		DeepDescent.rail_limit(int(home.lobby.get("hazard", 0))))
+
+static func barred_tip(home: Control) -> String:
+	## Why a stone crossed out on the rail stays home.
+	return "Narrow Shaft (Hazard %d): only the first %d stones in your loadout go down, left to right. This one stays in the vault." % [
+		int(home.lobby.get("hazard", 0)), DeepDescent.rail_limit(int(home.lobby.get("hazard", 0)))]
 
 static func luck_key(parent: Node, stones: int, size: int = 11, short: bool = false) -> Button:
 	## The phone's word for it: "4 loaded · -2 luck" as a key whose tap (or hold) brings up the

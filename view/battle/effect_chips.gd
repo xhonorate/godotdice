@@ -60,17 +60,48 @@ const TRAITS: Dictionary = {
 	## W4 and W3 (November 13, 2026): a blow that costs its thrower, and the Wardens' dice rules,
 	## pinned by a face until its next action.
 	"jagged": ["thorn", "Jagged", "Every blow it takes costs whoever threw it %d health. No block stops it, and it never takes your last point."],
+	## The named traits of November 18, 2026 (DeepContent.REMEMBERED_TRAITS): what the Rift rolls,
+	## a Champion carries and a boss takes as it rises.
+	"venomous": ["drop", "Venomous", "Its damaging faces also lay Poison: a quarter of the damage, 5 at most. A face that already lays Poison lays twice as much."],
+	"molten": ["flame", "Molten", "Its damaging faces also lay Burn: a quarter of the damage, 5 at most. A face that already lays Burn lays twice as much."],
+	"wrathful": ["sword", "Wrathful", "Every blow it takes gives it %d Strength for the fight."],
+	"leeching": ["heart", "Leeching", "It heals for the health its blows take off you. What you block does not feed it."],
 	"numb_low": ["low", "Low dice out", "Until its next action your dice showing %d or less count for nothing."],
 	"numb_high": ["high", "High dice out", "Until its next action your dice showing %d or more count for nothing."],
 	"numb_small": ["die", "Small dice out", "Until its next action your smallest dice count for nothing. A bowl all of one size keeps its last die."],
 	"set_toll": ["pair", "Mirrored dice", "Until its next action every throw costs you %d health for each die that matches another."],
 	"aura": ["cloud", "Aura", "While it lives, every player is %s."]}
 
+## The colour each named trait's chip, phase name and title card are drawn in: the colours its
+## look on the body uses (view/creatures/creature_wear.gd TRAIT_COLORS), lifted where one of
+## those is too dark to read as text.
+const NAMED_TONES: Dictionary = {"steadfast": Color("9aa6c0"), "sturdy": Color("b8b0a6"), "split_on_big_hit": Color("c9a9ff"), "jagged": Color("9fe0ff"),
+	"venomous": Color("9ad35a"), "molten": Color("ff8a2a"), "wrathful": Color("ff5a4a"), "leeching": Color("d0344e")}
+
+static func trait_tone(key: String) -> Color:
+	return NAMED_TONES.get(key, Color("c8a8ff"))
+
+static func bars_entry(foe: Dictionary) -> Dictionary:
+	## A boss that has to be beaten more than once (DeepCreatures.rises_for), once its bars
+	## are shown: which bar it is on, and what the next one gives it. {} for anything else.
+	var bars: int = int(foe.get("bars", 1))
+	var bar: int = int(foe.get("bar", 1))
+	if bars <= 1 or not (bool(foe.get("bars_shown", false)) or bar > 1):
+		return {}
+	var said: String = "Its last phase."
+	var rises: Array = foe.get("rises", [])
+	if not rises.is_empty():
+		var next: Dictionary = rises[0]
+		var called: String = str(next.get("name", ""))
+		said = "When its health runs out it stays on 1 health, and on its next action it gets back up at full health with everything on it shed. Next, %s: %s" % [
+			called if not called.is_empty() else DeepCreatures.bar_title(bar).to_lower(), DeepCreatures.rise_words(next)]
+	return entry("trait_bars_%d" % bar, "heart", "Phase %d of %d" % [bar, bars], false, "Phase %d of %d" % [bar, bars], said.strip_edges(), Color("ff8f7a"), -1, "trait")
+
 static func trait_entry(key: String, value: Variant) -> Dictionary:
 	## One trait as a chip. Traits the older gimmick table already names use its words.
 	if GIMMICKS.has(key):
 		var g: Array = GIMMICKS[key]
-		return entry("trait_" + key, str(g[0]), str(g[1]), false, str(g[1]), str(g[2]), Color("c8a8ff"), -1, "trait")
+		return entry("trait_" + key, str(g[0]), str(g[1]), false, str(g[1]), str(g[2]), trait_tone(key), -1, "trait")
 	if not TRAITS.has(key):
 		return entry("trait_" + key, "spark", key.capitalize(), false, key.capitalize(), "", Color("c8a8ff"), -1, "trait")
 	var t: Array = TRAITS[key]
@@ -98,7 +129,7 @@ static func trait_entry(key: String, value: Variant) -> Dictionary:
 				text = text % number
 				shown = ("%d%%" % number) if text.contains("%") and key in ["sturdy", "rising", "shielded_by_escorts", "resonance_damp", "hydra", "countdown_reset"] else str(number)
 	## On a plate the chip says the trait's name, and its number after it when it has one.
-	return entry("trait_" + key, str(t[0]), (str(t[1]) + (" " + shown if not shown.is_empty() else "")), false, str(t[1]), text, Color("c8a8ff"), -1, "trait")
+	return entry("trait_" + key, str(t[0]), (str(t[1]) + (" " + shown if not shown.is_empty() else "")), false, str(t[1]), text, trait_tone(key), -1, "trait")
 
 static func _ordinal_suffix(n: int) -> String:
 	if n % 100 in [11, 12, 13]:
@@ -257,6 +288,9 @@ static func for_enemy(foe: Dictionary, battle: Dictionary = {}) -> Array:
 	## For a creature the colors flip: what helps it is bad for the party.
 	for chip in _statuses(foe.get("statuses", {}), true):
 		out.append(chip)
+	## A boss whose bar has run out: on its last point until it gets back up (DeepBattle._stand).
+	if bool(foe.get("fallen", false)):
+		out.append(entry("fallen", "heart", "Cannot die this turn", false, "Cannot die this turn", "Its health has run out. Nothing takes its last point now: on its next action it gets back up at full health and sheds everything on it.", Color("e8ebf5")))
 	if bool(foe.get("burrowed", false)):
 		out.append(entry("burrowed", "rampart", "", true, "Burrowed", "Under the floor: it cannot be targeted until its next action. Your gems hit another creature instead, or wait."))
 	var drinking: Array = foe.get("absorb", [])
@@ -326,7 +360,7 @@ static func for_enemy(foe: Dictionary, battle: Dictionary = {}) -> Array:
 	if not str(foe.get("champion", "")).is_empty():
 		out.append(entry("champion", "star", "", false, "Champion", "A Hazard tier's elite, with a trait of its own: %s." % str(foe.champion), Color("ffb05a")))
 	if not str(foe.get("remembered", "")).is_empty():
-		out.append(entry("remembered", "crown", "", false, "Remembered", "A boss the Rift remembers, with one trait more: %s." % str(DeepContent.REMEMBERED_NAMES.get(str(foe.remembered), str(foe.remembered).capitalize())), Color("c8b8ff")))
+		out.append(entry("remembered", "crown", "", false, "Remembered", "The Rift remembers it from a mine above, with one trait more: %s." % DeepContent.trait_name(str(foe.remembered)), Color("c8b8ff")))
 	var downgrade: int = int(foe.get("dread_turns", 0))
 	if downgrade > 0:
 		out.append(entry("dread", "thorn", str(downgrade), true, "Dread", "All its dice are %d tiers smaller (minimum d2). One stack wears off after each action phase." % downgrade, Color(0, 0, 0, 0), downgrade))

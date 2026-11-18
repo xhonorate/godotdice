@@ -26,6 +26,8 @@ extends RefCounted
 ##   odd_values, even_values   how many different values of each parity show (wilds count for both)
 ##   distinct      number of different values (wilds each count as a new one)
 ##   low_dice, low_ids     dice in the low half of their size (a wild always is)
+##   high_dice, high_ids, high_sum   dice in the high half of their size, and what they show
+##                 added up (a wild is none of them: it is already counted low)
 ##   crowns, crown_ids     dice showing their own top face (a wild is always a crown)
 ##   crown_total   what those crowns add up to (a wild counts its top)
 ##   high_crown    1 when the highest roll is itself a crown, else 0
@@ -41,6 +43,16 @@ extends RefCounted
 ##   twin_ids      the dice on a Twin face, each counted as two (see `weigh`)
 ##   scale         {length, dice, values, total}: the longest climb across the dice from the
 ##                 smallest die to the largest, each showing more than the one before (Arpeggio)
+
+static func both_parities(a: Dictionary, times: int) -> void:
+	## An Equinox earlier this turn: every die counts as odd and as even, `times` over (a
+	## Flawless one counts each twice), for every gem after it.
+	if times <= 0:
+		return
+	var every: int = int(a.get("dice_count", 0)) * times
+	a.odd = every
+	a.even = every
+	a.both_parities = times
 
 static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 	var values: Array = []
@@ -65,6 +77,9 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 	var even: int = 0
 	var low_dice: int = 0
 	var low_ids: Array = []
+	var high_dice: int = 0
+	var high_ids: Array = []
+	var high_sum: int = 0
 	var crowns: int = 0
 	var crown_ids: Array = []
 	var crown_total: int = 0
@@ -139,6 +154,10 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 		if value * 2 <= faces:
 			low_dice += weight
 			low_ids.append(id)
+		else:
+			high_dice += weight
+			high_ids.append(id)
+			high_sum += value * weight
 		if value >= top:
 			crowns += weight
 			crown_ids.append(id)
@@ -209,7 +228,7 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 		"pairs": pairs, "straight": _straight(counts.keys(), wilds, ids_by_value, hand.size(), wild_top),
 		"odd": odd + wilds.size(), "even": even + wilds.size(), "distinct": counts.size() + wilds.size(),
 		"odd_values": odd_values + wilds.size(), "even_values": even_values + wilds.size(),
-		"low_dice": low_dice, "low_ids": low_ids, "crowns": crowns, "crown_ids": crown_ids, "crown_total": crown_total,
+		"low_dice": low_dice, "low_ids": low_ids, "high_dice": high_dice, "high_ids": high_ids, "high_sum": high_sum, "crowns": crowns, "crown_ids": crown_ids, "crown_total": crown_total,
 		"high_crown": 1 if (not wilds.is_empty() and wild_top >= high) or (high > 0 and crown_values.has(high)) else 0,
 		"ids_by_value": ids_by_value, "bases": bases, "showing": showing,
 		"sizes": sizes, "one_ids": one_ids, "scale": _scale(notes)}

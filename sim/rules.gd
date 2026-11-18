@@ -110,6 +110,13 @@ extends RefCounted
 ##     absorbed(a Black Opal: every skill it has absorbed this run fires from its socket)
 ##   Transcendent: fire_neighbours(that many goes for the gems beside it, before then after in turn)
 ##     force_after(every gem after it fires this turn whatever the dice show, that many times)
+##     ratchet(step +1: every die in the high half of its size has the face it shows raised a point;
+##       step -1: every die in the low half has it lowered a point, never below 1. For the fight,
+##       or for the run with `permanent`. Zenith and Nadir)
+##     mosaic(that many goes, each a random one of the `table`'s effects at its Cut's number,
+##       the first 1x and each after `climb` more; all but Resonance grow with carat. Mosaic)
+##     both_parities(for the rest of the turn every die counts as odd and as even, that many
+##       times over, to every gem after it. Equinox)
 ##   An effect may carry `share`: an expression giving a percentage of its amount, worked out
 ##     after carat rather than before so a small share of a small number is never rounded to
 ##     nothing, and never below one when there was anything to share.
@@ -173,7 +180,7 @@ extends RefCounted
 const OPS: Array = ["+", "-", "*", "min", "max", "floor_div", "pct", "if", "ge", "eq"]
 const TERMS: Array = ["rolled", "value", "second", "count", "high", "low", "total", "max_total", "missing", "odd", "even",
 	"distinct", "held", "rerolled", "dice", "count_value", "count_at_most", "count_at_least", "run_high", "run_length",
-	"set_value", "set_count", "sum_low", "sum_high", "block", "block_lost", "healed", "dealt", "hp", "max_hp", "hp_missing", "gold",
+	"set_value", "set_count", "sum_low", "sum_high", "high_dice", "high_sum", "block", "block_lost", "healed", "dealt", "hp", "max_hp", "hp_missing", "gold",
 	"resonance", "previous_amount", "carat", "cut", "clarity", "depth", "turn", "party", "crowns", "high_crown", "low_dice", "pyrite", "pot", "enemy_poison", "fizzles",
 	"swell", "held_gems", "biggest_hit", "party_heaviest_carat", "party_best_turn", "party_richest", "party_high_die", "taken_since", "turns_acted", "living_players", "strength", "pairs", "even_read",
 	"crown_total", "run_fires", "fight_resonance", "pair_count", "pairs_total", "rerolls_left", "run_kills", "run_breaks", "healed_all", "self_dots",
@@ -185,7 +192,7 @@ const EFFECT_KINDS: Array = ["damage", "block", "heal", "gold", "poison", "stun"
 	"sparkle", "coin_flip", "resonance", "replay_color", "replay_fizzled", "rank_buff", "repeat_next", "void_copy",
 	"replay_rail", "tick_poison", "stone_drop", "pot", "dice_upgrade", "ward", "retain", "charged", "marked",
 	"regeneration", "spikes", "dulled", "clouded", "lifeline", "max_hp", "max_hp_loss", "damage_curse", "detonate", "wager", "stake", "upgrade_faces", "gem_rank", "appraise",
-	"fire_neighbours", "force_after", "absorbed",
+	"fire_neighbours", "force_after", "absorbed", "ratchet", "mosaic", "both_parities",
 	"mar_die", "grind_die", "lock_die", "break_die", "downgrade_die", "break_gem",
 	"summon", "purge", "burrow", "festering", "scorched", "burn", "strength", "die_lock", "steal_gold",
 	"empower_next", "rally", "grow_die", "swell", "hold_gem", "bury_socket", "exhibit", "charge",
@@ -234,22 +241,27 @@ const LENSES: Array = ["low_as_high", "ones_wild", "held_twice"]
 ## Polish and Facet use — also supports temporary Clarity, without changing stored
 ## inclusion slots.
 const RANK_BUFFS: Array = ["carat", "cut"]
+## What a Mosaic may draw: the six things the six colors do.
+const MOSAIC_EFFECTS: Array = ["damage", "block", "poison", "heal", "gold", "resonance"]
 ## What a Chainmail or a Contagion hands its owner for every gem after it.
 const EACH_AFTER_GIFTS: Array = ["block", "spikes", "poison"]
 const EFFECT_OPTIONS: Array = ["chain_on_kill", "missing_hp_bonus", "from_result", "remove_all", "revive_block", "scope", "all_faces", "refund_mult", "poison_splash", "pot_mode",
 	"piercing", "split_party", "pick", "creature", "pct", "permanent", "shape", "cap", "turns", "cancel_pct", "guard_pct", "store", "release",
 	"hurt", "add", "flat", "stones", "of_status", "gift", "overflow", "resonance_cap", "shows", "every_gem", "elite", "best_of", "shrink", "both_ends",
 	"of", "pattern", "keep_all", "least",
+	## A ratchet's direction, and a mosaic's effects by Cut and how fast its goes climb.
+	"step", "table", "climb",
 	## A creature's action dice (docs/CREATURE_DICE.md): `per_reroll` multiplies the amount by the
 	## rerolls its target used this turn, `poison_through` poisons for what got past block,
 	## `until` "next_action" takes a status off again as its next action opens, `back`
 	## "thrower" sends a reflection at the one who threw the blow, `for_fight` keeps rubble for
 	## the fight, `from`/`to`/`count`/`die` say which faces an etch turns into what, `faces`
 	## are the moves a die grows, `trait`/`value` the trait a move pins until its next action,
-	## `template` the die a new head copies, `fallback` an etch that only runs when the etchings
+	## `template` the die a new head copies as written (`copy`: one of its dice as it stands now),
+	## `fallback` an etch that only runs when the etchings
 	## before it in the move found no face (the Assayer's ladder of rates). `from` is also the
 	## list a random debuff draws from; `of_target` (see the header) reads each target.
-	"per_reroll", "poison_through", "until", "back", "for_fight", "from", "to", "count", "die", "faces", "trait", "value", "template", "fallback",
+	"per_reroll", "poison_through", "until", "back", "for_fight", "from", "to", "count", "die", "faces", "trait", "value", "template", "copy", "fallback",
 	"of_target",
 	## A Flawless line (see `DeepStone.apply_flawless`): `flawless` marks an effect the line added,
 	## so the screen plays it after the gem's own; `flawless_overflow` a heal whose overflow is the
@@ -368,7 +380,7 @@ static func term(name: String, node: Dictionary, c: Dictionary) -> int:
 		"value": return int(trig.get("value", 0))
 		"second": return int(trig.get("second", 0))
 		"count": return int(trig.get("count", 0))
-		"high", "low", "total", "max_total", "odd", "even", "distinct", "held", "rerolled", "crowns", "high_crown", "low_dice":
+		"high", "low", "total", "max_total", "odd", "even", "distinct", "held", "rerolled", "crowns", "high_crown", "low_dice", "high_dice", "high_sum":
 			return int(a.get(name, 0))
 		"missing": return maxi(0, int(a.get("max_total", 0)) - int(a.get("total", 0)))
 		"even_read":
@@ -616,6 +628,10 @@ static func resolve_effect(def: Dictionary, c: Dictionary, magnitude: float, hos
 		"amount": sat(final), "raw": raw, "repeat": repeat, "scaled": scale == "carat",
 		"procs": int(proc.procs), "proc_chance": int(proc.chance)}
 	out.dice = trig_dice(c)
+	## A Mosaic works out each go itself: it needs the stone's weight and Cut to do it.
+	if kind == "mosaic":
+		out.weight = magnitude
+		out.cut_step = int(c.get("cut", 0))
 	## A face raised by one proc is judged again by the next, against the line the gem's
 	## trigger drew: Glimmer under "below 6" lifts a 5 once and then moves on.
 	if kind == "upgrade_faces":
@@ -705,6 +721,18 @@ static func validate_effect(effect: Variant, where: String, hostile_side: String
 		errors.append(where + ": unknown previous result")
 	if kind in CREATURE_KINDS and hostile_side != "hero":
 		errors.append(where + ": " + kind + " is a creature's move, not a stone's")
+	if kind == "ratchet" and not int(effect.get("step", 0)) in [1, -1]:
+		errors.append(where + ": a ratchet steps 1 or -1")
+	if kind == "mosaic":
+		var table: Variant = effect.get("table", null)
+		if not table is Dictionary or table.is_empty():
+			errors.append(where + ": a mosaic lists its effects in a table")
+		else:
+			for key in table:
+				if not str(key) in MOSAIC_EFFECTS:
+					errors.append(where + ": a mosaic draws from " + ", ".join(MOSAIC_EFFECTS))
+				elif not table[key] is Array or table[key].size() != DeepPatterns.STEPS:
+					errors.append(where + ": a mosaic gives each effect a number for every Cut")
 	if kind == "summon" and str(effect.get("creature", "")).is_empty():
 		errors.append(where + ": a summon names the creature it brings in")
 	if effect.has("pick") and not str(effect.pick) in PICKS:
@@ -774,9 +802,22 @@ static func validate_skill(def: Variant, p: Dictionary) -> Array:
 					errors.append("colors: unknown color " + str(c))
 	if def.has("cut") and not str(def.cut) in DeepContent.TRANSCENDENT_CUTS:
 		errors.append("unknown cut " + str(def.cut))
-	## A Transcendent is made, never found, so it names the five gems that make it.
+	## A Transcendent is made, never found, so it names the five gems that make it: by the
+	## trigger they all wake on, or as a list.
 	var transcendent: bool = str(def.get("rarity", "")) == DeepContent.TRANSCENDENT
-	if def.has("altar"):
+	if def.has("altar") and def.altar is Dictionary and def.altar.has("trigger"):
+		## One trigger, or a list of them when no one of them has five gems (Equinox's odd and even).
+		var wakes: Array = def.altar.trigger if def.altar.trigger is Array else [def.altar.trigger]
+		var takers: int = 0
+		for key in p.get("skills", {}):
+			var other: Dictionary = p.skills[key]
+			if wakes.has(str(other.get("trigger", {}).get("kind", ""))) and str(other.get("rarity", "")) != DeepContent.TRANSCENDENT and not other.get("tags", []).has("birthstone"):
+				takers += 1
+		if def.altar.has("from"):
+			errors.append("altar: a recipe names a trigger or a list, not both")
+		if takers < 5:
+			errors.append("altar: fewer than five gems wake on %s" % " or ".join(wakes.map(func(w: Variant) -> String: return str(w))))
+	elif def.has("altar"):
 		var from: Variant = def.altar.get("from", null) if def.altar is Dictionary else null
 		if not from is Array or from.size() < 5:
 			errors.append("altar: a recipe lists at least five gems to choose five from")
@@ -792,6 +833,11 @@ static func validate_skill(def: Variant, p: Dictionary) -> Array:
 					errors.append("altar: a Transcendent is never offered up")
 	elif transcendent:
 		errors.append("a Transcendent needs an altar recipe")
+	## Every Transcendent that is not an opal counts as all six colors (owner, November 18, 2026).
+	if transcendent and str(def.get("color", "")) != DeepContent.OPAL:
+		var counted: Array = def.get("colors", []) if def.get("colors", []) is Array else []
+		if not DeepContent.color_KEYS.all(func(c: String) -> bool: return counted.has(c)):
+			errors.append("a Transcendent counts as all six colors")
 	if def.has("absorbs") and (int(def.absorbs) < 1 or int(def.absorbs) != float(def.absorbs)):
 		errors.append("absorbs is a whole number of gems, one or more")
 	errors.append_array(DeepPatterns.validate(def.get("trigger", null)))

@@ -218,7 +218,9 @@ func loadout_luck() -> float:
 	for index in range(mini(rail.size(), DeepProfile.open_sockets(profile, character))):
 		if rail[index] is Dictionary:
 			stones += 1
-	return DeepDescent.loadout_luck(stones)
+	## Narrow Shaft lets only the first few down: luck counts what goes.
+	var limit: int = DeepDescent.rail_limit(hazard)
+	return DeepDescent.loadout_luck(stones if limit < 0 else mini(stones, limit))
 
 func _glyph(canvas: CanvasItem, name: String, centre: Vector2, edge: float, tint: Color) -> void:
 	canvas.draw_texture_rect(GemIcons.texture(name, GemIcons.baked_size(edge * 1.5)), Rect2(centre - Vector2(edge, edge) * 0.5, Vector2(edge, edge)), false, tint)

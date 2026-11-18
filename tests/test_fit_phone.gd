@@ -128,6 +128,16 @@ func _workshop(app: Control) -> void:
 			home._bestiary_leaf = leaf
 			home._render()
 			await _fits(screen, "the bestiary on %s, page %d" % [key, leaf + 1])
+	## A boss the player has watched get back up says its phases on its field notes (November
+	## 18, 2026): the two with the most to say, the mark set for this page alone.
+	for key in ["THE_HOLLOW_CROWN", "THE_UNMADE"]:
+		home.profile.bestiary[key].risen = 1
+		load("res://view/home/bestiary_page.gd").call("pick", home, key)
+		home._bestiary_leaf = 0
+		home._render()
+		await _fits(screen, "the bestiary on %s, its phases shown" % key)
+		check(home.find_child("BestiaryPhases", true, false) != null, "%s seen to rise shows its phases" % key)
+		home.profile.bestiary[key].erase("risen")
 	for tab in ["showcase", "mines", "runs"]:
 		home.set_meta("you_tab", tab)
 		home.open("ledger")

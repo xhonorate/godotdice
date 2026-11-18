@@ -22,6 +22,11 @@ func _init() -> void:
 	_test_certainty()
 	_test_out_of_reach()
 	_test_trigger_swaps()
+	_test_second_five_recipes()
+	_test_zenith_and_nadir()
+	_test_mosaic()
+	_test_syzygy()
+	_test_equinox()
 	print("Altar: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
 		printerr("FAIL: " + str(failure))
@@ -112,6 +117,15 @@ func _test_recipes() -> void:
 	check(str(DeepAltar.recipe_for(five(["CRUSH", "SAP", "BASTION", "SHATTER", "JACKPOT"])).get("skill", "")) == "QUINTESSENCE", "the three-of-a-kind gems make Quintessence")
 	check(str(DeepAltar.recipe_for(five(["CLEAVE", "GUARD", "VENOM", "TITHE", "CASCADE"])).get("skill", "")) == "GEMINI", "the common pair gems make Gemini")
 	check(str(DeepAltar.recipe_for(five(["STRIKE", "RIPOSTE", "SIPHON", "MIASMA", "PRISM"])).get("skill", "")) == "CERTAINTY", "the any-hand gems make Certainty")
+	## A trigger recipe takes any five different gems that wake on it, not one set of five.
+	check(str(DeepAltar.recipe_for(five(["DETONATE", "FLURRY", "SHELTER", "MIST", "APPRAISE"])).get("skill", "")) == "GEMINI", "any five pair gems make Gemini")
+	check(str(DeepAltar.recipe_for(five(["CHAINMAIL", "ETCH", "INVERT", "CLEAVE", "DETONATE"])).get("skill", "")) == "GEMINI", "rare ones among them too")
+	check(str(DeepAltar.recipe_for(five(["GRUDGE", "THIRST", "STRIKE", "RIPOSTE", "SIPHON"])).get("skill", "")) == "CERTAINTY", "any five any-hand gems make Certainty")
+	check(str(DeepAltar.recipe_for(five(["CLEAVE", "CLEAVE", "GUARD", "VENOM", "TITHE"])).get("skill", "")) != "GEMINI", "a pair gem twice is not five pair gems")
+	check(str(DeepAltar.recipe_for(five(["CLEAVE", "GUARD", "VENOM", "TITHE", "CRUSH"])).get("skill", "")) != "GEMINI", "nor is four pair gems and a three-of-a-kind one")
+	for key in ["GEMINI", "PROCESSION", "QUINTESSENCE", "CERTAINTY"]:
+		var wake: String = str(DeepContent.skill(key).altar.get("trigger", ""))
+		check(DeepAltar.trigger_gems(wake).size() >= 5, "%s takes five or more gems that wake on %s" % [key, wake])
 	var colors: Dictionary = DeepAltar.recipe_for(five(["STRIKE", "GUARD", "MEND", "HEX", "TITHE"]))
 	check(str(colors.get("kind", "")) == "opal" and str(colors.skill).is_empty(), "five different colors make an opal still to be drawn")
 	check(str(DeepAltar.recipe_for(five(["STRIKE", "GUARD", "MEND", "TITHE", "FIRE_OPAL"])).get("kind", "")) == "opal", "an opal counts as a color of its own")
@@ -556,3 +570,108 @@ func _test_trigger_swaps() -> void:
 	var ints: Callable = func(ladder: Array) -> Array: return ladder.map(func(v: Variant) -> int: return int(v))
 	check(ints.call(DeepContent.skill("BASTION").trigger.ladder) == [6, 5, 4, 3, 2] and ints.call(DeepContent.skill("LIFELINE").trigger.ladder) == [5, 4, 3, 2, 1],
 		"each on the other's ladder")
+
+# --- the second five (November 18, 2026) ------------------------------------------------------
+
+func _test_second_five_recipes() -> void:
+	check(str(DeepAltar.recipe_for(five(["BASH", "HEX", "GILDING", "REFRACT", "FACET"])).get("skill", "")) == "ZENITH", "the high-roll gems make Zenith")
+	check(str(DeepAltar.recipe_for(five(["EMBER", "MEND", "CONTAGION", "RATTLE", "SEDIMENT"])).get("skill", "")) == "NADIR", "the low-die gems make Nadir")
+	check(str(DeepAltar.recipe_for(five(["SPALL", "HONE", "PROSPECT", "ENRICH", "SPECTRUM"])).get("skill", "")) == "MOSAIC", "any five all-different gems make Mosaic")
+	check(str(DeepAltar.recipe_for(five(["BEZEL", "GRAFT", "BIND", "ARSENIC", "MIRROR"])).get("skill", "")) == "SYZYGY", "the two-pair gems make Syzygy")
+	check(str(DeepAltar.recipe_for(five(["TEMPO", "MORTAR", "CROSSCUT", "CALTROP", "BLOOM"])).get("skill", "")) == "EQUINOX", "odd and even gems together make Equinox")
+	check(str(DeepAltar.recipe_for(five(["BLOODLETTING", "TEMPO", "MORTAR", "HEMLOCK", "FERMENT"])).get("skill", "")) == "EQUINOX", "four even and one odd will do")
+	check(DeepAltar.trigger_gems(["even", "odd"]).size() >= 5, "a list of triggers takes the gems of either")
+	for key in DeepContent.transcendents():
+		var def: Dictionary = DeepContent.skill(key)
+		if str(def.color) != DeepContent.OPAL:
+			check(DeepContent.color_KEYS.all(func(c: String) -> bool: return def.get("colors", []).has(c)), "%s counts as all six colors" % key)
+
+func _test_zenith_and_nadir() -> void:
+	var r: Dictionary = rngs(21)
+	## Ardor throws three d6 and two d8: a 6 and a 5 are high, the 2, 1 and 3 low.
+	var state: Dictionary = DeepBattle.begin([player("a", [gem("ZENITH", 1, 2, 3, [], "z0")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	var unit: Dictionary = state.players[0]
+	hand(unit, [6, 5, 2, 1, 3])
+	var before: int = int(unit.dice[0].faces[0].value)
+	var fired: Array = at_socket(run_turn(state, r), 0)
+	check(fired.size() == 1, "Zenith fires on a high roll")
+	if fired.size() == 1:
+		check(int(effect(fired[0], "damage").get("amount", 0)) == 13, "it deals the two high dice once raised, 7 and 6: %s" % str(effect(fired[0], "damage")))
+		check(effect(fired[0], "ratchet").get("dice", []).size() == 2, "and raises those two only")
+	check(int(unit.dice[0].faces[0].value) == before + 1 and int(unit.dice[2].faces[0].value) == before, "the face the high die showed is a point higher, a low die's is not")
+	check(int(DeepBattle.dice_after_fight(unit)[0].faces[0].value) == before, "and the die goes home as it was")
+	state = DeepBattle.begin([player("a", [gem("ZENITH", 1, 2, DeepContent.clarity_index("FLAWLESS"), [], "z1")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	unit = state.players[0]
+	hand(unit, [6, 5, 2, 1, 3])
+	run_turn(state, r)
+	check(int(DeepBattle.dice_after_fight(unit)[0].faces[0].value) == before + 1, "a Flawless Zenith's raised face stays raised for the run")
+	## Nadir: three low dice are 15 Block; the 1 deals 10; the 2 and the 3 sink a point.
+	state = DeepBattle.begin([player("a", [gem("NADIR", 1, 2, 3, [], "n0")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	unit = state.players[0]
+	hand(unit, [6, 5, 2, 1, 3])
+	fired = at_socket(run_turn(state, r), 0)
+	check(fired.size() == 1, "Nadir fires on a low die")
+	if fired.size() == 1:
+		check(int(effect(fired[0], "block").get("amount", 0)) == 15, "5 Block for each of the three low dice")
+		var hits: Array = fired[0].effects.filter(func(e: Dictionary) -> bool: return str(e.get("kind", "")) == "damage")
+		check(hits.size() == 1 and int(hits[0].get("amount", 0)) == 10, "and 10 damage for the one already at 1: %s" % str(hits))
+	if fired.size() == 1:
+		var sunk: Array = effect(fired[0], "ratchet").get("dice", [])
+		check(sunk.size() == 2 and sunk.has(str(unit.dice[2].id)) and sunk.has(str(unit.dice[4].id)), "the 2 and the 3 sink a point; the 1 stays and the high dice are left alone: %s" % str(sunk))
+	state = DeepBattle.begin([player("a", [gem("NADIR", 1, 2, 3, [], "n1")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [6, 5, 4, 5, 6])
+	check(at_socket(run_turn(state, r), 0).is_empty(), "with no die at 3 or under, a Good Nadir stays dark")
+
+func _test_mosaic() -> void:
+	var r: Dictionary = rngs(22)
+	var state: Dictionary = DeepBattle.begin([player("a", [gem("MOSAIC", 1, 2, 3, [], "m0")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [1, 2, 3, 4, 5])
+	var fired: Array = at_socket(run_turn(state, r), 0)
+	check(fired.size() == 1, "Mosaic fires on five different values")
+	if fired.size() == 1:
+		var goes: Array = fired[0].effects.filter(func(e: Dictionary) -> bool: return e.has("mosaic"))
+		check(goes.map(func(e: Dictionary) -> int: return int(e.mosaic.times)) == [1, 2, 3, 4, 5], "five goes, each one stronger: %s" % str(goes))
+		var table: Dictionary = DeepContent.skill("MOSAIC").effects[0].table
+		for e in goes:
+			var kind: String = str(e.get("kind", ""))
+			check(table.has(kind), "each go is one of the six: %s" % kind)
+			if table.has(kind) and kind != "block":
+				check(int(e.get("amount", 0)) == int(table[kind][2]) * int(e.mosaic.times), "%s at Good, %dx: %s" % [kind, int(e.mosaic.times), str(e)])
+	state = DeepBattle.begin([player("a", [gem("MOSAIC", 1, 2, DeepContent.clarity_index("FLAWLESS"), [], "m1")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [1, 2, 3, 4, 5])
+	fired = at_socket(run_turn(state, r), 0)
+	if fired.size() == 1:
+		var goes: Array = fired[0].effects.filter(func(e: Dictionary) -> bool: return e.has("mosaic"))
+		check(goes.map(func(e: Dictionary) -> int: return int(e.mosaic.times)) == [1, 3, 5, 7, 9], "a Flawless Mosaic climbs 1x, 3x, 5x, 7x, 9x")
+
+func _test_syzygy() -> void:
+	var r: Dictionary = rngs(23)
+	var state: Dictionary = DeepBattle.begin([player("a", [gem("SYZYGY", 1, 2, 3, [], "y0")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [5, 5, 4, 4, 1])
+	var fired: Array = at_socket(run_turn(state, r), 0)
+	check(fired.size() == 1 and int(effect(fired[0], "damage").get("amount", 0)) == 20, "Syzygy deals the two pairs multiplied: 5 x 4")
+	check(fired.size() == 1 and effect(fired[0], "block").is_empty(), "and no Block unless it is Flawless")
+	state = DeepBattle.begin([player("a", [gem("SYZYGY", 1, 2, DeepContent.clarity_index("FLAWLESS"), [], "y1")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [5, 5, 4, 4, 1])
+	fired = at_socket(run_turn(state, r), 0)
+	check(fired.size() == 1 and int(effect(fired[0], "block").get("amount", 0)) == int(effect(fired[0], "damage").get("amount", -1)), "a Flawless one gains that much Block too")
+
+func _test_equinox() -> void:
+	var r: Dictionary = rngs(24)
+	## Three odd and two even: one apart. Tempo at Good wants three even dice, and has two.
+	var state: Dictionary = DeepBattle.begin([player("a", [gem("TEMPO", 1, 2, 3, [], "t0")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [1, 3, 5, 2, 4])
+	check(at_socket(run_turn(state, r), 0).is_empty(), "a Tempo alone stays dark on two even dice")
+	state = DeepBattle.begin([player("a", [gem("EQUINOX", 1, 2, 3, [], "e0"), gem("TEMPO", 1, 2, 3, [], "t1")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [1, 3, 5, 2, 4])
+	var events: Array = run_turn(state, r)
+	check(at_socket(events, 0).size() == 1, "Equinox fires on a hand one apart")
+	var tempo: Array = at_socket(events, 1)
+	check(tempo.size() == 1 and int(effect(tempo[0], "block").get("amount", 0)) == 10, "after it every die is even to the Tempo: 2 Block for each of five")
+	state = DeepBattle.begin([player("a", [gem("EQUINOX", 1, 2, DeepContent.clarity_index("FLAWLESS"), [], "e1"), gem("TEMPO", 1, 2, 3, [], "t2")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [1, 3, 5, 2, 4])
+	tempo = at_socket(run_turn(state, r), 1)
+	check(tempo.size() == 1 and int(effect(tempo[0], "block").get("amount", 0)) == 20, "a Flawless Equinox counts each die twice: 20")
+	var lopsided: Dictionary = DeepPatterns.evaluate({"kind": "balanced", "ladder": [1, 2, 3, 4, 5]}, 0, DeepHand.analyze([{"die_id": "a", "value": 1, "top": 6}, {"die_id": "b", "value": 3, "top": 6},
+		{"die_id": "c", "value": 5, "top": 6}, {"die_id": "d", "value": 1, "top": 6}, {"die_id": "e", "value": 2, "top": 6}]))
+	check(not bool(lopsided.active), "a Poor Equinox wants them no more than one apart; four odd and one even is three")

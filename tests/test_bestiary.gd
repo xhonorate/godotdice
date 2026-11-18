@@ -511,10 +511,10 @@ func steadfast_and_sturdy() -> void:
 		"its Fortify raises %d block and keeps all of it: block %d" % [amount_of("GEODE_GOLEM", "Fortify"), int(g.foe.block)])
 	## The Hollow Crown is Sturdy the whole fight.
 	var c: Dictionary = setup(["THE_HOLLOW_CROWN"])
-	check(DeepCreatures.trait_value(c.foe, "sturdy", 0) == 15, "the Hollow Crown is Sturdy 15%")
+	check(DeepCreatures.trait_value(c.foe, "sturdy", 0) == 25, "the Hollow Crown is Sturdy 25%")
 	c.foe.hp = int(c.foe.max_hp) / 5
 	DeepCreatures.prepare(c.foe)
-	check(DeepCreatures.trait_value(c.foe, "sturdy", 0) == 15, "and still is near death")
+	check(DeepCreatures.trait_value(c.foe, "sturdy", 0) == 25, "and still is near death")
 
 func backlash_and_damping() -> void:
 	## A Riftling Swarm's Static: through the party's next turn every gem that fires costs its
@@ -1012,10 +1012,10 @@ func echoes_and_the_remembered() -> void:
 			allowed.append_array(band.creatures.keys())
 	check(allowed.has(str(f.foe.echo_of)), "it echoes something from the first four mines")
 	var r: Dictionary = setup(["THE_DRILL"], 1, {"remembered": true, "extra_trait": "sturdy", "warden": true})
-	check(str(r.foe.name) == "The Remembered The Drill" and DeepCreatures.trait_value(r.foe, "sturdy", 0) == 25 and str(r.foe.remembered) == "sturdy", "a Rift Warden is a boss remembered with one trait more")
+	check(str(r.foe.name) == "The Sturdy Drill" and DeepCreatures.trait_value(r.foe, "sturdy", 0) == 25 and str(r.foe.remembered) == "sturdy", "a Rift Warden is a boss remembered with one trait more, and called after it")
 	var s: Dictionary = setup(["THE_HOLLOW_CROWN"], 1, {"remembered": true, "extra_trait": "steadfast", "warden": true})
-	check(DeepCreatures.has_trait(s.foe, "steadfast") and DeepCreatures.trait_value(s.foe, "sturdy", 0) == 15, "a remembered trait sits beside its own")
-	check(DeepContent.REMEMBERED_TRAITS == ["steadfast", "sturdy", "split_on_big_hit", "jagged"], "the Remembered are Steadfast, Sturdy, Splitting or Jagged")
+	check(DeepCreatures.has_trait(s.foe, "steadfast") and DeepCreatures.trait_value(s.foe, "sturdy", 0) == 25, "a remembered trait sits beside its own")
+	check(DeepContent.REMEMBERED_TRAITS.slice(0, 4) == ["steadfast", "sturdy", "split_on_big_hit", "jagged"] and DeepContent.REMEMBERED_TRAITS.size() == 8, "the Remembered are Steadfast, Sturdy, Splitting or Jagged, or one of the four new ones (tests/test_phases.gd)")
 	var split: Dictionary = setup(["THE_DRILL"], 1, {"remembered": true, "extra_trait": "split_on_big_hit", "warden": true})
 	split.foe.block = 0
 	var halved: Dictionary = hit(split, 450)
@@ -1088,6 +1088,8 @@ func a_bosss_brood_runs() -> void:
 	f.foe.statuses.ward = 0
 	f.foe.block = 0
 	f.foe.hp = 5
+	## On its last bar (tests/test_phases.gd has the fall and the rise).
+	f.foe.rises = []
 	var blow: Dictionary = hit(f, 50)
 	var routed: Array = blow.get("routed", []).map(func(e: Dictionary) -> String: return str(e.unit))
 	check(bool(blow.get("killed", false)) and routed == [str(pup[0])], "the Drill's death routs the rat its dead rat called: %s" % str(routed))
@@ -1103,6 +1105,7 @@ func a_bosss_brood_runs() -> void:
 	lone.foe.statuses.ward = 0
 	lone.foe.block = 0
 	lone.foe.hp = 5
+	lone.foe.rises = []
 	hit(lone, 50)
 	check(str(lone.state.outcome) == "victory" and DeepBattle.living(lone.state.enemies).is_empty(), "the Drill dead, its rats gone, the chamber is won")
 	## Escorts go with their leader; a thief drops what it took for the blow that did it.
@@ -1110,6 +1113,7 @@ func a_bosss_brood_runs() -> void:
 	p.foe.statuses.ward = 0
 	p.foe.block = 0
 	p.foe.hp = 5
+	p.foe.rises = []
 	var prism_blow: Dictionary = hit(p, 500)
 	check(prism_blow.get("routed", []).size() == 2 and str(p.state.outcome) == "victory", "the Prismarch's prisms leave with it")
 	var c: Dictionary = setup(["THE_HOLLOW_CROWN"])
@@ -1119,6 +1123,7 @@ func a_bosss_brood_runs() -> void:
 	c.foe.statuses.ward = 0
 	c.foe.block = 0
 	c.foe.hp = 5
+	c.foe.rises = []
 	var crown_blow: Dictionary = hit(c, 500)
 	check(int(c.player.gold) == 12 and crown_blow.routed.any(func(e: Dictionary) -> bool: return int(e.get("recovered_gold", 0)) == 12), "a fleeing magpie drops its 12 pyrite for the killer: %d" % int(c.player.gold))
 

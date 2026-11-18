@@ -457,14 +457,18 @@ static func _going_down(home: Control, parent: VBoxContainer) -> void:
 	DeepUi.pill(named, "spark", str(character.get("passive", {}).get("name", "Passive")), DeepUi.ACCENT, 11, str(character.get("passive", {}).get("text", "")))
 	var rail := DeepUi.hbox(box, int(DeepUi.pt(3)))
 	var loadout: Dictionary = DeepProfile.loadout(home.profile, current)
-	home.socket_strip(rail, current, loadout, DeepUi.pt(26), false, func(index: int) -> void: home.edit_loadout(current, index))
+	var home_bound: Array = DescendPage.barred(home, current)
+	home.socket_strip(rail, current, loadout, DeepUi.pt(26), false, func(index: int) -> void: home.edit_loadout(current, index), home_bound, DescendPage.barred_tip(home))
 	DeepUi.spacer(rail)
 	var light: float = DescendPage._loadout_luck(home, current)
 	var empty: int = 0
 	for index in range(DeepProfile.open_sockets(home.profile, current)):
 		if index < loadout.rail.size() and not loadout.rail[index] is Dictionary:
 			empty += 1
-	if light != 0.0:
+	if not home_bound.is_empty():
+		## Narrow Shaft: the crossed-out stones stay home; the words say how many without a hover.
+		DeepUi.stat(rail, "cross_out", "%d stay home" % home_bound.size(), DeepUi.BAD, 11).tooltip_text = DescendPage.barred_tip(home)
+	elif light != 0.0:
 		## Why, and how to lose it, on a tap (S3): the card has no line to spare under the rail,
 		## and a seven-socket rail no room for more than the figure.
 		DescendPage.luck_key(rail, DescendPage.loaded(home, current), 11, true)

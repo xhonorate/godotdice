@@ -22,6 +22,7 @@ const Biomes = preload("res://view/battle/biomes.gd")
 const MineMap = preload("res://view/home/mine_map.gd")
 
 const CreatureLedger = preload("res://view/inspect/creature_ledger.gd")
+const EffectChips = preload("res://view/battle/effect_chips.gd")
 
 const PORTRAITS: String = "res://view/creatures/portraits/"
 const TILE: float = 96.0
@@ -39,6 +40,8 @@ const TABS_TALL: float = 36.0
 const UNSEEN := Color(0.02, 0.03, 0.07, 0.92)
 const ROLE_WORDS: Dictionary = {"warden": ["crown", "Warden", DeepUi.BAD], "boss": ["crown", "Final boss", DeepUi.ACCENT],
 	"unmade": ["crown", "The Rift's own", Color("b8a8ff")], "escort": ["copy", "Escort", DeepUi.INFO]}
+## How many phases a boss has, as its page says it.
+const COUNT_WORDS: Array = ["One", "Two", "Three", "Four", "Five", "Six"]
 
 ## Every portrait read so far, by path, so the list opens on pictures already in hand.
 static var _pictures: Dictionary = {}
@@ -587,6 +590,14 @@ static func _notes(profile: Dictionary, page: Control, key: String, record: Dict
 		var remember := DeepUi.vbox(page, 6)
 		DeepUi.section(remember, "eye", "Remember", DeepUi.ACCENT_HI, 13)
 		Inspector.wrap_stat(DeepUi.stat(remember, "eye", tip, DeepUi.PAPER, 13))
+	## A boss this player has watched get back up: its phases, and what each one gives it.
+	var phases: Array = phase_lines(profile, key)
+	if not phases.is_empty():
+		var rising := DeepUi.vbox(page, 6)
+		rising.name = "BestiaryPhases"
+		DeepUi.section(rising, "heart", "Phases", DeepUi.ACCENT, 13)
+		for line in phases:
+			Inspector.wrap_stat(DeepUi.stat(rising, str(line.glyph), str(line.words), DeepUi.PAPER, 13, str(line.tip)))
 	var tally := DeepUi.vbox(page, 8)
 	DeepUi.section(tally, "star", "Your record", DeepUi.ACCENT, 13)
 	var row := DeepUi.hbox(tally, 22)
@@ -614,16 +625,49 @@ static func _notes(profile: Dictionary, page: Control, key: String, record: Dict
 		var line: Array = _haunt_words(profile, haunt)
 		Inspector.wrap_stat(DeepUi.stat(lives, str(line[0]), str(line[1]), DeepUi.PAPER, 13))
 
+static func phase_lines(profile: Dictionary, key: String) -> Array:
+	## A boss that has to be beaten more than once (`rising`), once this player has watched it
+	## get back up: how many phases it has and the share of its health each holds, then a line
+	## for each time it rises, as {glyph, words, tip}. Nothing before then: the first time it
+	## gets back up is a surprise (owner, November 18, 2026).
+	var rising: Dictionary = DeepContent.creature(key).get("rising", {})
+	var rises: Array = rising.get("rises", [])
+	if rises.is_empty() or not DeepBestiary.seen_rising(profile, key):
+		return []
+	var lines: Array = [ {"glyph": "heart", "words": "%s phases, each with %d%% of its health." % [str(COUNT_WORDS[clampi(rises.size(), 0, COUNT_WORDS.size() - 1)]), clampi(int(rising.get("health_pct", 100)), 1, 100)],
+		"tip": "When its health runs out it stays on 1 health, and on its next action it gets back up at full health with everything on it shed."}]
+	for index in range(rises.size()):
+		var rise: Dictionary = rises[index]
+		var called: String = str(rise.get("name", ""))
+		## The mark of the first trait it takes, and under the pointer what each of them does.
+		var glyph: String = "question"
+		var meanings: Array = []
+		for trait_key in rise.get("traits", {}):
+			var chip: Dictionary = EffectChips.trait_entry(str(trait_key), rise.traits[trait_key])
+			if meanings.is_empty():
+				glyph = str(chip.glyph)
+			meanings.append("%s: %s" % [str(chip.title), str(chip.text)])
+		lines.append({"glyph": glyph, "words": "%s: %s" % [called if not called.is_empty() else DeepCreatures.bar_title(index + 1), DeepCreatures.rise_words(rise)],
+			"tip": "\n".join(meanings)})
+	return lines
+
 static func _places(key: String) -> Array:
 	## Every place it is found, a mine's bands gathered into one entry however many stretches
 	## of it the creature is drawn in, so each mine is said as one line.
 	var haunts: Array = []
+	## The endless mines that remember it as one of their smaller Wardens, each said once.
+	var between: Array = []
 	for haunt in DeepBestiary.haunts(key):
 		var last: Dictionary = haunts.back() if not haunts.is_empty() else {}
 		if str(haunt.kind) == "band" and str(last.get("kind", "")) == "band" and str(last.get("mine", "")) == str(haunt.mine):
 			last.spans.append(haunt)
 		elif str(haunt.kind) == "band":
 			haunts.append({"kind": "band", "mine": str(haunt.mine), "spans": [haunt]})
+		elif str(haunt.kind) == "remembered" and not between.has(str(haunt.mine)) and DeepContent.mine(str(haunt.mine)).get("remembered_wardens", []).has(key):
+			## A smaller Warden, remembered at the landing halfway between two of the bosses the
+			## mine remembers (DeepDescent.stands_between), not one of those bosses.
+			between.append(str(haunt.mine))
+			haunts.append({"kind": "remembered", "mine": str(haunt.mine), "between": true})
 		else:
 			haunts.append(haunt)
 	return haunts
@@ -647,6 +691,8 @@ static func _haunt_words(profile: Dictionary, haunt: Dictionary) -> Array:
 		"boss":
 			return ["crown", "%s · final boss, on the bottom floor (depth %d)" % [mine, int(haunt.depth)]]
 		"remembered":
+			if bool(haunt.get("between", false)):
+				return ["crown", "%s · comes back on the landing halfway between two of its Wardens, with a trait more" % mine]
 			return ["crown", "%s · comes back as one of its Wardens, with a trait more" % mine]
 		"unmade":
 			return ["crown", "%s · every %dth floor, in place of a Warden" % [mine, int(haunt.every)]]

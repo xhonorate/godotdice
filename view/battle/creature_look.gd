@@ -223,6 +223,10 @@ static func traits(foe: Dictionary) -> Array:
 	var keys: Array = all.keys()
 	keys.sort()
 	var out: Array = []
+	## Its bars first, once they are shown (a boss that gets back up).
+	var bars: Dictionary = EffectChips.bars_entry(foe)
+	if not bars.is_empty():
+		out.append(bars)
 	for key in keys:
 		if pinned.has(key):
 			continue
@@ -272,6 +276,11 @@ const KEYWORDS: Dictionary = {
 	"Acid Armour": "Whoever hits it takes Poison for it.",
 	"Sturdy": "No single hit takes more than a share of its health off it.",
 	"Steadfast": "Stun, Bound and Clouded last half as long on it, and it cannot be stunned two actions in a row.",
+	"Venomous": "Its damaging faces also lay Poison: a quarter of the damage, 5 at most.",
+	"Molten": "Its damaging faces also lay Burn: a quarter of the damage, 5 at most.",
+	"Wrathful": "Every blow it takes gives it Strength for the fight.",
+	"Leeching": "It heals for the health its blows take off you.",
+	"Jagged": "Every blow it takes costs whoever threw it health. No block stops it.",
 	"Waterlogged": "The first time it dies, it gets back up at half its health."}
 ## The words coloured as the gem sheet colours them: blows red, block blue, healing green.
 const TONES: Dictionary = {"damage": Color("ff7a6b"), "block": Color("6fa8ff"), "heal": Color("3fb56b"), "health": Color("3fb56b")}

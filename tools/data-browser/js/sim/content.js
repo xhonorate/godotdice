@@ -26,10 +26,21 @@ export const GIMMICKS = ['', 'steal_high_die', 'block_from_high', 'reflect_zero_
 export const TRAITS = [...GIMMICKS, 'steadfast', 'sturdy', 'backlash', 'flee', 'rising', 'escalate', 'aura', 'spikes',
 	'regen_with_escorts', 'shielded_by_escorts', 'regrow_escorts', 'reroll_drain', 'reroll_scorch', 'punish_straight', 'drops_stone',
 	'carat_cap', 'resonance_damp', 'color_strength', 'regenerating', 'waterlogged', 'hydra', 'countdown_reset', 'taunt',
-	'acid_armour', 'reroll_all', 'numb_low', 'numb_high', 'numb_small', 'set_toll', 'jagged'];
-// The traits a Rift Warden may be remembered with, one of them, picked by the seed (Jagged since
-// November 13, 2026: sim/content.gd).
-export const REMEMBERED_TRAITS = ['steadfast', 'sturdy', 'split_on_big_hit', 'jagged'];
+	'acid_armour', 'reroll_all', 'numb_low', 'numb_high', 'numb_small', 'set_toll', 'jagged',
+	'venomous', 'molten', 'wrathful', 'leeching'];
+// The named traits (sim/content.gd, November 18, 2026): one set that the Rift rolls for what it
+// remembers, the Champions hazard gives an elite, and a boss takes as it rises. Jagged joined on
+// November 13, 2026; Venomous, Molten, Wrathful and Leeching on the 18th.
+export const REMEMBERED_TRAITS = ['steadfast', 'sturdy', 'split_on_big_hit', 'jagged', 'venomous', 'molten', 'wrathful', 'leeching'];
+// What each of those is called where a player reads it.
+export const REMEMBERED_NAMES = { steadfast: 'Steadfast', sturdy: 'Sturdy', split_on_big_hit: 'Splits', jagged: 'Jagged',
+	venomous: 'Venomous', molten: 'Molten', wrathful: 'Wrathful', leeching: 'Leeching' };
+// What a rolled trait is worth: a Sturdy's share of its health a blow, the health a Jagged one
+// costs, a Venomous or Molten one's share of a face's damage, a Wrathful one's Strength a blow.
+export const REMEMBERED_VALUES = { steadfast: true, sturdy: 25, split_on_big_hit: true, jagged: 1,
+	venomous: 25, molten: 25, wrathful: 1, leeching: true };
+// The status a Venomous or a Molten creature's blows lay as well.
+export const RIDERS = { venomous: 'poison', molten: 'burn' };
 
 let pack = {};
 
@@ -129,4 +140,9 @@ export function colorName(k) { return color(k).name || title(k); }
 
 export function title(value) {
 	return String(value ?? '').toLowerCase().split(/[_\s]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
+}
+
+// A trait by the name a player reads (sim/content.gd trait_name).
+export function traitName(key) {
+	return Object.prototype.hasOwnProperty.call(REMEMBERED_NAMES, key) ? REMEMBERED_NAMES[key] : title(key);
 }

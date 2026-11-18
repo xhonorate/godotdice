@@ -34,7 +34,7 @@ const RARITIES: Array = ["COMMON", "UNCOMMON", "RARE", "LEGENDARY", "MYTHIC", "T
 const TRANSCENDENT: String = "TRANSCENDENT"
 ## The cuts a Transcendent may name for itself, each its own solid, outside the six colors
 ## and outside the Birthstones' too. The two opals keep the cabochon every opal wears.
-const TRANSCENDENT_CUTS: Array = ["kite", "pentagon", "hourglass", "keystone"]
+const TRANSCENDENT_CUTS: Array = ["kite", "pentagon", "hourglass", "keystone", "crown", "plumb", "hexagram", "twin_rhomb", "leaf"]
 const CHAMBER_KINDS: Array = ["fight", "elite", "vein", "oddity", "merchant", "smithy", "carver", "well", "altar", "rest_stop"]
 const PASSIVE_KINDS: Array = ["none", "extra_reroll", "first_gem_cut_step", "heal_on_fizzle",
 	"heal_resonance_per_unused_reroll", "block_per_hit", "heal_on_poison_tick", "free_flip", "free_reroll_value", "pot_share",
@@ -47,12 +47,32 @@ const GIMMICKS: Array = ["", "steal_high_die", "block_from_high", "reflect_zero_
 const TRAITS: Array = GIMMICKS + ["steadfast", "sturdy", "backlash", "flee", "rising", "escalate", "aura", "spikes",
 	"regen_with_escorts", "shielded_by_escorts", "regrow_escorts", "reroll_drain", "reroll_scorch", "punish_straight", "drops_stone",
 	"carat_cap", "resonance_damp", "color_strength", "regenerating", "waterlogged", "hydra", "countdown_reset", "taunt",
-	"acid_armour", "reroll_all", "numb_low", "numb_high", "numb_small", "set_toll", "jagged"]
-## The traits a Rift Warden may be remembered with, one of them, picked by the seed.
-## Jagged joined them on November 13, 2026 (W4): a boss that makes many small hits pay.
-const REMEMBERED_TRAITS: Array = ["steadfast", "sturdy", "split_on_big_hit", "jagged"]
+	"acid_armour", "reroll_all", "numb_low", "numb_high", "numb_small", "set_toll", "jagged",
+	"venomous", "molten", "wrathful", "leeching"]
+## The named traits (owner, November 18, 2026): one set that the Rift rolls for what it
+## remembers, the Champions hazard gives an elite, and a boss takes as it rises. Each is worn
+## on the body (view/creatures/creature_wear.gd) and, rolled, goes in the creature's name.
+## Jagged joined on November 13, 2026 (W4); Venomous, Molten, Wrathful and Leeching on the 18th.
+const REMEMBERED_TRAITS: Array = ["steadfast", "sturdy", "split_on_big_hit", "jagged", "venomous", "molten", "wrathful", "leeching"]
 ## What each of those is called where a player reads it.
-const REMEMBERED_NAMES: Dictionary = {"steadfast": "Steadfast", "sturdy": "Sturdy", "split_on_big_hit": "Splits", "jagged": "Jagged"}
+const REMEMBERED_NAMES: Dictionary = {"steadfast": "Steadfast", "sturdy": "Sturdy", "split_on_big_hit": "Splits", "jagged": "Jagged",
+	"venomous": "Venomous", "molten": "Molten", "wrathful": "Wrathful", "leeching": "Leeching"}
+## What a rolled trait is worth: a Sturdy's share of its health a blow, the health a Jagged
+## one costs, a Venomous or Molten one's share of a face's damage, a Wrathful one's Strength a blow.
+const REMEMBERED_VALUES: Dictionary = {"steadfast": true, "sturdy": 25, "split_on_big_hit": true, "jagged": 1,
+	"venomous": 25, "molten": 25, "wrathful": 1, "leeching": true}
+## The status a Venomous or a Molten creature's blows lay as well.
+const RIDERS: Dictionary = {"venomous": "poison", "molten": "burn"}
+
+static func trait_name(key: String) -> String:
+	return str(REMEMBERED_NAMES.get(key, key.capitalize()))
+
+static func roll_trait(rng: RandomNumberGenerator, has: Array) -> String:
+	## One named trait a creature does not already have, or "" when it has them all.
+	var pool: Array = REMEMBERED_TRAITS.filter(func(key: String) -> bool: return not has.has(key))
+	if pool.is_empty():
+		return ""
+	return str(DeepRng.pick(rng, pool))
 
 static var _pack: Dictionary = {}
 static var _path: String = PATH
@@ -648,6 +668,7 @@ static func _validate_creature(def: Variant, p: Dictionary) -> Array:
 	else:
 		for index in range(moves.size()):
 			errors.append_array(DeepRules.validate_move(moves[index], p).map(func(e: String) -> String: return "move %d: %s" % [index + 1, e]))
+	errors.append_array(_validate_rising(def.get("rising", null), p))
 	for phase in def.get("phases", []):
 		if not phase is Dictionary or not phase.get("moves", null) is Array:
 			errors.append("each phase needs a moves list")
@@ -655,6 +676,35 @@ static func _validate_creature(def: Variant, p: Dictionary) -> Array:
 		errors.append_array(_validate_traits(phase.get("traits", {}), "phase "))
 		for index in range(phase.moves.size()):
 			errors.append_array(DeepRules.validate_move(phase.moves[index], p).map(func(e: String) -> String: return "phase move %d: %s" % [index + 1, e]))
+	return errors
+
+static func _validate_rising(rising: Variant, p: Dictionary) -> Array:
+	## A boss that has to be beaten more than once (`rising`, docs/BESTIARY.md): the share of
+	## its written health each bar holds, and what it takes each time it gets back up.
+	if rising == null:
+		return []
+	if not rising is Dictionary or not rising.get("rises", null) is Array or rising.rises.is_empty():
+		return ["rising needs a list of rises"]
+	var errors: Array = []
+	if int(rising.get("health_pct", 100)) <= 0:
+		errors.append("rising needs a health share above nothing")
+	if not str(rising.get("fall", "")) in ["", "dive"]:
+		errors.append("unknown way to fall " + str(rising.get("fall", "")))
+	for index in range(rising.rises.size()):
+		var rise: Variant = rising.rises[index]
+		if not rise is Dictionary:
+			errors.append("rise %d must be an object" % (index + 1))
+			continue
+		errors.append_array(_validate_traits(rise.get("traits", {}), "rise %d " % (index + 1)))
+		for trait_key in rise.get("traits", {}):
+			if not str(trait_key) in REMEMBERED_TRAITS:
+				errors.append("rise %d: %s is not a named trait" % [index + 1, str(trait_key)])
+		for e in range(rise.get("effects", []).size()):
+			errors.append_array(DeepRules.validate_effect(rise.effects[e], "rise %d effect %d" % [index + 1, e + 1], "hero"))
+			if str(rise.effects[e].get("kind", "")) == "summon" and not p.creatures.has(str(rise.effects[e].get("creature", ""))):
+				errors.append("rise %d calls an unknown creature" % (index + 1))
+		if str(rise.get("name", "")).is_empty() and rise.get("traits", {}).is_empty() and int(rise.get("roll", 0)) <= 0:
+			errors.append("rise %d needs a name, a trait or a roll" % (index + 1))
 	return errors
 
 static func _validate_traits(traits: Variant, where: String) -> Array:
@@ -700,6 +750,12 @@ static func _validate_mine(def: Variant, p: Dictionary) -> Array:
 			errors.append("%s is not a warden" % str(def.unmade))
 	if def.get("wardens", []).is_empty():
 		errors.append("needs at least one warden")
+	## The smaller Wardens an endless mine remembers between its bosses.
+	for key in def.get("remembered_wardens", []):
+		if not p.creatures.has(str(key)):
+			errors.append("unknown remembered warden " + str(key))
+		elif not bool(p.creatures[str(key)].get("warden", false)):
+			errors.append("%s is not a warden" % str(key))
 	var bands: Variant = def.get("bands", null)
 	if not bands is Array or bands.is_empty():
 		errors.append("needs at least one creature band")

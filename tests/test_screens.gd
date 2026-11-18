@@ -1285,6 +1285,35 @@ func _bestiary(app: Control) -> void:
 	BestiaryPage.call("pick", app.home, "THE_DRILL")
 	await _frames(2)
 	check(_find_label(app.home, "The Drill") == null and _find_label(app.home, "???") != null, "a creature not met has no name")
+	## A boss's phases are a surprise the first time (owner, November 18, 2026): met but never
+	## watched getting back up, its page says nothing of them; once it has been, the page says
+	## how many it has and what each rise gives it.
+	var rise: Dictionary = DeepContent.creature("THE_DRILL").get("rising", {}).get("rises", [{}])[0]
+	var rise_line: String = "%s: %s" % [str(rise.get("name", "")), DeepCreatures.rise_words(rise)]
+	DeepBestiary.merge(app.profile, {"THE_DRILL": {"met": 1, "slain": 0, "lost": 1, "mines": {"QUARRY": 16}}})
+	app.home.open("bestiary", true)
+	await _frames(2)
+	check(_find_label(app.home, "The Drill") != null and not DeepBestiary.seen_rising(app.profile, "THE_DRILL"), "the Drill is met, and has not been seen to rise")
+	check(app.home.find_child("BestiaryPhases", true, false) == null and _find_label(app.home, rise_line) == null and BestiaryPage.call("phase_lines", app.profile, "THE_DRILL").is_empty(),
+		"a boss not yet seen to rise says nothing of its phases")
+	DeepBestiary.merge(app.profile, {"THE_DRILL": {"met": 1, "slain": 1, "lost": 0, "risen": 1, "mines": {"QUARRY": 16}}})
+	app.home.open("bestiary", true)
+	await _frames(2)
+	check(rise_line.begins_with("Redline: Gains Molten.") and _find_label(app.home, rise_line) != null, "a boss seen to rise lists what its rise gives it (%s)" % rise_line)
+	check(_find_label(app.home, "Two phases, each with %d%% of its health." % int(DeepContent.creature("THE_DRILL").rising.health_pct)) != null, "and how many phases it has, with the share of its health in each")
+	app.profile.bestiary.THE_FOREMAN.risen = 1
+	check(BestiaryPage.call("phase_lines", app.profile, "THE_FOREMAN").is_empty(), "a creature with one phase has no such lines")
+	app.profile.bestiary.THE_FOREMAN.erase("risen")
+	## The Rift remembers a boss as one of its Wardens, and a smaller Warden between two of them.
+	var rift_lines: Dictionary = {}
+	for key in ["THE_DRILL", "THE_FOREMAN"]:
+		for haunt in BestiaryPage.call("_places", key):
+			if str(haunt.kind) == "remembered":
+				rift_lines[key] = str(BestiaryPage.call("_haunt_words", app.profile, haunt)[1])
+	check(str(rift_lines.get("THE_DRILL", "")).contains("as one of its Wardens") and str(rift_lines.get("THE_FOREMAN", "")).contains("halfway between two of its Wardens"),
+		"the Rift's line tells a remembered boss from a smaller Warden (got %s)" % str(rift_lines))
+	## The Drill goes back to not met, as the suites after this one found it.
+	app.profile.bestiary.erase("THE_DRILL")
 	app.home._bestiary_pick = ""
 
 func _find_label(node: Node, text: String) -> Label:

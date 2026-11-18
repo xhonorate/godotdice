@@ -926,6 +926,7 @@ static func evaluate(stone: Dictionary, hand: Array, c: Dictionary = {}) -> Dict
 	## come first in everything the trigger picks from.
 	var wearing: Array = colors(stone, str(c.get("socket", "")))
 	var a: Dictionary = DeepHand.analyze(working, wearing)
+	DeepHand.both_parities(a, int(c.get("unit", {}).get("parity_both", 0)))
 	var trigger: Dictionary = skill.get("trigger", {"kind": "always"})
 	var trig: Dictionary = DeepPatterns.evaluate(trigger, eff.cut_step, a, {"resonance": int(c.get("resonance", 0)), "pyrite": DeepRules.pyrite(c.get("unit", {})), "fizzles": int(c.get("fizzles", 0)), "kills": int(c.get("kills", 0))})
 	if not trig.active and (has_modifier(mods, "always_fires") or bool(c.get("force_fire", false))):

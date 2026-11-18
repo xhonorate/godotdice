@@ -3,6 +3,16 @@
 import { heldForPatterns, preference, sizeOf, TIERS } from './dice.js';
 import { I } from './numbers.js';
 
+// An Equinox earlier this turn: every die counts as odd and as even, `times` over (a Flawless
+// one counts each twice), for every gem after it (sim/hand.gd both_parities).
+export function bothParities(a, times) {
+	if (times <= 0) return;
+	const every = I(a.dice_count) * times;
+	a.odd = every;
+	a.even = every;
+	a.both_parities = times;
+}
+
 // Besides what sim/hand.gd lists: `sizes` (die id to how many faces a plain die of its shape
 // has), `one_ids` (the dice whose face shows a 1; a wild is not one of them) and `scale`
 // ({length, dice, values, total}: the longest climb across the dice from the smallest die to the
@@ -23,6 +33,8 @@ export function analyze(hand, colors = []) {
 	let total = 0, maxTotal = 0, held = 0, rerolled = 0, phantoms = 0, high = 0, low = 0, highPct = 0, odd = 0, even = 0, lowDice = 0, crowns = 0;
 	const phantomIds = [];
 	const lowIds = [];
+	const highIds = [];
+	let highDice = 0, highSum = 0;
 	const crownIds = [];
 	let crownTotal = 0;
 	const crownValues = new Set();
@@ -76,6 +88,7 @@ export function analyze(hand, colors = []) {
 		highPct = Math.max(highPct, Math.floor((value * 100) / faces));
 		if (value % 2 === 1) odd += weight; else even += weight;
 		if (value * 2 <= faces) { lowDice += weight; lowIds.push(id); }
+		else { highDice += weight; highIds.push(id); highSum += value * weight; }
 		if (value >= top) { crowns += weight; crownIds.push(id); crownTotal += value; crownValues.add(value); }
 		// A gem may have changed the roll since it was thrown; then what it shows is what it is.
 		const shown = 'shown' in roll && value === I(roll.counted ?? -1) ? I(roll.shown) : value;
@@ -122,7 +135,7 @@ export function analyze(hand, colors = []) {
 		pairs, straight: straightOf(counts, wilds, idsByValue, hand.length, wildTop),
 		odd: odd + wilds.length, even: even + wilds.length, distinct: counts.size + wilds.length,
 		odd_values: oddValues + wilds.length, even_values: evenValues + wilds.length,
-		low_dice: lowDice, low_ids: lowIds, crowns, crown_ids: crownIds, crown_total: crownTotal,
+		low_dice: lowDice, low_ids: lowIds, high_dice: highDice, high_ids: highIds, high_sum: highSum, crowns, crown_ids: crownIds, crown_total: crownTotal,
 		high_crown: (wilds.length > 0 && wildTop >= high) || (high > 0 && crownValues.has(high)) ? 1 : 0, ids_by_value: idsByValue,
 		bases, showing, sizes, one_ids: oneIds, scale: scaleOf(notes),
 	};

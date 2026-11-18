@@ -675,5 +675,6 @@ func jagged() -> void:
 	for key in ["SHARD_WYRM", "CAVE_CRAYFISH"]:
 		## Strong ordinary creatures, never a Warden: a long fight against it walls a many-hit rail.
 		check(DeepCreatures.trait_value(setup([key], 1).foe, "jagged", 0) == 1, "%s is Jagged" % key)
-	check(DeepCreatures.trait_value(setup(["THE_GLAZIER"], 1).foe, "jagged", 0) == 0, "the Glazier is not Jagged")
+	## And one Warden since November 18, 2026: the Glazier, so it is met before the Rift rolls it.
+	check(DeepCreatures.trait_value(setup(["THE_GLAZIER"], 1).foe, "jagged", 0) == 1, "the Glazier is Jagged")
 	check(DeepContent.REMEMBERED_TRAITS.has("jagged") and DeepDescent.CHAMPION_TRAITS.has("jagged"), "a Remembered boss or a Champion may be Jagged")

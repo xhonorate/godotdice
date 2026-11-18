@@ -760,3 +760,137 @@ Content numbers, one new move and one new option.
 
 Left as they were by the owner's mark: the Assayer (the wall is the bot's unspent purse) and the
 Collapsar.
+
+## 16. Bosses that rise, and the named traits (November 18, 2026)
+
+The owner asked for final bosses that a strong build cannot end in one turn, and for the traits
+the Rift rolls to be met before the Rift. Every card was marked on the review page
+(https://claude.ai/artifact/G6Wyv2zA3WvrkNraqs5GXS, db `phases1`); what follows is what was
+approved and built. `tests/test_phases.gd` holds it.
+
+### Phases
+
+A mine's final boss has to be beaten more than once. Its content entry carries
+`rising: {health_pct, fall, rises: [{name, text, traits, effects, roll}]}`. In code a phase's
+health is a "bar" (`bar`, `bars`, `rises` on the creature); a player reads "phase".
+
+- **Health.** Each phase is `health_pct` of the health written for it: two phases of 60% (1.2
+  times what it had), three of 50% for the Hollow Crown and the Infinite Void.
+- **The fall** (`DeepBattle._stand`). When its health runs out with a phase to come it stays on
+  1 health and is `fallen`: nothing takes that point, by a blow, a tick or health lost outright.
+  Every blow after it shows 0. Afflictions still land (and are shed). No kill is counted: Wager,
+  Placer and the rest wait for its last phase, and so do its stone, its pyrite and the rout of
+  its brood.
+- **The rise** (`DeepBattle._rise`, event `enemy_rise`). As its next action opens it sheds every
+  affliction (everything a Cleanse clears, Dread and Bound), its block goes back to what it
+  walked in behind, its health is full, and it takes the next rise: its traits for the rest of
+  the fight and whatever it does as it rises. Then it takes its action, in the same turn. It
+  keeps its Strength, the faces it turned, the dice it grew, what it called and what it took.
+  One that falls after its own action (a tick, a thorn, a mortar) rises as the turn closes, so
+  nobody is handed a turn against a boss they cannot hurt; it does not act again.
+- **The enrage clock** keeps running across phases (turn 7, as written).
+- **Seen or not.** A boss nobody in the party has watched get up shows one bar and no pips.
+  Once it has risen in front of them (`bars_shown`; the Bestiary's `risen` count, carried into a
+  run as `seen_rise`), its tag shows a pip a phase, its ledger says which phase it is on and
+  what the next gives, and its Bestiary page lists its phases.
+- **Edges.** Sturdy caps each blow against the phase's own health. A Remembered boss that splits
+  makes a twin with one phase. Soft Rock halves the first phase only. Warden's Pride and
+  Warden's Wrath add health to every phase; the extra Ward is given once. The Crown's Court
+  guest has one phase, at its whole health.
+
+| Boss | Phases | What each rise gives |
+| --- | --- | --- |
+| The Drill | 2 | Redline: Molten; 2 Rail Rats join it |
+| The Undertow | 2 | Riptide: Wrathful. It goes under as it falls and surfaces biting (its Surface blow) |
+| The Prismarch | 2 | Fractured: Jagged; its Prisms come back, three of them |
+| The Heartrot | 2 | Blight: Venomous; both Tendrils grow back |
+| The Kiln Dragon | 2 | Inferno: Molten and Wrathful |
+| The Hollow Crown | 3 | Risen: Jagged, its die a d12 at once. Last Reign: Wrathful, a second d12 that is a copy of the first. Sturdy is 25% (was 15%) |
+| The Infinite Void | 3 | Each rise: another d12 and one trait rolled by the seed |
+
+### The named traits
+
+One set (`DeepContent.REMEMBERED_TRAITS`): what the Rift rolls for what it remembers, what the
+Champions hazard gives an elite, and what a boss takes as it rises. Each is a chip on the tag as
+well as the ledger and a look on the body (`creature_wear.gd`, `set_traits`), and a creature
+rolled one is called after it ("The Jagged Drill", "Molten Slag Hound").
+
+| Trait | Rule | Met before the Rift on |
+| --- | --- | --- |
+| Steadfast | Stun, Bound and Clouded last half as long; never stunned two actions running | The Undertow, the Anvil Knight, the Kiln Dragon |
+| Sturdy | No blow takes more than its share of its health (25% rolled) | Geode Golem, the Hollow Crown |
+| Splits | A blow of 40% of its health or more splits it in two | Silt Slime, Spore Slime, **the Spore Mother** |
+| Jagged | Every blow it takes costs its thrower 1 health | Glass Wyrm, Cave Crayfish, Shard Wyrm, **the Glazier**, the Prismarch's second phase |
+| Venomous | Its damaging faces also lay Poison | **The Gardener**, the Heartrot's second phase |
+| Molten | Its damaging faces also lay Burn | **The Smelter**, the Drill's and the Kiln Dragon's second phase |
+| Wrathful | Every blow it takes gives it 1 Strength for the fight | **The Crabman**, the Undertow's and the Kiln Dragon's second phase, the Hollow Crown's third |
+| Leeching | It heals for the health its blows take | The Rift and Champions only |
+
+- **Venomous and Molten** (`DeepCreatures.ride`, through `moves_for`): a face that deals damage
+  also lays a quarter of its written damage as Poison or Burn, rounded up, 5 at most
+  (`rider_most`), counted once a face however many hits it is; a face that already lays that
+  status lays twice as much. The stacks come off the written number, so the mine weighs them
+  once, at the tick, like any creature's. The face's words say it ("7 damage, and 2 Burn").
+- **Wrathful** is a point of Strength for every blow thrown at it, blocked or not (the owner
+  picked this over once a turn). Health lost outright is no blow.
+- **Leeching** heals for the health a blow took, weighed the way the creature's own health is
+  (the blow's weight off, its health's on). What block stops feeds it nothing.
+- Spiked, Regenerating and Warded stay with the Champions hazard and are never rolled in the Rift.
+
+### The Rift
+
+- A boss the Rift remembers arrives with one rolled trait (never one it has or is written to
+  take), has three phases whatever it had upstairs, takes its own rise second and one more rolled
+  trait third.
+- The ten smaller Wardens of the first five mines stand at the landings halfway between its
+  bosses (`remembered_wardens`, `DeepDescent.stands_between`: floors 4, 12, 20 and so on), in
+  order, each with one rolled trait and one phase. The Hollow's two stay out (a creature and its
+  echo are two mines apart).
+
+### Knobs and what the runs said
+
+Constants: `rider_most` (5), `rift_bars` (3), `rise_then_acts` (1: it rises and acts; 0 makes
+getting up its whole action) and `rise_restarts_enrage` (0: the clock runs on; 1 starts it again
+at each rise). The last two are the owner's picks written as numbers, so the other choice can be
+played as a what-if (`delve.mjs run --pack`).
+
+Played November 18 by the balance bot (432 first-stone runs down the six mines, the same seeds
+each time; `build/balance/delve/ph_*`). The bot does not plan around a fall, so a player will do
+better than it; the order of the rows is what to read.
+
+| Run | Boss beaten | Mines cleared |
+| --- | --- | --- |
+| Before (one bar) | 75% | 42% |
+| As built | 43% | 24% |
+| Getting up is its whole action (`rise_then_acts` 0) | 54% | 30% |
+| The clock starts again at each rise | 48% | 27% |
+| Both of those | 59% | 33% |
+| Nothing given at the rise (no traits, no rats) | 58% | 32% |
+| Phases of 50%, not 60% | 52% | 29% |
+| No Wrathful on the bosses | 48% | 27% |
+
+As built, by boss: the Drill 91% to 61%, the Undertow 68% to 32%, the Prismarch 64% to 30%, the
+Heartrot 85% to 62%, the Kiln Dragon 63% to 32%. The five Wardens that took a trait barely moved
+(the Crabman 96% to 93%, the Smelter 93% to 86%).
+
+### How it looks and sounds
+
+- **On the body** (`creature_wear.gd`, `set_traits(keys, fallen)`): Molten glows orange with lit
+  seams, flames and a floor light; Venomous is acid green with drops and a pool of mist; Jagged
+  grows pale glass blades (the Spikes status keeps its small steel thorns); Wrathful is red,
+  steams and swells with its Strength; Splits wears a pale violet twin that slides out of the
+  body and back; Sturdy is a crust of granite plates; Steadfast is two bolted steel bands;
+  Leeching is dark crimson with motes drawn in. Two or three are worn as bands up the body.
+  A swelling creature grows wider, not taller (`bulk_scale`), so a tall Warden's head stays
+  under its tag.
+- **Ward** is a thin ring of blue light over the head (the bubble is gone); it breaks when a
+  Ward stops a blow.
+- **The fall:** the body slumps and greys, the room dims by a third, the piece drops out and a
+  heartbeat is heard (`_sync_fallen`, music `hush`); the tag says "Cannot die this turn" and its
+  pip cracks; every blow after it knocks dully and shows 0.
+- **The rise** (`_boss_rises`): what it sheds comes off the tag, a ring crosses the floor in the
+  colour of what it took, the screen shakes, and a title card names the boss, the phase and
+  which phase it is for 1.2 seconds (any press lets it go). The piece comes back a semitone up
+  for each rise.
+- Scratch tools: `build/phases/flow.gd` plays and shoots a fall and a rise on the real screen
+  (desktop or phone), `build/phases/looks.gd` shoots every look.

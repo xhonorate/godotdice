@@ -38,6 +38,9 @@ static func settled(state: Dictionary, enemies: Array, outcome: String) -> void:
 		## called in is, so it is never slain more often than met.
 		if bool(foe.get("summoned", false)) or not str(foe.get("split_from", "")).is_empty():
 			entry.met += 1
+		## A boss that got back up in front of the party: its bars are shown from now on.
+		if int(foe.get("bar", 1)) > 1:
+			entry.risen = int(entry.get("risen", 0)) + 1
 		if int(foe.get("hp", 0)) <= 0 and not bool(foe.get("fled", false)):
 			entry.slain += 1
 		elif outcome == "defeat" and int(foe.get("hp", 0)) > 0 and not bool(foe.get("fled", false)):
@@ -75,6 +78,8 @@ static func merge(profile: Dictionary, run: Dictionary) -> Array:
 		var entry: Dictionary = profile.bestiary[key]
 		for field in ["met", "slain", "lost"]:
 			entry[field] = int(entry.get(field, 0)) + int(seen.get(field, 0))
+		if int(seen.get("risen", 0)) > 0:
+			entry.risen = int(entry.get("risen", 0)) + int(seen.risen)
 		if not entry.has("mines"):
 			entry.mines = {}
 		for mine in seen.get("mines", {}):
@@ -86,6 +91,19 @@ static func entry(profile: Dictionary, key: String) -> Dictionary:
 
 static func known(profile: Dictionary, key: String) -> bool:
 	return int(entry(profile, key).get("met", 0)) > 0
+
+static func seen_rising(profile: Dictionary, key: String) -> bool:
+	## Whether this player has watched it get back up: from then on its bars are shown, and
+	## its page says what each one gives it.
+	return int(entry(profile, key).get("risen", 0)) > 0
+
+static func risers(profile: Dictionary) -> Array:
+	## Every boss this player has watched get back up, for a run's `seen_rise`.
+	var out: Array = []
+	for key in profile.get("bestiary", {}):
+		if int(profile.bestiary[key].get("risen", 0)) > 0:
+			out.append(str(key))
+	return out
 
 static func known_count(profile: Dictionary, keys: Array = []) -> int:
 	var count: int = 0
@@ -237,6 +255,8 @@ static func haunts(key: String) -> Array:
 		for span in _spans(mine, key):
 			out.append({"kind": "band", "mine": str(mine_key), "from": int(span[0]), "to": int(span[1])})
 		var wardens: Array = mine.get("wardens", [])
+		if mine.get("remembered_wardens", []).has(key):
+			out.append({"kind": "remembered", "mine": str(mine_key)})
 		if wardens.has(key):
 			if bool(mine.get("endless", false)):
 				out.append({"kind": "remembered", "mine": str(mine_key)})

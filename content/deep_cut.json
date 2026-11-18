@@ -96,6 +96,10 @@
     "rich_seam_luck": 6,
     "chain_heat": 2,
     "max_creatures": 4,
+    "rider_most": 5,
+    "rift_bars": 3,
+    "rise_then_acts": 1,
+    "rise_restarts_enrage": 0,
     "punished_straight": 4,
     "altar_raise_pct": [20, 30],
     "altar_nudge_pct": 17,
@@ -4097,7 +4101,7 @@
     "PROCESSION": {
       "name": "Procession",
       "color": "RED",
-      "colors": ["RED", "BLUE", "GREEN", "VIOLET", "GOLD"],
+      "colors": ["RED", "BLUE", "GREEN", "VIOLET", "GOLD", "WHITE"],
       "cut": "kite",
       "rarity": "TRANSCENDENT",
       "tags": ["straight", "transcendent"],
@@ -4210,15 +4214,7 @@
         ]
       },
       "altar": {
-        "from": [
-          "BARRAGE",
-          "AEGIS",
-          "RENEWAL",
-          "DREAD",
-          "GILDED_ARMOR",
-          "LODESTONE",
-          "CRESCENDO"
-        ]
+        "trigger": "straight"
       }
     },
     "BLACK_OPAL": {
@@ -4252,7 +4248,7 @@
     "QUINTESSENCE": {
       "name": "Quintessence",
       "color": "RED",
-      "colors": ["RED", "GREEN", "BLUE", "VIOLET", "GOLD"],
+      "colors": ["RED", "BLUE", "GREEN", "VIOLET", "GOLD", "WHITE"],
       "cut": "pentagon",
       "rarity": "TRANSCENDENT",
       "tags": ["quint", "transcendent"],
@@ -4303,13 +4299,13 @@
         ]
       },
       "altar": {
-        "from": ["CRUSH", "SAP", "BASTION", "SHATTER", "JACKPOT"]
+        "trigger": "triple"
       }
     },
     "GEMINI": {
       "name": "Gemini",
       "color": "RED",
-      "colors": ["RED", "BLUE", "VIOLET", "GOLD", "WHITE"],
+      "colors": ["RED", "BLUE", "GREEN", "VIOLET", "GOLD", "WHITE"],
       "cut": "hourglass",
       "rarity": "TRANSCENDENT",
       "tags": ["pair", "transcendent"],
@@ -4338,13 +4334,13 @@
         ]
       },
       "altar": {
-        "from": ["CLEAVE", "GUARD", "VENOM", "TITHE", "CASCADE"]
+        "trigger": "pair"
       }
     },
     "CERTAINTY": {
       "name": "Certainty",
       "color": "RED",
-      "colors": ["RED", "BLUE", "GREEN", "VIOLET", "WHITE"],
+      "colors": ["RED", "BLUE", "GREEN", "VIOLET", "GOLD", "WHITE"],
       "cut": "keystone",
       "rarity": "TRANSCENDENT",
       "tags": ["always", "transcendent"],
@@ -4371,7 +4367,239 @@
         ]
       },
       "altar": {
-        "from": ["STRIKE", "RIPOSTE", "SIPHON", "MIASMA", "PRISM"]
+        "trigger": "always"
+      }
+    },
+    "ZENITH": {
+      "name": "Zenith",
+      "color": "GOLD",
+      "colors": ["GOLD", "RED", "BLUE", "GREEN", "VIOLET", "WHITE"],
+      "cut": "crown",
+      "rarity": "TRANSCENDENT",
+      "tags": ["high", "dice", "transcendent"],
+      "text": "For each die in the high half of its size: raise the face it shows by 1 for the rest of the fight, then deal damage equal to it.",
+      "trigger": {
+        "kind": "high_pct_at_least",
+        "ladder": [95, 90, 85, 80, 70]
+      },
+      "effects": [
+        {
+          "kind": "ratchet",
+          "step": 1,
+          "amount": 1,
+          "scale": "none"
+        },
+        {
+          "kind": "damage",
+          "target": "enemy",
+          "amount": {
+            "op": "+",
+            "args": [
+              {
+                "term": "high_sum"
+              },
+              {
+                "term": "high_dice"
+              }
+            ]
+          }
+        }
+      ],
+      "flawless": {
+        "text": "The faces stay raised for the rest of the run.",
+        "modify": [
+          {
+            "effect": 0,
+            "permanent": true
+          }
+        ]
+      },
+      "altar": {
+        "trigger": "high_pct_at_least"
+      }
+    },
+    "NADIR": {
+      "name": "Nadir",
+      "color": "VIOLET",
+      "colors": ["VIOLET", "RED", "BLUE", "GREEN", "GOLD", "WHITE"],
+      "cut": "plumb",
+      "rarity": "TRANSCENDENT",
+      "tags": ["low", "dice", "transcendent"],
+      "text": "For each die in the low half of its size: gain 5 Block, then lower the face it shows by 1 for the rest of the fight. A face already at 1 deals 10 damage instead.",
+      "trigger": {
+        "kind": "at_most",
+        "ladder": [1, 2, 3, 4, 5]
+      },
+      "effects": [
+        {
+          "kind": "block",
+          "target": "self",
+          "amount": {
+            "op": "*",
+            "args": [
+              5,
+              {
+                "term": "low_dice"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "damage",
+          "target": "enemy",
+          "amount": 10,
+          "repeat": {
+            "term": "count_value",
+            "value": 1
+          }
+        },
+        {
+          "kind": "ratchet",
+          "step": -1,
+          "amount": 1,
+          "scale": "none"
+        }
+      ],
+      "flawless": {
+        "text": "The faces stay lowered for the rest of the run.",
+        "modify": [
+          {
+            "effect": 2,
+            "permanent": true
+          }
+        ]
+      },
+      "altar": {
+        "trigger": "at_most"
+      }
+    },
+    "MOSAIC": {
+      "name": "Mosaic",
+      "color": "WHITE",
+      "colors": ["WHITE", "RED", "BLUE", "GREEN", "VIOLET", "GOLD"],
+      "cut": "hexagram",
+      "rarity": "TRANSCENDENT",
+      "tags": ["distinct", "transcendent"],
+      "text": "For each different value in your hand, a random effect, each one stronger than the last.",
+      "trigger": {
+        "kind": "distinct",
+        "ladder": [5, 4, 4, 3, 3]
+      },
+      "effects": [
+        {
+          "kind": "mosaic",
+          "amount": {
+            "term": "distinct"
+          },
+          "scale": "none",
+          "climb": 1,
+          "table": {
+            "damage": [6, 7, 8, 9, 10],
+            "block": [4, 5, 6, 7, 8],
+            "poison": [2, 2, 3, 3, 4],
+            "heal": [3, 3, 4, 4, 5],
+            "gold": [2, 2, 3, 3, 4],
+            "resonance": [1, 1, 1, 2, 2]
+          }
+        }
+      ],
+      "flawless": {
+        "text": "Each one climbs faster: 1×, 3×, 5×, 7×, 9×.",
+        "modify": [
+          {
+            "effect": 0,
+            "climb": 2
+          }
+        ]
+      },
+      "altar": {
+        "trigger": "distinct"
+      }
+    },
+    "SYZYGY": {
+      "name": "Syzygy",
+      "color": "BLUE",
+      "colors": ["BLUE", "RED", "GREEN", "VIOLET", "GOLD", "WHITE"],
+      "cut": "twin_rhomb",
+      "rarity": "TRANSCENDENT",
+      "tags": ["two_pair", "attack", "transcendent"],
+      "text": "Deal damage equal to your two pairs' values multiplied together.",
+      "trigger": {
+        "kind": "two_pair",
+        "ladder": [5, 4, 3, 2, 1]
+      },
+      "effects": [
+        {
+          "kind": "damage",
+          "target": "enemy",
+          "amount": {
+            "op": "*",
+            "args": [
+              {
+                "term": "value"
+              },
+              {
+                "term": "second"
+              }
+            ]
+          }
+        }
+      ],
+      "flawless": {
+        "text": "And gain that much Block.",
+        "effects": [
+          {
+            "kind": "block",
+            "target": "self",
+            "amount": {
+              "op": "*",
+              "args": [
+                {
+                  "term": "value"
+                },
+                {
+                  "term": "second"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "altar": {
+        "trigger": "two_pair"
+      }
+    },
+    "EQUINOX": {
+      "name": "Equinox",
+      "color": "GREEN",
+      "colors": ["GREEN", "RED", "BLUE", "VIOLET", "GOLD", "WHITE"],
+      "cut": "leaf",
+      "rarity": "TRANSCENDENT",
+      "tags": ["odd", "even", "transcendent"],
+      "text": "For the rest of this turn every die counts as both odd and even.",
+      "trigger": {
+        "kind": "balanced",
+        "ladder": [1, 2, 3, 4, 5]
+      },
+      "effects": [
+        {
+          "kind": "both_parities",
+          "target": "self",
+          "amount": 1,
+          "scale": "none"
+        }
+      ],
+      "flawless": {
+        "text": "The gems after it that count odd or even dice count each die twice.",
+        "modify": [
+          {
+            "effect": 0,
+            "amount": 2
+          }
+        ]
+      },
+      "altar": {
+        "trigger": ["even", "odd"]
       }
     }
   },
@@ -7750,8 +7978,9 @@
       "block": 10,
       "threat": 20,
       "warden": true,
-      "text": "Warden of the Quarry: a rock-crab in a miner's hard hat. Its pick die hits; its lamp die shores up, buries a socket in rubble for 3 turns, brings the roof down low so your high dice count for nothing, and reinforces a pick face into a triple Blast.",
-      "tip": "The longer it lives, the more of your rail is buried.",
+      "text": "Warden of the Quarry: a rock-crab in a miner's hard hat. Its pick die hits; its lamp die shores up, buries a socket in rubble for 3 turns, brings the roof down low so your high dice count for nothing, and reinforces a pick face into a triple Blast. Every blow it takes gives it Strength.",
+      "tip": "Every blow makes it stronger. A few big hits beat many small ones.",
+      "traits": { "wrathful": 1 },
       "dice": [
         {
           "shape": "D6",
@@ -7977,6 +8206,19 @@
       "warden": true,
       "text": "The Quarry's final boss: a drilling machine of iron drums. Its treads roll your dice for you, jam your smallest dice, grind your gems dull, rev an Overdrive onto its drill and call rail rats; its drill bores.",
       "tip": "Each Rev puts another Overdrive on its drill.",
+      "rising": {
+        "health_pct": 60,
+        "rises": [
+          {
+            "name": "Redline",
+            "text": "2 Rail Rats join it.",
+            "traits": { "molten": 25 },
+            "effects": [
+              { "kind": "summon", "target": "self", "amount": 2, "creature": "RAIL_RAT" }
+            ]
+          }
+        ]
+      },
       "dice": [
         {
           "shape": "D8",
@@ -8593,6 +8835,17 @@
       "warden": true,
       "text": "The Seeps' final boss: a serpent of cut boulders. Its jaws bite and drag the whole party under; its tail thrashes, dives and surfaces hard, calls seep eels and raises the water over your low dice.",
       "tip": "Drag Under stuns the whole party at once.",
+      "rising": {
+        "health_pct": 60,
+        "fall": "dive",
+        "rises": [
+          {
+            "name": "Riptide",
+            "text": "It goes under as it falls, and surfaces biting.",
+            "traits": { "wrathful": 1 }
+          }
+        ]
+      },
       "dice": [
         {
           "shape": "D8",
@@ -9097,8 +9350,9 @@
       "block": 8,
       "threat": 26,
       "warden": true,
-      "text": "Warden of the Glass Veins: a glass scorpion with a diamond saw on its tail. Its claws pinch twice and anneal; its saw slices, eviscerates with ten small cuts, and cuts every face your dice show down by one for good.",
+      "text": "Warden of the Glass Veins: a glass scorpion with a diamond saw on its tail. Its claws pinch twice and anneal; its saw slices, eviscerates with ten small cuts, and cuts every face your dice show down by one for good. Every blow it takes costs whoever threw it 1 health.",
       "tip": "Its Cut wears your dice down for good.",
+      "traits": { "jagged": 1 },
       "dice": [
         {
           "shape": "D8",
@@ -9313,6 +9567,19 @@
       "warden": true,
       "text": "The Glass Veins' final boss: a crowned colossus of crystal with prisms floating round it. While a prism floats it takes half damage. Its crown raises prisms, gathers light and grows brighter; its shards crush and lance.",
       "tip": "Shatter the prisms first. Hold back while it gathers light.",
+      "rising": {
+        "health_pct": 60,
+        "rises": [
+          {
+            "name": "Fractured",
+            "text": "Its Prisms come back, three of them.",
+            "traits": { "jagged": 1 },
+            "effects": [
+              { "kind": "summon", "target": "self", "amount": 3, "creature": "PRISM", "cap": 3 }
+            ]
+          }
+        ]
+      },
       "dice": [
         {
           "shape": "D3",
@@ -9800,8 +10067,9 @@
       "block": 8,
       "threat": 28,
       "warden": true,
-      "text": "Warden of the Warrens: a crab tilling a garden on its back. Its trowel tends and strengthens every creature, plants puffballs and prunes your dice; its shell rams, sows root horrors and grows thorns.",
+      "text": "Warden of the Warrens: a crab tilling a garden on its back. Its trowel tends and strengthens every creature, plants puffballs and prunes your dice; its shell rams, sows root horrors and grows thorns. Its blows lay Poison as well.",
       "tip": "Kill what it plants, or the garden fights for it.",
+      "traits": { "venomous": 25 },
       "dice": [
         {
           "shape": "D8",
@@ -9924,8 +10192,9 @@
       "block": 10,
       "threat": 34,
       "warden": true,
-      "text": "Warden of the Warrens: a bloated toad crowded with spore sacs. She poisons, chokes your healing, and makes your poison bite again; Spore and Rot together bite once more.",
+      "text": "Warden of the Warrens: a bloated toad crowded with spore sacs. She poisons, chokes your healing, and makes your poison bite again; Spore and Rot together bite once more. A single hit of 40% of her health or more splits her in two.",
       "tip": "Clear your poison before she makes it bite again.",
+      "traits": { "split_on_big_hit": true },
       "dice": [
         {
           "shape": "D8",
@@ -10054,6 +10323,19 @@
       "warden": true,
       "text": "The Warrens' final boss: a rotting heart of gem rooted in the floor, with two tendrils. It rots and festers; a tendril that stands knits it back together.",
       "tip": "Kill the tendrils, or they knit the heart.",
+      "rising": {
+        "health_pct": 60,
+        "rises": [
+          {
+            "name": "Blight",
+            "text": "Both Tendrils grow back.",
+            "traits": { "venomous": 25 },
+            "effects": [
+              { "kind": "summon", "target": "self", "amount": 2, "creature": "TENDRIL", "cap": 2 }
+            ]
+          }
+        ]
+      },
       "dice": [
         {
           "shape": "D8",
@@ -10447,8 +10729,9 @@
       "block": 10,
       "threat": 32,
       "warden": true,
-      "text": "Warden of the Furnace: a tortoise whose shell is a volcano. Its crucible pours, scalds and melts a face of your dice blank; its hide armours, tramples and stokes.",
+      "text": "Warden of the Furnace: a tortoise whose shell is a volcano. Its crucible pours, scalds and melts a face of your dice blank; its hide armours, tramples and stokes. Its blows lay Burn as well.",
       "tip": "Melt blanks a face of your dice for the fight.",
+      "traits": { "molten": 25 },
       "dice": [
         {
           "shape": "D8",
@@ -10700,6 +10983,15 @@
       "warden": true,
       "text": "The Furnace's final boss: a red dragon. Its claws rend and pin your dice; its breath burns, dulls, melts a gem and brings down lavafalls; its tail sweeps, quakes your block away and stirs more lava onto its breath.",
       "tip": "Each Stir puts more lava on its breath.",
+      "rising": {
+        "health_pct": 60,
+        "rises": [
+          {
+            "name": "Inferno",
+            "traits": { "molten": 25, "wrathful": 1 }
+          }
+        ]
+      },
       "dice": [
         {
           "shape": "D8",
@@ -11623,8 +11915,31 @@
       "block": 18,
       "threat": 65,
       "warden": true,
-      "text": "The Hollow's final boss: a crowned geode giant on one die that grows. Rise adds a Topple and a Summon face, up to a d12; Crowned heals it and doubles its next attack. No single hit takes more than 15% of its health.",
+      "text": "The Hollow's final boss: a crowned geode giant on one die that grows. Rise adds a Topple and a Summon face, up to a d12; Crowned heals it and doubles its next attack. No single hit takes more than a quarter of its health.",
       "tip": "Every Rise grows its die. Kill it before it reaches a d12.",
+      "rising": {
+        "health_pct": 50,
+        "rises": [
+          {
+            "name": "Risen",
+            "text": "Its die grows to a d12 at once.",
+            "traits": { "jagged": 1 },
+            "effects": [
+              { "kind": "grow_faces", "target": "self", "amount": 1, "faces": ["Topple", "Summon"], "cap": "D12" },
+              { "kind": "grow_faces", "target": "self", "amount": 1, "faces": ["Topple", "Summon"], "cap": "D12" },
+              { "kind": "grow_faces", "target": "self", "amount": 1, "faces": ["Topple", "Summon"], "cap": "D12" }
+            ]
+          },
+          {
+            "name": "Last Reign",
+            "text": "A second d12, a copy of the first.",
+            "traits": { "wrathful": 1 },
+            "effects": [
+              { "kind": "grow_die", "target": "self", "amount": 1, "cap": 2, "copy": 0 }
+            ]
+          }
+        ]
+      },
       "dice": [
         {
           "shape": "D6",
@@ -11722,7 +12037,7 @@
           ]
         }
       ],
-      "traits": { "sturdy": 15 }
+      "traits": { "sturdy": 25 }
     },
     "RIFTLING_SWARM": {
       "name": "Riftling Swarm",
@@ -12090,6 +12405,25 @@
       "warden": true,
       "text": "The Rift's final boss: a black hole with debris swirling into it. It starts with one d12 and grows more; Dread shrinks all your dice for the fight. No single hit takes more than a tenth of its health.",
       "tip": "Every Expand is another d12. Kill it before it grows.",
+      "rising": {
+        "health_pct": 50,
+        "rises": [
+          {
+            "text": "Another d12.",
+            "roll": 1,
+            "effects": [
+              { "kind": "grow_die", "target": "self", "amount": 1, "cap": 5, "template": 0 }
+            ]
+          },
+          {
+            "text": "Another d12.",
+            "roll": 1,
+            "effects": [
+              { "kind": "grow_die", "target": "self", "amount": 1, "cap": 5, "template": 0 }
+            ]
+          }
+        ]
+      },
       "dice": [
         {
           "shape": "D12",
@@ -13146,7 +13480,19 @@
         }
       ],
       "unmade": "THE_UNMADE",
-      "unmade_every": 5
+      "unmade_every": 5,
+      "remembered_wardens": [
+        "THE_FOREMAN",
+        "THE_REGENT",
+        "THE_LOCKKEEPER",
+        "THE_DROWNED_CHOIR",
+        "THE_GLAZIER",
+        "THE_KALEIDOSCOPE",
+        "THE_GARDENER",
+        "THE_SPORE_MOTHER",
+        "THE_SMELTER",
+        "THE_ANVIL_KNIGHT"
+      ]
     }
   },
   "oddities": {
@@ -14354,15 +14700,15 @@
       "key": "CHAMPIONS",
       "name": "Champions",
       "glyph": "star",
-      "text": "In every elite fight the strongest creature has a trait of its own: Steadfast, Sturdy, Splits, Spiked, Regenerating or Warded.",
+      "text": "In every elite fight the strongest creature has a trait of its own.",
       "params": { "spikes": 3, "regen_pct": 4, "ward": 2 }
     },
     {
-      "key": "WORN",
-      "name": "Worn",
-      "glyph": "fall",
-      "text": "Everyone starts the run at 85% health.",
-      "params": { "health_pct": -15 }
+      "key": "NARROW_SHAFT",
+      "name": "Narrow Shaft",
+      "glyph": "cross_out",
+      "text": "Only the first 3 stones in your loadout go down with you. The rest stay in the vault.",
+      "params": { "stones": 3 }
     },
     {
       "key": "WARDENS_PRIDE",
@@ -14375,8 +14721,8 @@
       "key": "THIN_HOARDS",
       "name": "Thin Hoards",
       "glyph": "chest",
-      "text": "Hoards offer 2 pedestals instead of 3, and only half of them hold an opal.",
-      "params": { "pedestals": -1, "opal_pct": 50 }
+      "text": "Hoards offer 2 pedestals instead of 3. Opals are harder to find.",
+      "params": { "pedestals": -1, "opal_pct": 40 }
     },
     {
       "key": "EARLY_ENRAGE",
@@ -14389,14 +14735,14 @@
       "key": "BIGGER_TEETH",
       "name": "Bigger Teeth",
       "glyph": "die",
-      "text": "Every creature's dice are one size bigger: a d6 becomes a d8.",
+      "text": "Every creature's dice are bigger and stronger.",
       "params": { "sizes": 1 }
     },
     {
       "key": "DARK_MOUTHS",
       "name": "Dark Mouths",
       "glyph": "lantern",
-      "text": "More chambers are hidden: up to 2 on a floor, at 35% each.",
+      "text": "More chambers are hidden.",
       "params": { "pct": 35, "most": 2 }
     },
     {

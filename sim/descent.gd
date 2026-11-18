@@ -105,6 +105,13 @@ static func new_run(config: Dictionary) -> Dictionary:
 		state.deep_start = mines_skipped(mine_key)
 	var temps: RandomNumberGenerator = DeepRng.streams(seed_value, ["temps"]).temps
 	var seat: int = 0
+	## The bosses anyone going down has watched get back up (their Bestiary's `risen`): their
+	## bars are shown from the start. One met for the first time shows a single bar until it rises.
+	state.seen_rise = []
+	for entry in config.get("players", []):
+		for key in entry.get("seen_rise", []):
+			if key is String and not state.seen_rise.has(key):
+				state.seen_rise.append(key)
 	## The rail goes down as copies of the vault's stones, and the vault keeps the stones
 	## themselves: a copy is marked lent, and wherever it ends up it never comes home.
 	state.marks_lent = true
@@ -115,6 +122,10 @@ static func new_run(config: Dictionary) -> Dictionary:
 		var rail: Array = entry.get("rail", []).duplicate(true)
 		for index in range(open, rail.size()):
 			rail[index] = null
+		## Narrow Shaft: only the first few stones go down, left to right; the day lends its own rail.
+		if daily.is_empty():
+			for index in left_behind(rail, open, rail_limit(tier)):
+				rail[index] = null
 		var brought: int = 0
 		for stone in rail:
 			if stone is Dictionary:
@@ -237,10 +248,10 @@ static func _dress_for_the_day(state: Dictionary, unit: Dictionary, _mine_def: D
 
 static func _dress_for_the_hazard(state: Dictionary, unit: Dictionary, daily: bool) -> void:
 	## What the Hazard tier (and a day's Bad Air) does to a lapidary before the first step
-	## down. Cuts to the same thing add up: Bad Air and Worn together start a lapidary at 60%.
+	## down. Narrow Shaft has already cut the rail, in `new_run`.
 	if not unit.has("run_mods"):
 		unit.run_mods = {}
-	var short: int = 25 * mod_count(state, "BAD_AIR") - int(DeepContent.hazard_param("WORN", "health_pct", -15)) * mod_count(state, "WORN")
+	var short: int = 25 * mod_count(state, "BAD_AIR")
 	if short > 0:
 		unit.hp = maxi(1, int(ceil(float(unit.max_hp) * float(100 - mini(95, short)) / 100.0)))
 	if has_mod(state, "COLD_START"):
@@ -783,11 +794,17 @@ static func is_warden_depth(depth: int, mine_key: String = "") -> bool:
 	if depth <= 0:
 		return false
 	if bool(mine.get("endless", false)):
-		return depth % warden_every(mine) == 0
+		return depth % warden_every(mine) == 0 or stands_between(mine, depth)
 	for d in mine.get("warden_depths", []):
 		if int(d) == depth:
 			return true
 	return depth == DeepContent.mine_bottom(key)
+
+static func stands_between(mine: Dictionary, depth: int) -> bool:
+	## The Rift's smaller Wardens (owner, November 18, 2026): one of the Wardens of the mines
+	## above, remembered with one trait, at the landing halfway between two of its bosses.
+	var every: int = warden_every(mine)
+	return bool(mine.get("endless", false)) and not mine.get("remembered_wardens", []).is_empty() and every % 2 == 0 and depth > 0 and depth % every == every / 2
 
 static func warden_key(state: Dictionary, depth: int) -> String:
 	## Who guards this landing: the mine's Wardens in order, and at the bottom its final boss.
@@ -798,6 +815,9 @@ static func warden_key(state: Dictionary, depth: int) -> String:
 		return str(mine.boss)
 	if wardens.is_empty():
 		return str(mine.get("boss", ""))
+	if stands_between(mine, depth):
+		var between: Array = mine.remembered_wardens
+		return str(between[(depth / warden_every(mine)) % between.size()])
 	if bool(mine.get("endless", false)):
 		## The Rift remembers the bosses above it, in order, and every so often (the fifth
 		## Warden, the tenth) something of its own stands there instead.
@@ -1324,7 +1344,10 @@ static func _start_fight(state: Dictionary, streams: Dictionary, elite: bool, wa
 	if has_mod(state, "PRESSURE_COOKER"):
 		scale.depth_hp = float(DeepContent.hazard_param("PRESSURE_COOKER", "hp_per_depth", 0.07))
 		scale.damage_every = int(DeepContent.hazard_param("PRESSURE_COOKER", "damage_every", 3))
-	var context: Dictionary = {"depth": int(state.depth), "threat": threat, "scale": scale, "elite": elite, "warden": not warden.is_empty(), "remembered": remembered, "court": court}
+	var context: Dictionary = {"depth": int(state.depth), "threat": threat, "scale": scale, "elite": elite, "warden": not warden.is_empty(), "remembered": remembered, "court": court,
+		## A boss the Rift remembers has three bars, whatever it had upstairs; and whoever
+		## the party has watched get back up shows its bars from the start.
+		"bars": int(DeepContent.constant("rift_bars", 3)) if remembered else 0, "seen_rise": state.get("seen_rise", [])}
 	## Early Enrage: the creatures enrage sooner and harder.
 	if has_mod(state, "EARLY_ENRAGE"):
 		var early: int = mod_count(state, "EARLY_ENRAGE")
@@ -1386,10 +1409,12 @@ static func _dress_the_fight(state: Dictionary, battle: Dictionary, ordinary: bo
 		for fighter in battle.players:
 			fighter.block = int(fighter.get("block", 0)) + 6
 
-## What a Champion may be, and what the creature is shown as.
-## Jagged joined them on November 13, 2026 (W4): every blow on it costs its thrower 1 health.
-const CHAMPION_TRAITS: Dictionary = {"steadfast": "Steadfast", "sturdy": "Sturdy", "split_on_big_hit": "Splits", "spikes": "Spiked",
-	"regenerating": "Regenerating", "warded": "Warded", "jagged": "Jagged"}
+## What a Champion may be, and what the creature is shown as: the named traits the Rift rolls
+## (DeepContent.REMEMBERED_TRAITS; owner, November 18, 2026) and three of its own. The
+## Champion is called after it ("Molten Slag Hound") and wears its look.
+const CHAMPION_TRAITS: Dictionary = {"steadfast": "Steadfast", "sturdy": "Sturdy", "split_on_big_hit": "Splits", "jagged": "Jagged",
+	"venomous": "Venomous", "molten": "Molten", "wrathful": "Wrathful", "leeching": "Leeching",
+	"spikes": "Spiked", "regenerating": "Regenerating", "warded": "Warded"}
 
 static func _harden_the_fight(state: Dictionary, battle: Dictionary, elite: bool, rng: RandomNumberGenerator) -> void:
 	## What the Hazard tier does to a fight once it is laid out.
@@ -1415,8 +1440,6 @@ static func _harden_the_fight(state: Dictionary, battle: Dictionary, elite: bool
 		if not lead.has("traits"):
 			lead.traits = {}
 		match picked:
-			"sturdy":
-				lead.traits.sturdy = 25
 			"spikes":
 				var spikes: int = int(DeepContent.hazard_param("CHAMPIONS", "spikes", 3))
 				lead.traits.spikes = spikes
@@ -1426,9 +1449,13 @@ static func _harden_the_fight(state: Dictionary, battle: Dictionary, elite: bool
 			"warded":
 				lead.statuses.ward = maxi(int(lead.statuses.get("ward", 0)), int(DeepContent.hazard_param("CHAMPIONS", "ward", 2)))
 			_:
-				lead.traits[picked] = true
+				lead.traits[picked] = DeepContent.REMEMBERED_VALUES.get(picked, true)
 		lead.champion = str(CHAMPION_TRAITS[picked])
-		lead.name = "Champion %s" % str(lead.get("name", ""))
+		lead.champion_trait = picked
+		lead.name = DeepCreatures.titled(str(lead.get("name", "")), str(CHAMPION_TRAITS[picked]))
+		## Its moves as that trait throws them (a Molten one's Burn), written before the first turn.
+		DeepCreatures.prepare(lead)
+		DeepCreatures.refresh_bonuses(lead, battle)
 
 static func _deep_creature(mine: Dictionary, rng: RandomNumberGenerator) -> String:
 	## A creature from the deepest band of a mine, never a Warden and never one that only
@@ -1507,6 +1534,12 @@ static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
 	state.chamber.settled = true
 	var settle: Dictionary = {"outcome": outcome, "kind": kind, "rewards": {}}
 	DeepBestiary.settled(state, b.enemies, outcome)
+	## Whoever got back up in this fight shows its bars for the rest of the run.
+	if not state.get("seen_rise", null) is Array:
+		state.seen_rise = []
+	for key in b.get("rose", []):
+		if not state.seen_rise.has(str(key)):
+			state.seen_rise.append(str(key))
 	for fighter in b.players:
 		var unit: Dictionary = player(state, str(fighter.id))
 		## Max HP a Flawless Green Seam raised lasted the fight.
@@ -1959,6 +1992,29 @@ static func loadout_luck(stones: int) -> float:
 	var per: float = float(DeepContent.constant("loadout_luck_per_stone", 2))
 	var base: int = int(DeepContent.constant("loadout_luck_base", 3))
 	return per * float(base - stones)
+
+static func rail_limit(tier: int) -> int:
+	## How many of a loadout's stones go down on a Hazard tier: Narrow Shaft lets only the first
+	## few through, left to right. -1 when the tier lets them all down.
+	if not DeepContent.hazard_keys(tier).has("NARROW_SHAFT"):
+		return -1
+	return int(DeepContent.hazard_param("NARROW_SHAFT", "stones", 3))
+
+static func left_behind(rail: Array, open: int, limit: int) -> Array:
+	## The sockets (of the first `open`) whose stones stay home under that limit: every stone set
+	## past the first `limit`, counting left to right. Empty sockets do not count. [] for no limit.
+	var out: Array = []
+	if limit < 0:
+		return out
+	var kept: int = 0
+	for index in range(mini(open, rail.size())):
+		if not rail[index] is Dictionary:
+			continue
+		if kept < limit:
+			kept += 1
+		else:
+			out.append(index)
+	return out
 
 static func _find_stone(state: Dictionary, unit: Dictionary, streams: Dictionary, bonus: int, source: String, min_tier: String = "") -> Dictionary:
 	## One raw stone into a player's haul. All stored Sparkle is spent on this find, at

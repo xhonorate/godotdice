@@ -239,7 +239,17 @@ static func where_now(run: Dictionary, next_mine: String = "") -> Dictionary:
 				mood = "warden" if kind == "warden" else ("elite" if kind == "elite" else "fight")
 	## A boss's hall leads on into the mine below, whose music is worth having in hand.
 	var below: String = DeepDescent.next_mine(run) if str(run.get("phase", "")) in ["landing", "hoard"] and DeepDescent.in_boss_hall(run) else ""
-	return {"place": mine, "mood": mood, "deep": depth_into(run), "next": below}
+	## A boss down on its last point (owner, November 18, 2026): the piece drops out and the
+	## room is heard alone until it gets back up; once it has, the piece is a step higher.
+	var hush: bool = false
+	var risen: int = 0
+	if mood in ["warden", "elite", "fight"]:
+		for foe in DeepDescent.battle(run).get("enemies", []):
+			if int(foe.get("hp", 0)) <= 0:
+				continue
+			hush = hush or bool(foe.get("fallen", false))
+			risen = maxi(risen, int(foe.get("bar", 1)) - 1)
+	return {"place": mine, "mood": mood, "deep": depth_into(run), "next": below, "hush": hush, "risen": mini(risen, 2)}
 
 static func depth_into(run: Dictionary) -> float:
 	## How far down the mine the party is, 0 at the top to 1 at its boss. A mine with no bottom
@@ -295,6 +305,11 @@ static func lifts(track_id: String, mood: String) -> bool:
 	## Whether a piece goes up a semitone in this mood: only for a Warden, only if it asks.
 	return mood == "warden" and bool(DeepScore.track(track_id).get("warden_lift", false))
 
+static func lift_steps(track_id: String, where: Dictionary) -> int:
+	## How many semitones up a piece plays: one in a Warden's hall if it asks for it, and one
+	## more for every time the boss there has got back up.
+	return (1 if lifts(track_id, str(where.get("mood", "explore"))) else 0) + clampi(int(where.get("risen", 0)), 0, 2)
+
 static func tonic() -> Dictionary:
 	## The key the music is in right now, for a sound that climbs a scale and wants to climb
 	## this one rather than clash with it (a gem's count, tick by tick): the tonic as semitones
@@ -304,13 +319,13 @@ static func tonic() -> Dictionary:
 	if player == null or player._decks.is_empty():
 		return {"pc": 0, "steps": [0, 2, 4, 7, 9]}
 	var deck: Dictionary = player._decks.back()
-	return key_of(DeepScore.track(str(deck.get("id", ""))), bool(deck.get("lifted", false)))
+	return key_of(DeepScore.track(str(deck.get("id", ""))), int(deck.get("lifted", 0)))
 
-static func key_of(spec: Dictionary, lifted: bool = false) -> Dictionary:
+static func key_of(spec: Dictionary, lifted: int = 0) -> Dictionary:
 	var scale: Array = DeepComposer.MODES.get(str(spec.get("mode", "ionian")), DeepComposer.MODES.ionian)
 	var minor: bool = int(scale[2]) == 3
 	var steps: Array = [scale[0], scale[2], scale[3], scale[4], scale[6]] if minor else [scale[0], scale[1], scale[2], scale[4], scale[5]]
-	var pc: int = int(DeepComposer.PITCHES.get(str(spec.get("key", "C")), 0)) + (1 if lifted else 0)
+	var pc: int = int(DeepComposer.PITCHES.get(str(spec.get("key", "C")), 0)) + maxi(0, lifted)
 	return {"pc": pc % 12, "steps": steps}
 
 static func bar_seconds(track_id: String) -> float:
@@ -497,9 +512,9 @@ func _process(_delta: float) -> void:
 		if strips.is_empty():
 			_ask("piece:" + id, true)
 		else:
-			_play_piece(id, strips, layer_levels(mood, float(want.get("deep", 0.0))), lifts(id, mood))
+			_play_piece(id, strips, layer_levels(mood, float(want.get("deep", 0.0))), lift_steps(id, want))
 	elif not playing.is_empty():
-		_lift(playing, lifts(id, mood))
+		_lift(playing, lift_steps(id, want))
 	_steer_fx(heat(mood), 0.0 if place == DeepScore.HOME else 1.0, dt)
 	_steer_rooms(place, float(want.get("deep", 0.0)), dt)
 	var next: String = str(_where.get("next", ""))
@@ -517,7 +532,8 @@ func _process(_delta: float) -> void:
 			_ask("air:" + family, true)
 		else:
 			_play_air(family, loop)
-	_steer(layer_levels(str(want.get("mood", "explore")), float(want.get("deep", 0.0))), dt)
+	## A boss down on its last point: every strip of the piece down, the room's air alone.
+	_steer([0.0, 0.0, 0.0, 0.0] if bool(want.get("hush", false)) else layer_levels(str(want.get("mood", "explore")), float(want.get("deep", 0.0))), dt)
 	_run_writer()
 
 func _warm_up(paths: Array) -> void:
@@ -532,17 +548,17 @@ func _warm_up(paths: Array) -> void:
 		elif str(_warm[key]) == "asked" and ResourceLoader.load_threaded_get_status(key) == ResourceLoader.THREAD_LOAD_LOADED:
 			_warm[key] = ResourceLoader.load_threaded_get(key)
 
-func _lift(deck: Dictionary, wanted: bool) -> void:
+func _lift(deck: Dictionary, wanted: int) -> void:
 	## Change key only as a bar begins (the loop's own start counts), so it lands as part of
-	## the music rather than as a slip of the tape.
+	## the music rather than as a slip of the tape. `wanted` is in semitones up.
 	var player: AudioStreamPlayer = deck.player
 	var bar_now: int = int(floor(player.get_playback_position() / maxf(float(deck.bar), 0.01)))
-	if bool(deck.lifted) != wanted and int(deck.last_bar) >= 0 and bar_now != int(deck.last_bar):
-		player.pitch_scale = SEMITONE if wanted else 1.0
+	if int(deck.lifted) != wanted and int(deck.last_bar) >= 0 and bar_now != int(deck.last_bar):
+		player.pitch_scale = pow(SEMITONE, float(wanted))
 		deck.lifted = wanted
 	deck.last_bar = bar_now
 
-func _play_piece(id: String, strips: Array, levels_now: Array, lifted: bool = false) -> void:
+func _play_piece(id: String, strips: Array, levels_now: Array, lifted: int = 0) -> void:
 	var sync := AudioStreamSynchronized.new()
 	sync.stream_count = strips.size()
 	var presence: Array = []
@@ -557,7 +573,7 @@ func _play_piece(id: String, strips: Array, levels_now: Array, lifted: bool = fa
 	player.stream = sync
 	player.volume_db = _db(0.0)
 	## A piece arriving in a Warden's hall starts already lifted: a crossfade hides the change.
-	player.pitch_scale = SEMITONE if lifted else 1.0
+	player.pitch_scale = pow(SEMITONE, float(lifted))
 	add_child(player)
 	player.play()
 	for deck in _decks:

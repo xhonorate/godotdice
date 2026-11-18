@@ -18,7 +18,7 @@ Nothing in the game explains the recipes. The circle lights for a set it knows a
 
 Tried in order; the first rule that fits wins (`DeepAltar.recipe_for`).
 
-1. **A Transcendent's own recipe**: five different skills from its `altar.from` list.
+1. **A Transcendent's own recipe**: five different skills that all wake on the trigger its `altar.trigger` names (any five different pair gems make Gemini), or, for the two opal Transcendents, five different skills from its `altar.from` list. Trigger recipes since November 18, 2026; before that each named five to seven gems. A Birthstone-only skill never counts (`DeepAltar.trigger_gems`).
 2. **Five gems of one of the six colors**, repeats allowed: that color's Seam.
 3. **Five gems of five different colors**, Opal counting as one: a random ordinary opal. Never a Transcendent.
 
@@ -27,11 +27,16 @@ A gem's color here is its skill's own; a Zoning inclusion doesn't change it.
 | Transcendent | Made from | Cut | What it does |
 | --- | --- | --- | --- |
 | Rainbow Seam | any five different Seams | cabochon | Every gem that has already fired this turn fires again. |
-| Procession | Barrage, Aegis, Renewal, Dread, Gilded Armor, Lodestone, Crescendo (any five) | kite | By the top of the straight: damage, Block, healing, Poison and Pyrite, each a share of it. Flawless: a straight of five plays all of it twice. |
+| Procession | any five different straight gems | kite | By the top of the straight: damage, Block, healing, Poison and Pyrite, each a share of it. Flawless: a straight of five plays all of it twice. |
 | Black Opal | Pinfire, Doublet, Matrix, Echo, Prelude (Pinfire took Fire Opal's place in October 2026) | cabochon | At the start of each fight absorbs a random read gem from the bag (destroyed); when it fires, every absorbed skill fires too, if the dice suit it. Reset when the run ends. Flawless: gains 1 carat for the run for each gem it absorbs. |
-| Quintessence | Crush, Sap, Bastion, Shatter, Jackpot | pentagon | On five of a kind: 5 damage, 5 Block, 5 healing, 5 Pyrite, then +5 carats to itself for the fight. Flawless: +5 to every other gem too. |
-| Gemini | Cleave, Guard, Venom, Tithe, Cascade | hourglass | For each pair in the hand (four or five alike and a full house are two; phantom dice count), one gem beside it fires: before, then after, in turn. Never an opal or another Transcendent. Flawless: neighbours sharing a color fire one more time. |
-| Certainty | Strike, Riposte, Siphon, Miasma, Prism | keystone | Every gem after it fires this turn whatever the dice show (opals still need Resonance). Flawless: the gems it forces read the highest die for every number they ask for. |
+| Quintessence | any five different three-of-a-kind gems | pentagon | On five of a kind: 5 damage, 5 Block, 5 healing, 5 Pyrite, then +5 carats to itself for the fight. Flawless: +5 to every other gem too. |
+| Gemini | any five different pair gems | hourglass | For each pair in the hand (four or five alike and a full house are two; phantom dice count), one gem beside it fires: before, then after, in turn. Never an opal or another Transcendent. Flawless: neighbours sharing a color fire one more time. |
+| Certainty | any five different any-hand gems | keystone | Every gem after it fires this turn whatever the dice show (opals still need Resonance). Flawless: the gems it forces read the highest die for every number they ask for. |
+| Zenith | any five different high-roll gems | crown | For each die in the high half of its size: the face it shows rises 1 for the fight (`ratchet`, step 1), then deals damage equal to it (`high_sum` + `high_dice`). Activation: high roll 95 / 90 / 85 / 80 / 70. Flawless: the faces stay raised for the run. |
+| Nadir | any five different low-die gems | plumb | For each die in the low half: 5 Block, then the face sinks 1 for the fight (`ratchet`, step -1); a face already at 1 deals 10 damage instead. Activation: a die at 1 / 2 / 3 / 4 / 5 or less. Flawless: the faces stay lowered for the run. |
+| Mosaic | any five different all-different gems | hexagram | For each different value, a random one of damage, Block, Poison, heal, Pyrite or Resonance (`mosaic`), 1x, 2x, 3x and on; the numbers by Cut are in its `table` (damage 6-10, Block 4-8, Poison 2-4, heal 3-5, Pyrite 2-4, Resonance 1-2), all but Resonance swelling with carat. Activation 5 / 4 / 4 / 3 / 3 different values. Flawless: 1x, 3x, 5x, 7x, 9x. |
+| Syzygy | any five different two-pair gems | twin rhomb | Damage equal to the two pairs' values multiplied together. Activation: two pair, both at least 5 / 4 / 3 / 2 / 1. Flawless: that much Block too. |
+| Equinox | any five different odd or even gems (`"trigger": ["even", "odd"]`) | leaf | For the rest of the turn every die counts as both odd and even to the gems after it (`both_parities`, `unit.parity_both`). Activation: a new trigger, `balanced`, odd and even dice no more than 1 / 2 / 3 / 4 / 5 apart. Flawless: those gems count every die twice. |
 
 To make the recipes span five colors, two pairs of existing gems traded triggers: Bastion ↔ Lifeline (three of a kind / full house) and Mortar ↔ Miasma (even dice / any hand). Miasma now counts the even dice among the 1–5 highest it reads, by Cut, so its Cut still matters; at Perfect it plays exactly as before.
 
@@ -39,11 +44,17 @@ To make the recipes span five colors, two pairs of existing gems traded triggers
 
 Carat, Cut and Clarity are each the average of the five, raised by a random 20–30% (`altar_raise_pct`) and nudged: Carat by up to 1 (`altar_carat_nudge`), Cut and Clarity a grade either way 17% of the time (`altar_nudge_pct`). Cut and Clarity are averaged as grades counted from one. Inclusion slots are filled from what the five carried first, skipping a Zoning of a color the new gem already is, then from the rock.
 
+## Every color at once
+
+Since November 18, 2026 (owner) every Transcendent that is not an opal counts as all six colors: Gemini, Certainty, Procession and Quintessence list `RED, BLUE, GREEN, VIOLET, GOLD, WHITE`, so each lights any colored socket and wears all six bands. `DeepRules` refuses a non-opal Transcendent that leaves a color out. Rainbow Seam and Black Opal stay opals.
+
 ## Keeping Transcendents secret
 
 Rarity `TRANSCENDENT`, roll weight 0, value 16. No pool holds one (`DeepForge.skill_pool`, `opal_pool`), so no vein, hoard, well, merchant, commission or random opal can produce one. The Vault doesn't list or count a Transcendent until the player has made one (`DeepProfile.knows`, `profile.transcended`); then it gets a Transcendent filter and sits after every color.
 
 **Out of every copy's reach (owner, November 17, 2026).** A Transcendent counts as an opal for the gems that copy or replay: no Seam, Matrix or Rainbow Seam replays one, no Echo copies one, no Doublet wears one and no Gemini fires one (`DeepStone.out_of_reach`, `DeepBattle.repeatable`). The rail and the loadout mark it the way they mark an opal (`DeepBattle.opal_blocks`). A Birthstone still reaches it.
+
+**The second five (November 18, 2026).** Zenith, Nadir, Mosaic, Syzygy and Equinox were reviewed over three rounds on https://claude.ai/artifact/8vtE8r7o6YnqUDqCyVrcGz (marks in db `transcend1`..`transcend3`) and built the same day. Zenith and Nadir mirror each other; Mosaic is the owner's design. A recipe's `trigger` may be a list (Equinox's), since neither odd nor even has five gems of its own.
 
 ## Calls made while building, worth revisiting
 

@@ -176,6 +176,7 @@ const SHAPE_NAMES := {"trilliant": "trilliant", "princess": "princess", "heart":
 	"pear": "pear", "dutch_rose": "half Dutch rose", "round": "round brilliant", "cabochon": "cabochon",
 	"shield": "shield", "marquise": "marquise", "step": "emerald", "briolette": "briolette",
 	"checkerboard": "checkerboard", "heptagon": "heptagon", "kite": "kite", "pentagon": "pentagon", "hourglass": "hourglass", "keystone": "keystone",
+	"crown": "crown", "plumb": "plumb bob", "hexagram": "hexagram", "twin_rhomb": "twin rhomb", "leaf": "leaf",
 	"tower": "tower", "spearhead": "lance head", "cushion": "cushion", "fan": "fan", "dart": "dart", "octagon": "stepped octagon",
 	"pill": "capsule", "drop": "falling drop", "cameo": "cameo", "lozenge": "lozenge", "lucky_star": "lucky star", "card": "card"}
 ## Cut is how TRUE the stone is cut, not how busy it is.
@@ -210,6 +211,7 @@ const EMBLEM_SPAN := {"trilliant": 0.86, "princess": 1.10, "heart": 0.94,
 	"pear": 0.84, "dutch_rose": 1.04, "round": 1.06, "cabochon": 0.96,
 	"shield": 0.92, "marquise": 0.62, "step": 0.96, "briolette": 0.66,
 	"checkerboard": 1.04, "heptagon": 1.00, "kite": 0.76, "pentagon": 0.98, "hourglass": 0.74, "keystone": 0.90,
+	"crown": 0.84, "plumb": 0.80, "hexagram": 0.74, "twin_rhomb": 0.62, "leaf": 0.96,
 	"tower": 0.80, "spearhead": 0.66, "cushion": 0.88, "fan": 0.72, "dart": 0.60, "octagon": 1.04,
 	"pill": 0.74, "drop": 0.84, "cameo": 0.90, "lozenge": 0.66, "lucky_star": 0.78, "card": 0.84}
 ## Move the engraving within its slice, towards the broad part of an asymmetric face.
@@ -542,7 +544,7 @@ static func outline(shape: String) -> PackedVector2Array:
 			# stone chips its corners rather than losing them.
 			return _wound(_unit(_truncated(PackedVector2Array([Vector2(0.0, 1.0), Vector2(0.60, -0.26), Vector2(0.0, -0.80), Vector2(-0.60, -0.26)]), 0.07)))
 		"pentagon":
-			# Quintessence's: five even sides, point up, one for each color it counts as.
+			# Quintessence's: five even sides, point up, one for each die of the five of a kind it wakes on.
 			return _wound(_truncated(_regular(5, PI * 0.5), 0.08))
 		"hourglass":
 			# Gemini's: an hourglass lying on its side, two stones meeting at a narrow waist.
@@ -551,6 +553,28 @@ static func outline(shape: String) -> PackedVector2Array:
 		"keystone":
 			# Certainty's: a keystone, wide at the top, the stone that holds the rest of the arch.
 			return _wound(_unit(_truncated(PackedVector2Array([Vector2(-0.88, 0.70), Vector2(0.88, 0.70), Vector2(0.52, -0.82), Vector2(-0.52, -0.82)]), 0.10)))
+		"crown":
+			# Zenith's: a crown, three points over a deep band, the middle one highest. The notches
+			# are kept shallow enough for the middle of the stone to see into them.
+			return _wound(_unit(PackedVector2Array([Vector2(-0.84, -0.84), Vector2(-0.84, 0.44), Vector2(-0.40, 0.28), Vector2(0.00, 0.88), Vector2(0.40, 0.28), Vector2(0.84, 0.44), Vector2(0.84, -0.84)])))
+		"plumb":
+			# Nadir's: a plumb bob, a weight on a line coming to its point at the bottom.
+			return _wound(_unit(PackedVector2Array([Vector2(0.00, -0.92), Vector2(0.64, 0.20), Vector2(0.40, 0.84), Vector2(-0.40, 0.84), Vector2(-0.64, 0.20)])))
+		"hexagram":
+			# Mosaic's: a six-pointed star, a point for each of the six colors.
+			var star := PackedVector2Array()
+			for index in 12:
+				var angle := PI * 0.5 + TAU * float(index) / 12.0
+				star.append(Vector2(cos(angle), sin(angle)) * (1.0 if index % 2 == 0 else 0.60))
+			return _wound(star)
+		"twin_rhomb":
+			# Syzygy's: two diamonds side by side, run half into each other so they are one stone,
+			# with a notch top and bottom where they meet.
+			return _wound(_unit(PackedVector2Array([Vector2(-0.84, 0.00), Vector2(-0.28, 0.68), Vector2(0.00, 0.34), Vector2(0.28, 0.68), Vector2(0.84, 0.00), Vector2(0.28, -0.68), Vector2(0.00, -0.34), Vector2(-0.28, -0.68)])))
+		"leaf":
+			# Equinox's: a square with two opposite corners rounded and two sharp, half day
+			# and half night.
+			return _wound(_unit(PackedVector2Array([Vector2(-0.80, 0.80), Vector2(0.20, 0.80), Vector2(0.32, 0.79), Vector2(0.43, 0.75), Vector2(0.53, 0.70), Vector2(0.62, 0.62), Vector2(0.70, 0.53), Vector2(0.75, 0.43), Vector2(0.79, 0.32), Vector2(0.80, 0.20), Vector2(0.80, -0.80), Vector2(-0.20, -0.80), Vector2(-0.32, -0.79), Vector2(-0.43, -0.75), Vector2(-0.53, -0.70), Vector2(-0.62, -0.62), Vector2(-0.70, -0.53), Vector2(-0.75, -0.43), Vector2(-0.79, -0.32), Vector2(-0.80, -0.20)])))
 		"cabochon":
 			# An oval, the outline every opal is cut to. Round enough to be no shape at
 			# all, which is the point: an opal is not one of the six, and the eye should

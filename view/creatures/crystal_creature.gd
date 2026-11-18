@@ -537,6 +537,17 @@ func pop_ward() -> void:
 	if _worn != null:
 		_worn.pop_ward()
 
+func wear_traits(keys: Array, fallen: bool = false) -> void:
+	## The named traits it has right now (`DeepCreatures.named_traits`), worn on the model,
+	## and whether it is a boss down on its last point waiting to get back up.
+	if _worn != null:
+		_worn.set_traits(keys, fallen)
+
+func rise_burst(color: Color) -> void:
+	## A boss getting back up: a ring across the floor from its feet and a flash up its body.
+	if _worn != null:
+		_worn.rise_burst(color)
+
 func barrier_hit() -> void:
 	## A blow meets the barrier: the whole dome brightens for an instant and the cells round
 	## the impact light up and fade.
@@ -829,8 +840,9 @@ func _process(delta: float) -> void:
 		rotation.y = atan2(-rest_position.x, PARTY_Z - rest_position.z)
 	var squish: float = _squash * sin(_clock * 30.0) + (0.05 * breathe if style == "blob" else 0.0)
 	## Strength bulks it up; a stun slumps it: it tilts and sinks a little, and straightens as
-	## it acts again.
-	var bulk: float = _worn._bulk_now() if _worn != null else 1.0
+	## it acts again. It swells wider than it grows taller once its head has used the room
+	## over it, so a tall Warden's head stays under its tag (creature_wear.gd, HEAD_ROOM).
+	var bulk: Vector3 = _worn.bulk_scale() if _worn != null else Vector3.ONE
 	_slump = move_toward(_slump, _worn.slump if _worn != null else 0.0, delta * 2.5)
 	if not _dying:
 		_body.scale = _body_rest.basis.get_scale() * bulk * Vector3(1.0 + squish * 0.5, 1.0 - squish, 1.0 + squish * 0.5)
