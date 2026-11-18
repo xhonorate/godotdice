@@ -102,7 +102,8 @@ static func number(foe: Dictionary, move: Dictionary) -> String:
 		if amount <= 0:
 			continue
 		var words: String = DeepUi.number(amount)
-		if str(effect.kind) in ["reflect", "empower_next"]:
+		## A share reads as one: a reflection, an empowered blow, a thief's or a taxman's cut.
+		if str(effect.kind) in ["reflect", "empower_next"] or (str(effect.kind) == "steal_gold" and bool(effect.get("pct", false))):
 			words += "%"
 		var repeat: Variant = effect.get("repeat", 1)
 		if repeat is int and int(repeat) > 1:

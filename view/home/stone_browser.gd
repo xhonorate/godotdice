@@ -346,7 +346,9 @@ static func _dots(home: Control, row: Node, context: String, s: Dictionary, wide
 		var dot := ColorDot.new(color, s.colors.is_empty() or s.colors.has(color), s.colors.has(color))
 		if wide > 0.0:
 			dot.custom_minimum_size.x = maxf(dot.custom_minimum_size.x, wide)
-		dot.tooltip_text = "Only %s stones" % str(DeepContent.color(color).get("name", color.capitalize())) if not s.colors.has(color) else "Show every color again"
+		var named: String = str(DeepContent.color(color).get("name", color.capitalize()))
+		## The rainbow dot also holds the Transcendent stones (`filed_color`).
+		dot.tooltip_text = ("Only %s and Transcendent stones" % named if color == DeepContent.OPAL else "Only %s stones" % named) if not s.colors.has(color) else "Show every color again"
 		row.add_child(dot)
 		var key: String = color
 		dot.gui_input.connect(func(event: InputEvent) -> void:
@@ -449,8 +451,16 @@ static func sorted(home: Control, stones: Array, context: String) -> Array:
 		return (a[0] > b[0]) if desc else (a[0] < b[0]))
 	return keyed.map(func(entry: Array) -> Dictionary: return entry[2])
 
+static func filed_color(stone: Dictionary) -> String:
+	## The dot a stone is found under. A Transcendent stone files under the rainbow dot with the
+	## opals: the five-color ones (Gemini, Quintessence, ...) count as five colors at once, and
+	## their skill's first color (red) alone said nothing about them.
+	if DeepStone.is_transcendent(stone):
+		return DeepContent.OPAL
+	return DeepStone.color(stone)
+
 static func passes(stone: Dictionary, s: Dictionary) -> bool:
-	var color: String = DeepStone.color(stone)
+	var color: String = filed_color(stone)
 	if not s.get("colors", []).is_empty() and not s.colors.has(color):
 		return false
 	if not str(s.get("rarity", "")).is_empty() and str(DeepStone.skill_of(stone).get("rarity", "COMMON")) != str(s.rarity):
@@ -490,7 +500,7 @@ static func sort_value(stone: Dictionary, key: String) -> Variant:
 		"clarity": return int(stone.get("clarity", 0))
 		"worth": return DeepStone.value(stone)
 		"rarity": return RARITIES.find(str(DeepStone.skill_of(stone).get("rarity", "COMMON")))
-		"color": return -COLORS.find(DeepStone.color(stone))
+		"color": return -COLORS.find(filed_color(stone))
 		"name": return DeepUi.skill_name(stone).to_lower()
 		"found": return str(stone.get("provenance", {}).get("date", "")) if stone.get("provenance", null) is Dictionary else ""
 		"mine":

@@ -16,9 +16,10 @@ extends Control
 ## five are the five a player came down with: dice are worked in the mine, never swapped).
 ## At a stall the stones on the counter drag straight onto a socket or the bag, which buys
 ## them (and sets them), and a stone from the bag drags onto the lens or the scales in the
-## room. A Void gem takes no socket: dropped on one it rides it, in a line of chips under the
-## socket's name, and fires right after the socket's own gem; dropped on another rider it
-## goes into the line ahead of that one. Right-click anything for the close look. Nothing
+## room. A Void gem takes no socket: dropped on one it rides it, a moon round the socket's
+## ring as in a fight (a click on one opens the popout of every rider), and fires right after
+## the socket's own gem; dropped on another rider it goes into the line ahead of that one.
+## Right-click anything for the close look (on the phone, hold it). Nothing
 ## here decides anything: it asks, and the run answers.
 
 const Thumbs = preload("res://view/gems/thumbs.gd")
@@ -43,6 +44,9 @@ signal chose(id: String)
 signal picked(kind: String, id: String)
 ## Another player's tab clicked at a landing, where it opens a trade with them.
 signal trade_with(id: String)
+## A Void rider tapped in the riders' popout on the phone: the bench opens with it picked, to
+## be moved there by taps.
+signal bench_asked(stone_id: String)
 
 ## A socket and a die are as large as the fight's dock draws them (BattleScreen.SOCKET_EDGE,
 ## DIE_EDGE; a die there has its number under it, which this one has not).
@@ -174,6 +178,10 @@ var _veiled: Dictionary = {}
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	## Put away with the dock (a fight begins): the riders' popout goes with it.
+	visibility_changed.connect(func() -> void:
+		if not visible:
+			_close_riders())
 	## The bag column, down the right edge; `_fit_dock` sets where its foot stands.
 	_drawer = PanelContainer.new()
 	_drawer.name = "Bag"
@@ -665,6 +673,14 @@ func show_run(state: Dictionary) -> void:
 	_dock.visible = true
 	if not _spot.is_empty():
 		_apply_spotlight()
+	## The riders' popout open over a socket follows what moved: drawn again, once the dock is
+	## laid out, from the rail as it now stands (shut if the socket has no rider left).
+	if _pop_socket >= 0:
+		var socket: int = _pop_socket
+		var turned: int = _pop_page
+		(func() -> void:
+			if _pop_socket == socket:
+				_open_riders(socket, turned)).call_deferred()
 
 # --- the dock ----------------------------------------------------------------------------------
 
@@ -869,9 +885,14 @@ func _socket(parent: Node, unit: Dictionary, index: int, cap: float = -1.0) -> v
 		## The trigger's row left empty, as the gems' cards have it.
 		BattleScreen.trigger_row(card)
 		Tips.attach(card, func() -> Control: return Plates.words("An empty socket", "Drag any appraised stone onto it. A socket that shows the stone's color lights, and adds a point of Resonance each time the stone fires; any other socket holds it unlit. At home the loadout only sets a stone where it is shown.", DeepContent.socket_name(color)))
-	if not riders.is_empty():
-		_riders_fan(fan, unit, index, riders, 0 if lead.is_empty() else 1)
+	if riders.size() > (0 if lead.is_empty() else 1):
+		_riders_orbit(fan, unit, index, riders, 0 if lead.is_empty() else 1, cap)
 	var at: int = index
+	## On the phone the moons are too small for a finger: a tap on a ridden socket opens the
+	## riders' popout, as it does in a fight, and a finger held on it brings the close look.
+	var tap: Callable = Callable()
+	if DeepUi.phone and not riders.is_empty():
+		tap = func() -> void: _toggle_riders(at)
 	var shown: Dictionary = stone if set_here else lead
 	_wire(card, data, func() -> Control: return Thumbs.GemThumb.new(shown, 60) if not shown.is_empty() else Control.new(),
 		func(incoming: Dictionary) -> bool: return _socket_takes(unit, incoming, at) or (not lead.is_empty() and _rider_takes(unit, incoming, at, 0)),
@@ -881,14 +902,21 @@ func _socket(parent: Node, unit: Dictionary, index: int, cap: float = -1.0) -> v
 			else:
 				_front_drop(unit, incoming, at), ring)
 	if not lead.is_empty():
-		_inspectable(card, func() -> void: Inspector.stone(lead))
+		_inspectable(card, func() -> void: Inspector.stone(lead), tap)
 	if set_here:
 		## The close look reads the same context as the hover plate (`_rail_context`): the
 		## fight's own in a fight, else the rail laid flat (a Fingerprint's words) and how often
 		## the stone has fired this run (`run_fires`), which the inspector says.
 		_inspectable(card, func() -> void:
 			var context: Dictionary = _rail_context(unit, at)
-			Inspector.stone(stone, {"context": context} if not context.is_empty() else {}))
+			Inspector.stone(stone, {"context": context} if not context.is_empty() else {}), tap)
+	## The touch path to the close look: a finger held on the socket (a tap opens the popout).
+	if tap.is_valid():
+		var held_stone: Dictionary = stone if set_here else lead
+		Tips.hold(card, func() -> Variant:
+			var context: Dictionary = _rail_context(unit, at) if set_here else {}
+			Inspector.stone(held_stone, {"context": context} if not context.is_empty() else {})
+			return true)
 
 static func polish_badge(slot: Control, stone: Dictionary) -> void:
 	## A polished gem (review cards R3 and B1) wears a small "+1" with the wheel's mark on its
@@ -952,75 +980,207 @@ func _rider_opts(unit: Dictionary, socket: int, stone: Dictionary, rider_of: boo
 		opts.riders = riders
 	return opts
 
-func _riders_fan(fan: Control, unit: Dictionary, socket: int, riders: Array, lead: int = 0) -> void:
-	## The Void gems riding a socket, fanned out behind its ring, each firing after the socket's
-	## own gem in this order. Three show; a count at the ring's corner says how many there are,
-	## and the bench lays them out in full. The first `lead` of them stand in front instead (an
-	## empty socket's first rider), so the fan starts after them.
-	var shown: int = mini(riders.size() - lead, RIDERS_SHOWN)
-	for step in range(shown):
-		var at: int = step + lead
-		var chip := Control.new()
-		chip.custom_minimum_size = Vector2(BattleScreen.SOCKET_EDGE, BattleScreen.SOCKET_EDGE)
-		chip.size = Vector2(BattleScreen.SOCKET_EDGE, BattleScreen.SOCKET_EDGE)
-		chip.position = Vector2(4.0, BattleScreen.RING_TOP) + Fan.STEP * float(step + 1)
-		chip.mouse_filter = Control.MOUSE_FILTER_STOP
-		fan.add_child(chip)
-		fan.move_child(chip, 0)
-		_rider_chip(chip, unit, socket, at, riders[at])
-	var badge := PanelContainer.new()
-	badge.add_theme_stylebox_override("panel", DeepUi.capsule(badge, DeepUi.INFO.darkened(0.6), DeepUi.INFO, 2, 9, 0))
-	badge.z_index = 3
-	badge.mouse_filter = Control.MOUSE_FILTER_STOP
-	fan.add_child(badge)
-	var count := DeepUi.label(badge, "×%d" % riders.size(), 11, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER)
-	count.add_theme_font_override("font", DeepUi.bold_font())
-	count.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	badge.resized.connect(func() -> void: badge.position = Vector2(-4.0, BattleScreen.RING_TOP - 2.0).round())
-	var listed: Array = riders
-	Tips.attach(badge, func() -> Control:
-		var box: VBoxContainer = Plates.plate(300.0)
-		Plates.head(box, "%s riding socket %d" % [DeepUi.plural(listed.size(), "Void gem"), socket + 1], "fire after its gem, in this order", DeepUi.INFO)
-		for rider in listed:
-			var row := DeepUi.hbox(box, 8)
-			var thumb := Thumbs.GemThumb.new(rider, 24)
-			thumb.live_on_hover = false
-			row.add_child(thumb)
-			var words := DeepUi.vbox(row, 0)
-			words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			DeepUi.label(words, DeepUi.skill_name(rider), 13, DeepUi.PAPER)
-			DeepUi.effect_text(words, DeepStone.text(rider), 11, DeepUi.MUTED)
-		Plates.footer(box, "Open the bench (B) · every rider")
-		return box)
+func _riders_orbit(fan: Control, unit: Dictionary, socket: int, riders: Array, lead: int, cap: float) -> void:
+	## The Void gems riding a socket as icon moons round its ring's right side, as the fight's
+	## dock draws them (VoidMarks, the owner's review of November 9, 2026): one a rider while
+	## the arc holds them, else the first ones and a "+N" moon for the rest. The first `lead` of
+	## them stand in front instead (an empty socket's first rider). On the desk a moon answers
+	## the pointer as a set gem does: its plate on hover, the close look on a right-click (or a
+	## hold), a drag moves it, another Void gem dropped on it goes into the line ahead, and a
+	## click opens the popout of every rider. On the phone the socket under them takes the
+	## finger: a tap opens the popout, where each rider is held for its close look and tapped to
+	## be moved on the bench.
+	var tight: bool = BattleScreen.rail_tight(unit)
+	var angles: Array = VoidMarks.MOON_ANGLES_TIGHT if tight else VoidMarks.MOON_ANGLES
+	var reach: float = VoidMarks.MOON_D_TIGHT if tight else VoidMarks.MOON_D
+	var centre := Vector2(cap * 0.5, BattleScreen.RING_TOP + BattleScreen.SOCKET_EDGE * 0.5)
+	var slots: int = angles.size()
+	var orbit: Array = range(lead, riders.size())
+	var shown: Array = orbit if orbit.size() <= slots else orbit.slice(0, slots - 1)
+	var open := func() -> void: _toggle_riders(socket)
+	for k in range(shown.size()):
+		var at: int = int(shown[k])
+		var moon: VoidMarks.VoidDisc = VoidMarks.moon(riders[at], true)
+		var angle: float = deg_to_rad(float(angles[k]))
+		moon.position = (centre + Vector2(cos(angle), sin(angle)) * reach - moon.size * 0.5).round()
+		moon.z_index = 1
+		moon.name = "Moon%d" % at
+		fan.add_child(moon)
+		_rider_moon(moon, unit, socket, at, riders[at], open)
+	if orbit.size() > slots:
+		var rest: Array = orbit.slice(shown.size())
+		var count := VoidMarks.CountMark.new(rest.size(), VoidMarks.COUNT_R, VoidMarks.COUNT_FONT, VoidMarks.COUNT_FONT_LONG)
+		var angle: float = deg_to_rad(float(angles[slots - 1]))
+		var spot: Vector2 = centre + Vector2(cos(angle), sin(angle)) * reach
+		## It grows to the right of where a moon would stand, no further than the gap allows.
+		var left: float = minf(spot.x - VoidMarks.COUNT_R, centre.x + reach + VoidMarks.MOON_R + 4.0 - count.size.x)
+		count.position = Vector2(left, spot.y - VoidMarks.COUNT_R).round()
+		count.z_index = 1
+		count.name = "RidersCount"
+		fan.add_child(count)
+		for at in rest:
+			_spots["stone:" + str(riders[int(at)].get("id", ""))] = count
+		if DeepUi.phone:
+			count.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		else:
+			count.mouse_filter = Control.MOUSE_FILTER_STOP
+			count.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+			var listed: Array = rest.map(func(at: int) -> Dictionary: return riders[at])
+			Tips.attach(count, func() -> Control: return _riders_plate(listed, socket), {"tone": DeepUi.INFO})
+			count.gui_input.connect(func(event: InputEvent) -> void:
+				if event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+					open.call()
+					count.accept_event())
 
-func _rider_chip(chip: Control, unit: Dictionary, socket: int, at: int, stone: Dictionary) -> void:
-	## One rider's ring behind the socket: a Void ring a stone can be dropped on (to go into the
-	## line ahead of it) and dragged from. Its plate says which gem it is.
-	_spots["stone:" + str(stone.id)] = chip
-	chip.set_meta("pick", ["stone", str(stone.id)])
-	if _veiled.has(str(stone.id)):
-		chip.modulate.a = 0.0
-	var ring := BattleScreen.SocketRing.new("VOID", false)
-	ring.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	chip.add_child(ring)
-	## A faint copy of the gem inside the ring, in the Void's blue, so the ring says which.
-	var ghost := Thumbs.GemThumb.new(stone, BattleScreen.SOCKET_EDGE - 22)
-	ghost.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 11)
-	ghost.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	ghost.live_on_hover = false
-	ghost.modulate = BattleScreen.VOID_GHOST
-	chip.add_child(ghost)
+func _riders_plate(listed: Array, socket: int) -> Control:
+	## The riders a "+N" moon stands for, each with its words.
+	var box: VBoxContainer = Plates.plate(300.0)
+	Plates.head(box, "%s more riding socket %d" % [DeepUi.plural(listed.size(), "Void gem"), socket + 1], "fire after its gem, in this order", DeepUi.INFO)
+	for rider in listed.slice(0, 6):
+		var row := DeepUi.hbox(box, 8)
+		var thumb := Thumbs.GemThumb.new(rider, 24)
+		thumb.live_on_hover = false
+		row.add_child(thumb)
+		var words := DeepUi.vbox(row, 0)
+		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		DeepUi.label(words, DeepUi.skill_name(rider), 13, DeepUi.PAPER)
+		DeepUi.effect_text(words, DeepStone.text(rider), 11, DeepUi.MUTED)
+	if listed.size() > 6:
+		DeepUi.label(box, "and %d more" % (listed.size() - 6), 12, DeepUi.MUTED)
+	Plates.footer(box, DeepUi.touch_words("Click · every rider"))
+	return box
+
+func _rider_moon(moon: Control, unit: Dictionary, socket: int, at: int, stone: Dictionary, open: Callable) -> void:
+	## One rider's moon: where an event finds the stone, what it says, and on the desk what the
+	## pointer does with it (`_riders_orbit`).
+	var id: String = str(stone.get("id", ""))
+	_spots["stone:" + id] = moon
+	moon.set_meta("pick", ["stone", id])
+	if _veiled.has(id):
+		moon.modulate.a = 0.0
+	if DeepUi.phone:
+		moon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		return
+	moon.mouse_filter = Control.MOUSE_FILTER_STOP
 	var data: Dictionary = {}
 	if editable() and not DeepStone.is_locked(stone):
-		data = {"kind": "stone", "stone_id": str(stone.id), "from_socket": socket, "rider": at, "appraised": true}
-		chip.mouse_default_cursor_shape = Control.CURSOR_DRAG
+		data = {"kind": "stone", "stone_id": id, "from_socket": socket, "rider": at, "appraised": true}
+		moon.mouse_default_cursor_shape = Control.CURSOR_DRAG
+	else:
+		moon.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	var rider: Dictionary = stone
-	Tips.attach(chip, func() -> Control: return _refused(Plates.gem(rider, {}, [], {}, [], _rider_opts(unit, socket, rider, true)), "stone", str(rider.id)), {"tone": DeepUi.INFO, "keep": true})
+	Tips.attach(moon, func() -> Control: return _refused(Plates.gem(rider, {}, [], {}, [], _rider_opts(unit, socket, rider, true)), "stone", id), {"tone": DeepUi.INFO, "keep": true})
 	## Another Void gem dropped on this one goes into the line ahead of it.
-	_wire(chip, data, func() -> Control: return Thumbs.GemThumb.new(stone, 60),
+	_wire(moon, data, func() -> Control: return VoidMarks.hollow_gem(rider, 60),
 		func(incoming: Dictionary) -> bool: return _rider_takes(unit, incoming, socket, at),
-		func(incoming: Dictionary) -> void: _send({"kind": "socket", "stone_id": str(incoming.stone_id), "index": socket, "at": at}, "dice_lock"), ring)
-	_inspectable(chip, func() -> void: Inspector.stone(stone))
+		func(incoming: Dictionary) -> void: _send({"kind": "socket", "stone_id": str(incoming.stone_id), "index": socket, "at": at}, "dice_lock"))
+	_inspectable(moon, func() -> void: Inspector.stone(rider), open)
+	Tips.hold(moon, func() -> Variant:
+		Inspector.stone(rider)
+		return true)
+
+# --- the riders' popout outside a fight ----------------------------------------------------------
+
+## The popout of one socket's riders (VoidMarks.RidersPopout, as the fight opens it), the socket
+## it is open on and the page it is turned to.
+var _pop: Control = null
+var _pop_socket: int = -1
+var _pop_page: int = 0
+
+func _toggle_riders(socket: int) -> void:
+	if _pop != null and is_instance_valid(_pop) and _pop_socket == socket:
+		_close_riders()
+	else:
+		_open_riders(socket, 0)
+
+func _close_riders() -> void:
+	if _pop != null and is_instance_valid(_pop):
+		_pop.queue_free()
+	_pop = null
+	_pop_socket = -1
+	_pop_page = 0
+
+func _open_riders(socket: int, at_page: int) -> void:
+	## Every Void gem riding a socket laid out over the dock at full size, in firing order: each
+	## one's plate on hover, its close look on a right-click or a hold, dragged onto a socket (or
+	## onto another rider) to move it, and on the phone tapped to be moved on the bench.
+	var unit: Dictionary = me()
+	var riders: Array = DeepStone.riders_of(unit, socket)
+	if riders.is_empty() or not is_visible_in_tree() or not _dock.visible:
+		_close_riders()
+		return
+	if _pop != null and is_instance_valid(_pop):
+		_pop.queue_free()
+	var rail: Array = unit.get("rail", [])
+	var sockets: Array = unit.get("sockets", [])
+	var head_color: String = str(sockets[socket]) if socket < sockets.size() else DeepContent.SOCKET_RAINBOW
+	var head_stone: Dictionary = rail[socket] if socket < rail.size() and rail[socket] is Dictionary else {}
+	var runs: Array = []
+	for k in range(riders.size()):
+		runs.append({"stone": riders[k], "flats": [k], "name": DeepUi.skill_name(riders[k]), "lit": true})
+	var head := Control.new()
+	var ring := BattleScreen.SocketRing.new(head_color, head_stone.is_empty())
+	ring.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	head.add_child(ring)
+	if not head_stone.is_empty():
+		var picture := Thumbs.GemThumb.new(head_stone, VoidMarks.POP_DISC_R * 1.4)
+		picture.live_on_hover = false
+		picture.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		picture.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, VoidMarks.POP_DISC_R * 0.3)
+		head.add_child(picture)
+	var pop := VoidMarks.RidersPopout.new()
+	pop.name = "RidersPopout"
+	pop.z_index = 20
+	add_child(pop)
+	var slot: Variant = _spots.get("socket:%d" % socket, null)
+	var anchor_x: float = ((slot as Control).global_position.x + (slot as Control).size.x * 0.5 - global_position.x) if slot is Control and is_instance_valid(slot) else size.x * 0.5
+	var left: float = DeepUi.safe_left if DeepUi.phone else 16.0
+	var right: float = size.x - (DeepUi.safe_right if DeepUi.phone else 16.0)
+	pop.build({"anchor": anchor_x, "bottom": _dock.global_position.y - global_position.y, "left": left, "right": right,
+		"head": head, "name": DeepUi.skill_name(head_stone) if not head_stone.is_empty() else DeepContent.socket_name(head_color), "count": riders.size(), "runs": runs, "page": at_page,
+		"plate": func(k: int) -> Control: return _refused(Plates.gem(riders[k], {}, [], {}, [], _rider_opts(unit, socket, riders[k], true)), "stone", str(riders[k].get("id", ""))),
+		"look": func(stone: Dictionary) -> void: Inspector.stone(stone),
+		"on_page": func(turned: int) -> void: _open_riders(socket, turned)})
+	pop.closed.connect(_close_riders)
+	_pop = pop
+	_pop_socket = socket
+	_pop_page = pop.page
+	## Each rider's disc on the page shown: dragged to move it, a Void gem dropped on it goes
+	## into the line ahead; on the phone a tap takes it to the bench to be moved.
+	for k in range(riders.size()):
+		var disc: Control = pop.element_for(k)
+		if disc == null:
+			continue
+		var stone: Dictionary = riders[k]
+		var at: int = k
+		var data: Dictionary = {}
+		if editable() and not DeepStone.is_locked(stone):
+			data = {"kind": "stone", "stone_id": str(stone.get("id", "")), "from_socket": socket, "rider": at, "appraised": true}
+			disc.mouse_default_cursor_shape = Control.CURSOR_DRAG
+		_wire(disc, data, func() -> Control: return VoidMarks.hollow_gem(stone, 60),
+			func(incoming: Dictionary) -> bool: return _rider_takes(unit, incoming, socket, at),
+			func(incoming: Dictionary) -> void: _send({"kind": "socket", "stone_id": str(incoming.stone_id), "index": socket, "at": at}, "dice_lock"))
+		if DeepUi.phone and editable():
+			var id: String = str(stone.get("id", ""))
+			disc.gui_input.connect(func(event: InputEvent) -> void:
+				if event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT and not Tips.held(disc):
+					_close_riders()
+					bench_asked.emit(id)
+					disc.accept_event())
+	if not DeepUi.headless():
+		DeepUi.pop_in(pop, 0.0, 0.94, 0.16)
+		DeepAudio.play("ui_tap", {"volume": 0.3, "gap": 0.05})
+
+func _input(event: InputEvent) -> void:
+	## A press anywhere off the popout and off the dock puts it away (the dock's own moons and
+	## sockets open and shut it themselves).
+	if _pop == null or not is_instance_valid(_pop) or not (event is InputEventMouseButton and event.pressed):
+		return
+	var at: Vector2 = get_global_mouse_position()
+	if _pop.get_global_rect().has_point(at) or (_dock.visible and _dock.get_global_rect().grow(VoidMarks.MOON_R * 2.0).has_point(at)):
+		return
+	_close_riders()
 
 func _rider_takes(unit: Dictionary, incoming: Dictionary, socket: int, at: int) -> bool:
 	if not editable() or str(incoming.get("kind", "")) != "stone":
@@ -1562,9 +1722,10 @@ func _send(cmd: Dictionary, sound: String) -> void:
 	DeepAudio.play(sound, {"volume": 0.8})
 	command.emit(cmd)
 
-func _inspectable(control: Control, look: Callable) -> void:
+func _inspectable(control: Control, look: Callable, tap: Callable = Callable()) -> void:
 	## Right-click, or a plain click that did not become a drag, for the close look; while the
-	## ask lights the thing, a plain click picks it instead.
+	## ask lights the thing, a plain click picks it instead. `tap`, given: what a plain click
+	## does in place of the close look (a Void moon's opens the riders' popout).
 	control.gui_input.connect(func(event: InputEvent) -> void:
 		if not (event is InputEventMouseButton and not event.pressed and event.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]):
 			return
@@ -1581,6 +1742,12 @@ func _inspectable(control: Control, look: Callable) -> void:
 		if DeepUi.phone and event.button_index == MOUSE_BUTTON_LEFT and _tiles != null and is_instance_valid(_tiles) and control.get_parent() == _tiles:
 			DeepAudio.play("ui_tap", {"volume": 0.6})
 			control.mouse_entered.emit()
+			control.accept_event()
+			return
+		if event.button_index == MOUSE_BUTTON_LEFT and tap.is_valid():
+			## A release that ends a hold was the hold's (its close look), not a tap.
+			if not Tips.held(control):
+				tap.call()
 			control.accept_event()
 			return
 		look.call()

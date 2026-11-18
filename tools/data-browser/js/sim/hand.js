@@ -27,6 +27,8 @@ export function analyze(hand, colors = []) {
 	let crownTotal = 0;
 	const crownValues = new Set();
 	let numbed = 0;
+	// A Twin face is two dice to every count of dice (`weigh`; sim/hand.gd).
+	const twinIds = [];
 	for (let index = 0; index < hand.length; index += 1) {
 		const roll = hand[index];
 		const kind = roll.kind || 'plain';
@@ -43,9 +45,11 @@ export function analyze(hand, colors = []) {
 		// A die a Warden has numbed this turn counts for nothing, as a blank does (sim/hand.gd).
 		if ('numb' in roll) { numbed += 1; continue; }
 		maxTotal += top;
+		const weight = kind === 'twin' ? 2 : 1;
+		if (kind === 'twin') twinIds.push(id);
 		if (roll.phantom) { phantoms += 1; phantomIds.push(id); }
-		if (heldForPatterns(roll)) held += 1;
-		if ((I(roll.rerolls)) > 0) rerolled += 1;
+		if (heldForPatterns(roll)) held += weight;
+		if ((I(roll.rerolls)) > 0) rerolled += weight;
 		if (kind === 'wild') {
 			// Any value at all: its top for the high end, and low for a gem that wants low dice.
 			wilds.push(id);
@@ -70,9 +74,9 @@ export function analyze(hand, colors = []) {
 		high = Math.max(high, value);
 		low = low === 0 ? value : Math.min(low, value);
 		highPct = Math.max(highPct, Math.floor((value * 100) / faces));
-		if (value % 2 === 1) odd += 1; else even += 1;
-		if (value * 2 <= faces) { lowDice += 1; lowIds.push(id); }
-		if (value >= top) { crowns += 1; crownIds.push(id); crownTotal += value; crownValues.add(value); }
+		if (value % 2 === 1) odd += weight; else even += weight;
+		if (value * 2 <= faces) { lowDice += weight; lowIds.push(id); }
+		if (value >= top) { crowns += weight; crownIds.push(id); crownTotal += value; crownValues.add(value); }
 		// A gem may have changed the roll since it was thrown; then what it shows is what it is.
 		const shown = 'shown' in roll && value === I(roll.counted ?? -1) ? I(roll.shown) : value;
 		if (!showing.has(shown)) showing.set(shown, []);
@@ -113,7 +117,7 @@ export function analyze(hand, colors = []) {
 	return {
 		values, wilds, wild_tops: wildTops, wild_total: wildTotal, rank, total, max_total: Math.max(1, maxTotal),
 		high: Math.max(high, wildTop), low: low > 0 ? low : wildTop, high_pct: highPct,
-		held, rerolled, phantoms, phantom_ids: phantomIds, dice_count: hand.length - numbed,
+		held, rerolled, phantoms, phantom_ids: phantomIds, dice_count: hand.length - numbed + twinIds.length, twin_ids: twinIds,
 		groups, plain_groups: plainGroups, best_set: groups.length ? groups[0] : { value: 0, count: 0, dice: [] },
 		pairs, straight: straightOf(counts, wilds, idsByValue, hand.length, wildTop),
 		odd: odd + wilds.length, even: even + wilds.length, distinct: counts.size + wilds.length,
@@ -149,6 +153,15 @@ function scaleOf(notes) {
 	const values = [];
 	for (let at = best; at >= 0; at = before[at]) { dice.unshift(String(order[at].id)); values.unshift(order[at].value); }
 	return { length: dice.length, dice, values, total: best >= 0 ? total[best] : 0 };
+}
+
+// How many dice these are to a gem counting them: a Twin face is two (sim/hand.gd weigh).
+export function weigh(analysis, ids) {
+	const twins = analysis.twin_ids || [];
+	if (!twins.length) return (ids || []).length;
+	let weight = 0;
+	for (const id of ids || []) weight += twins.includes(id) ? 2 : 1;
+	return weight;
 }
 
 // How many sizes over a d4 these dice are, added up: a d6 is one, a d8 two, a d10 three.

@@ -33,6 +33,8 @@ var _clock: float = 0.0
 ## The buyer's pyrite, once told (-1 until then: every price reads as payable), and the lens's fee.
 var _purse: int = -1
 var _lens_cost: int = 0
+## The lens or the scales with nothing in it for this player: its word greyed, no glow.
+var _shut: Dictionary = {}
 ## A price the purse cannot meet.
 const DEARER := Color(0.86, 0.38, 0.33, 0.9)
 ## The tag under a price: the goods' name on a small plate edged in their color, as the bag's
@@ -261,15 +263,34 @@ func set_scales_price(price: int) -> void:
 	## the scales only say what they are for. A negative price is nothing on them.
 	if _scales_label != null:
 		_scales_label.set_meta("text", "Sell" if price < 0 else "Sell · %d pyrite" % price)
+		_scales_label.set_meta("tone", DeepUi.DIM if bool(_shut.get("scales", false)) else DeepUi.ORE)
 
 func set_lens_price(cost: int) -> void:
 	_lens_cost = cost
 	if _lens_label != null:
 		_lens_label.set_meta("text", "Appraise · %d pyrite" % cost)
-		_lens_label.set_meta("tone", DeepUi.INFO if _purse < 0 or _purse >= cost else DEARER)
+		_lens_label.set_meta("tone", DeepUi.DIM if bool(_shut.get("lens", false)) else (DeepUi.INFO if _purse < 0 or _purse >= cost else DEARER))
+
+func set_shut(which: String, shut: bool) -> void:
+	## Nothing for this player at the lens (no raw stone) or the scales (nothing to sell): its
+	## word goes grey and it does not light when pointed at (the owner, November 17, 2026).
+	if bool(_shut.get(which, false)) == shut:
+		return
+	_shut[which] = shut
+	if which == "lens":
+		set_lens_price(_lens_cost)
+	elif which == "scales" and _scales_label != null:
+		_scales_label.set_meta("tone", DeepUi.DIM if shut else DeepUi.ORE)
+	if shut:
+		glow(which, false)
+
+func is_shut(which: String) -> bool:
+	return bool(_shut.get(which, false))
 
 func glow(which: String, on: bool) -> void:
 	## A drop target lights while something that would go there is dragged, or pointed at.
+	if on and bool(_shut.get(which, false)):
+		return
 	var light: OmniLight3D = _glows.get(which, null)
 	if light != null:
 		var tween := light.create_tween()
@@ -502,7 +523,7 @@ func set_purse(ore: int) -> void:
 		if label is Node3D and is_instance_valid(label):
 			(label as Node3D).set_meta("tone", _price_tone(int(_items[id].get("price", 0))))
 	if _lens_label != null:
-		_lens_label.set_meta("tone", DeepUi.INFO if _purse < 0 or _purse >= _lens_cost else DEARER)
+		_lens_label.set_meta("tone", DeepUi.DIM if bool(_shut.get("lens", false)) else (DeepUi.INFO if _purse < 0 or _purse >= _lens_cost else DEARER))
 
 func _price_tone(price: int) -> Color:
 	return DeepUi.ORE if _purse < 0 or _purse >= price else DEARER

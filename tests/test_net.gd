@@ -127,6 +127,8 @@ func _init() -> void:
 	_test_lan_timeout()
 	_test_steam()
 	_test_room_checkpoint()
+	_test_unready()
+	_test_fresh_votes()
 	print("Session: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
 		printerr("FAIL: " + str(failure))
@@ -829,4 +831,93 @@ func _test_room_checkpoint() -> void:
 	check(same(DeepBattle.player(DeepDescent.battle(back.run), back.local_id).get("hand", []), DeepBattle.player(DeepDescent.battle(door), "p0").get("hand", [])), "with the same dice thrown")
 	store.remove("run.json")
 	for session in [host, back]:
+		session.queue_free()
+
+func _pair() -> Array:
+	## A host and a guest on a loopback, a run begun and both stakes taken: [host, guest].
+	var host := DeepSession.new()
+	var guest := DeepSession.new()
+	root.add_child(host)
+	root.add_child(guest)
+	var host_wire := Loopback.new()
+	var guest_wire := Loopback.new()
+	_link(host_wire, guest_wire, "2")
+	host.start_local(member("Ada", "ARDOR"))
+	host.attach_transport(host_wire)
+	guest.is_host = false
+	guest.attach_transport(guest_wire)
+	guest.hello(member("Bo", "VESPER"))
+	guest.update_member({"ready": true})
+	host.start_run(9191)
+	stake(host)
+	stake(guest)
+	return [host, guest]
+
+func _test_unready() -> void:
+	## Done early, and not done after all (the owner, November 17, 2026): a guest takes back
+	## its vote and its leaving of a stall, and both mirrors see it.
+	var pair: Array = _pair()
+	var host: DeepSession = pair[0]
+	var guest: DeepSession = pair[1]
+	var guest_events: Array = []
+	guest.run_event.connect(func(event: Dictionary) -> void: guest_events.append(event))
+	check(str(host.run.phase) == "tunnels" and same(host.run, guest.run), "unready: the party stands at the first crossroads")
+	var way: Dictionary = host.run.offers[0]
+	guest.send({"kind": "vote_tunnel", "offer": str(way.id)})
+	check(str(DeepDescent.player(host.run, "p1").vote) == str(way.id) and DeepDescent.can_unready(guest.run, "p1") == "vote", "unready: the guest's vote reaches the host, and can be taken back")
+	guest.send({"kind": "unready"})
+	check(str(DeepDescent.player(host.run, "p1").vote).is_empty() and same(host.run, guest.run), "unready: the vote taken back is gone on both mirrors")
+	check(guest_events.any(func(e: Dictionary) -> bool: return str(e.get("kind", "")) == "unready" and str(e.get("what", "")) == "vote"), "unready: and the guest is told so")
+	host.send({"kind": "vote_tunnel", "offer": str(way.id)})
+	check(str(host.run.phase) == "tunnels", "unready: the host's vote alone does not take the party down")
+	## Into a stall, by the host's hand on its own run (as the descent tests do).
+	host.run.offers[0].kind = "merchant"
+	guest._guest_packet({"kind": "snapshot", "state": host.run.duplicate(true), "revision": host.revision, "lobby": host.lobby.duplicate(true)})
+	guest.send({"kind": "vote_tunnel", "offer": str(way.id)})
+	check(DeepDescent.at_stall(host.run) and same(host.run, guest.run), "unready: the party walks up to a stall")
+	guest.send({"kind": "leave"})
+	check(bool(DeepDescent.player(host.run, "p1").ready) and DeepDescent.can_unready(guest.run, "p1") == "stall", "unready: the guest leaves the stall early")
+	guest.send({"kind": "unready"})
+	check(not bool(DeepDescent.player(host.run, "p1").ready) and not bool(DeepDescent.player(guest.run, "p1").ready) and same(host.run, guest.run), "unready: Keep shopping reaches the host and back")
+	host.send({"kind": "leave"})
+	check(DeepDescent.at_stall(host.run), "unready: the stall waits for the guest who went back to it")
+	guest.send({"kind": "leave"})
+	check(str(host.run.phase) == "tunnels" and same(host.run, guest.run), "unready: and packs up when the guest is done")
+	var before: Dictionary = host.run.duplicate(true)
+	guest.send({"kind": "unready"})
+	check(same(host.run, before) and same(host.run, guest.run), "unready: a stall already packed up cannot be gone back to, and the refusal changes nothing")
+	for session in pair:
+		session.queue_free()
+
+func _test_fresh_votes() -> void:
+	## A party run picked up again does not carry the votes it was saved with (the owner: a way
+	## marked as chosen by a teammate who had not chosen anything yet), and the host alone in the
+	## run again is not sent down a way the moment it opens.
+	var pair: Array = _pair()
+	var first: DeepSession = pair[0]
+	var guest: DeepSession = pair[1]
+	var way: Dictionary = first.run.offers[0]
+	guest.send({"kind": "vote_tunnel", "offer": str(way.id)})
+	check(str(DeepDescent.player(first.run, "p1").vote) == str(way.id), "fresh votes: the guest has voted before the break")
+	var saved_run: Dictionary = JSON.parse_string(JSON.stringify(first.run))
+	## The host had voted as well, and the checkpoint holds both.
+	DeepDescent.player(saved_run, "p0").vote = str(way.id)
+	var saved_lobby: Dictionary = JSON.parse_string(JSON.stringify(first.lobby))
+	var host := DeepSession.new()
+	root.add_child(host)
+	host.start_local(member("Ada", "ARDOR"))
+	host.resume_run(saved_run, saved_lobby)
+	check(str(host.run.phase) == "tunnels", "fresh votes: picked up again, the party is still choosing (%s)" % str(host.run.phase))
+	check(host.run.players.all(func(p: Dictionary) -> bool: return str(p.get("vote", "")).is_empty()), "fresh votes: and nobody is marked as having chosen a way")
+	## A landing's answers are asked again too.
+	var landing: Dictionary = JSON.parse_string(JSON.stringify(first.run))
+	landing.phase = "landing"
+	landing.landing = {"depth": int(landing.depth), "warden_next": false, "cleared": false, "respites": {}, "lift_by": "p1"}
+	for unit in landing.players:
+		unit.respite = "rest"
+		unit.choice = "descend"
+		unit.via = str(way.id)
+	DeepDescent.forget_votes(landing)
+	check(landing.players.all(func(p: Dictionary) -> bool: return str(p.choice).is_empty() and str(p.via).is_empty()) and not landing.landing.has("lift_by"), "fresh votes: a landing's answers are asked again")
+	for session in pair + [host]:
 		session.queue_free()

@@ -265,7 +265,7 @@ func magpie_snatch_and_flee() -> void:
 	foe.dice[0].faces = [foe.dice[0].faces[at]]
 	var all: Array = turn(f)
 	var snatch: Array = moves_named(all, "Snatch")
-	check(not snatch.is_empty() and int(snatch[0].effects[0].get("stolen", 0)) == 10, "Snatch takes 10 pyrite from the richest player")
+	check(not snatch.is_empty() and int(snatch[0].effects[0].get("stolen", 0)) == 30, "Snatch takes a tenth of the richest player's 300 pyrite")
 	check(str(foe.dice[0].faces[0].move) == "Flee", "the Snatch face it landed becomes Flee")
 	real.faces[at] = foe.dice[0].faces[0]
 	foe.dice[0] = real
@@ -273,7 +273,7 @@ func magpie_snatch_and_flee() -> void:
 	force(foe, 0, "Flee")
 	var gone: Array = moves_named(turn(f), "Flee")
 	check(not gone.is_empty() and bool(gone[0].effects[0].get("fled", false)) and int(foe.hp) <= 0 and bool(foe.get("fled", false)), "Flee leaves the fight")
-	check(int(gone[0].effects[0].get("stolen", 0)) == 10, "and takes what it stole with it")
+	check(int(gone[0].effects[0].get("stolen", 0)) == 30, "and takes what it stole with it")
 
 func lanterns() -> void:
 	var f: Dictionary = setup(["LANTERN_MOTH"])

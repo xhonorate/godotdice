@@ -17,7 +17,7 @@ extends RefCounted
 ##                golden     pyrite whenever it is rolled.
 ##                tally      climbs by one, permanently, every time it is landed on.
 ##                sticky     carries into the next turn instead of being rerolled.
-##                twin       counts as two dice in every set.
+##                twin       counts as two dice for every gem that counts dice (DeepHand.weigh).
 ##                doubled    its value counts double.
 ##                locked     once shown, the die cannot be rerolled this fight.
 ##                blank      nothing at all: no value, no pattern.

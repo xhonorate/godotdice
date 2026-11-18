@@ -134,6 +134,9 @@ const ARC_Z: float = -4.4
 ## side in one row, up to the room's own width (past four, plates step up over each other).
 const ARC_STEP: float = 4.95
 const ARC_REACH: float = 7.4
+## How much closer three creatures, four, and five or more stand than ARC_STEP and ARC_REACH
+## would put them (by count; five already stand at ARC_REACH, a creature's width apart).
+const ARC_CROWD: Array = [1.0, 1.0, 1.0, 0.86, 0.76, 0.92]
 const MOVE_WORDS: Dictionary = {"damage": "sword", "block": "shield", "poison": "drop", "stun": "stun", "remove_block": "split_shield",
 	"die_steal": "die", "heal": "heart", "curse": "eye", "bury_socket": "rampart", "cloud_socket": "cloud"}
 
@@ -564,6 +567,10 @@ static func _arc_spot(slot: int, count: int) -> Vector3:
 	if count <= 1:
 		return Vector3(0.0, 0.0, ARC_Z)
 	var spread: float = minf(ARC_REACH, maxf(1.5 * float(count), ARC_STEP * float(count - 1) * 0.5))
+	## Three and more stand a little closer together, so the rightmost one's tag and health
+	## clear the target's ledger at the room's right (owner, November 17, 2026).
+	if count >= 3:
+		spread *= float(ARC_CROWD[mini(count, ARC_CROWD.size() - 1)])
 	var x: float = lerpf(-spread, spread, float(slot) / float(count - 1))
 	return Vector3(x, 0.0, ARC_Z - absf(x) * 0.28)
 
@@ -1681,7 +1688,7 @@ func _baton(from: Control, to: Control, tone: Color) -> void:
 			return
 		DeepUi.spring(tab, 0.16, 4.0, 0.45)
 		if not ScreenFx.calm:
-			DeepUi.burst(self, _center_of(tab), tone, 16, 130.0, 0.5)
+			_burst(self, _center_of(tab), tone, 16, 130.0, 0.5)
 	if from == null or from == to or ScreenFx.calm:
 		land.call()
 		return
@@ -2180,6 +2187,15 @@ func _shown(unit: Dictionary) -> Dictionary:
 	copy.block = maxi(0, int(held.block))
 	return copy
 
+func foes_seen_down() -> bool:
+	## Whether every creature reads as down on the screen: no blow still being counted or
+	## flown is holding one's health up. The clock only hurries a won turn's leftovers from
+	## here (app.gd, WON_BEAT), so the speed-up never tells the turn's end before it is seen.
+	for foe in state.get("enemies", []):
+		if foe is Dictionary and _held.has(str(foe.get("id", ""))) and int(_shown(foe).get("hp", 0)) > 0:
+			return false
+	return true
+
 func _hold_vitals(effects: Array, by: String = "") -> void:
 	## Before a count: what these effects took off a creature, or gave the player, goes back
 	## on the bars until the blow, the guard or the heal is seen to land. A unit an earlier
@@ -2462,7 +2478,7 @@ func _charge_resonance(amount: int) -> void:
 	var token: int = page.resonance_token
 	DeepAudio.from(page.resonance_box, "resonance", {"volume": 0.8, "pitch": 0.9})
 	_float_at(page.resonance_box, "+%s Charged" % DeepUi.number(amount), DeepUi.ACCENT_HI, 20)
-	DeepUi.burst(self, _center_of(page.resonance_box), DeepUi.ACCENT_HI, 20, 100.0, 0.55)
+	_burst(self, _center_of(page.resonance_box), DeepUi.ACCENT_HI, 20, 100.0, 0.55)
 	page.battery_tween = create_tween()
 	page.battery_tween.tween_method(func(value: float) -> void:
 		if token == page.resonance_token and page.meter != null and is_instance_valid(page.meter):
@@ -2507,7 +2523,7 @@ func _resonance_flight(page: Page, card: Control, value: int, gain: int, color: 
 			return
 		_show_resonance(value, page)
 		DeepUi.spring(page.resonance_box, 0.3, 6.0, 0.45)
-		DeepUi.burst(self, _center_of(page.resonance_box), _resonance_color(value), 10 + 2 * mini(gain, 30), 110.0, 0.4, 4.0)
+		_burst(self, _center_of(page.resonance_box), _resonance_color(value), 10 + 2 * mini(gain, 30), 110.0, 0.4, 4.0)
 		if harmony:
 			DeepAudio.from(page.resonance_box, "harmony", {"volume": 0.7 if page.mine else 0.5})
 			_float_at(page.resonance_box, "+%d harmony" % gain, DeepUi.ACCENT_HI, 15))
@@ -4329,7 +4345,7 @@ func _soak(hit: Dictionary, creature: CrystalCreature, ratio: float) -> void:
 	plate.on_soaked = func(block: int) -> void:
 		_land_vitals(local_id, 0, block)
 		DeepAudio.play("block", {"volume": 0.7, "gap": 0.0})
-		DeepUi.burst(self, _center_of(_hp_bar), DeepUi.BLOCK, 14, 120.0, 0.45)
+		_burst(self, _center_of(_hp_bar), DeepUi.BLOCK, 14, 120.0, 0.45)
 	var tint: Color = creature.tint if creature != null and is_instance_valid(creature) else DeepUi.BAD
 	## The move's way of moving, read now: the count lands after the move has let go of it.
 	var anim: String = str(_move_anims.get(_acting_id, "")) if not _acting_id.is_empty() else ""
@@ -4965,7 +4981,7 @@ func _reroll() -> void:
 		for id in thrown:
 			if _dice_views.has(id):
 				var view: Control = _dice_views[id]
-				DeepUi.burst(self, view.global_position - global_position + view.size * 0.5, DeepUi.INFO, 14, 140.0, 0.5)
+				_burst(self, view.global_position - global_position + view.size * 0.5, DeepUi.INFO, 14, 140.0, 0.5)
 	## The picked dice stay picked, so pressing Reroll again throws the same ones.
 
 func _shift_refusal() -> String:
@@ -5027,7 +5043,7 @@ func _turn_die(id: String) -> void:
 	DeepAudio.play("die_pick", {"volume": 0.9})
 	if not _headless and _dice_views.has(id):
 		var view: Control = _dice_views[id]
-		DeepUi.burst(self, view.global_position - global_position + view.size * 0.5, DeepUi.ACCENT_HI, 16, 150.0, 0.5)
+		_burst(self, view.global_position - global_position + view.size * 0.5, DeepUi.ACCENT_HI, 16, 150.0, 0.5)
 	selected.erase(id)
 	_show_ghost(id, false)
 
@@ -5169,7 +5185,7 @@ func _toggle_lock() -> void:
 		DeepUi.pulse(_lock_button, 1.12, 0.3)
 		for id in _dice_views:
 			var view: Control = _dice_views[id]
-			DeepUi.burst(self, view.global_position - global_position + view.size * 0.5, DeepUi.ACCENT, 8, 90.0, 0.4, 4.0)
+			_burst(self, view.global_position - global_position + view.size * 0.5, DeepUi.ACCENT, 8, 90.0, 0.4, 4.0)
 
 func _unhandled_key_input(event: InputEvent) -> void:
 	if not is_visible_in_tree() or not event is InputEventKey or not event.pressed or event.echo:
@@ -5389,13 +5405,17 @@ func perform(event: Dictionary) -> void:
 				if int(event.get("backlash", 0)) > 0:
 					DeepAudio.play("enemy_strike", {"volume": 0.5})
 					if int(event.get("socket", -1)) >= 0 and int(event.get("socket", -1)) < _socket_cards.size():
-						DeepUi.burst(self, _center_of(_socket_cards[int(event.socket)]), Color("ff8ad8"), 12, 130.0, 0.45, 4.0)
+						_burst(self, _center_of(_socket_cards[int(event.socket)]), Color("ff8ad8"), 12, 130.0, 0.45, 4.0)
 					_screen_fx.wound(0.4)
 					_float_at(_hp_bar, "−%d Backlash" % int(event.backlash), Color("ff8ad8"), 18)
 				## Blood the gem asked for (Bloodletting) is paid as it fires: the bar drops now, so
 				## the number says why.
 				if int(event.get("hp_cost", 0)) > 0:
 					_float_at(_hp_bar, "−%s" % DeepUi.number(int(event.hp_cost)), DeepUi.BAD, 18)
+				## The price took the last of it (a Bruise): down by their own gem.
+				if bool(event.get("downed", false)):
+					_screen_fx.wound(0.8)
+					_announce("You are down", DeepUi.BAD, "The party fights on" if _party_standing() else "", 1.6)
 				if bool(event.get("damped", false)):
 					_float_at(_resonance_box, "Dampened", Color("c8b8ff"), 14)
 			## A Refractor drinking in a color it had not seen: a point of Strength more.
@@ -5493,7 +5513,7 @@ func perform(event: Dictionary) -> void:
 					## The chain pays off a step higher for every stone in it.
 					DeepAudio.from(closing.resonance_box, "resonance", {"pitch": 1.0 + 0.09 * float(mini(resonance, 8)), "volume": 0.8 if closing.mine else 0.6})
 					_float_at(closing.resonance_box, "Resonance ×%s" % DeepUi.number(resonance), _resonance_color(resonance), 20)
-					DeepUi.burst(self, _center_of(closing.resonance_box), _resonance_color(resonance), 20 + mini(resonance, 30) * 4, 180.0, 0.7)
+					_burst(self, _center_of(closing.resonance_box), _resonance_color(resonance), 20 + mini(resonance, 30) * 4, 180.0, 0.7)
 		"enemy_ability":
 			_enemy_windup(event)
 			_count_creature(event)
@@ -5706,7 +5726,7 @@ func _birthstone_fire(event: Dictionary) -> void:
 		DeepUi.spring(anchor, 0.24, 8.0, 0.55)
 		if mine:
 			DeepAudio.rumble(0.3, 0.3, 0.08)
-		DeepUi.burst(self, _center_of(anchor), DeepUi.BAD if busted else color, 24 + 8 * lit.size(), 190.0, 0.6)
+		_burst(self, _center_of(anchor), DeepUi.BAD if busted else color, 24 + 8 * lit.size(), 190.0, 0.6)
 		if bool(event.get("replay", false)):
 			_float_at(anchor, "Encore!", DeepUi.ACCENT_HI, 18)
 	else:
@@ -6131,7 +6151,7 @@ func _study(amount: int, title: String) -> void:
 			_study_lag = 0
 			_sync()
 			DeepUi.spring(_reroll_button, 0.28, 7.0, 0.45)
-			DeepUi.burst(self, _center_of(_reroll_button), DeepUi.INFO, 16, 150.0, 0.45)
+			_burst(self, _center_of(_reroll_button), DeepUi.INFO, 16, 150.0, 0.45)
 			DeepAudio.from(_reroll_button, "tally_mult", {"volume": 0.55, "pitch": 1.2, "vary": 0.0, "gap": 0.0})
 		plate.toss(face.get_global_rect().get_center(), _reroll_button.get_global_rect().get_center(), "+%d" % amount, title, DeepUi.INFO, 0.3, landed, "reroll"))
 
@@ -6191,7 +6211,7 @@ func _flawless_ring(unit_id: String, socket: int, rang: int) -> void:
 	FlawlessFx.mote(self, _center_of(card) + global_position if card != null else Vector2.INF, _center_of(page.resonance_box) + global_position, 0.28, func() -> void:
 		_show_resonance(value, page)
 		DeepUi.spring(page.resonance_box, 0.2, 4.0, 0.3)
-		DeepUi.burst(self, _center_of(page.resonance_box), FlawlessFx.tone(), 6, 90.0, 0.35, 4.0))
+		_burst(self, _center_of(page.resonance_box), FlawlessFx.tone(), 6, 90.0, 0.35, 4.0))
 
 ## What a Flawless line that works away from its gem's own firing says as it does.
 const FLAWLESS_NOTES: Dictionary = {"kill": "+3 growth", "block_broken": "+2 growth", "charged_first": "First gem twice", "overflow_carat": "+1 carat instead",
@@ -6327,7 +6347,7 @@ func _gem_fire(event: Dictionary) -> void:
 		if ring != null:
 			ring.fire()
 		DeepUi.spring(card, 0.22, 8.0, 0.5)
-		DeepUi.burst(self, _center_of(card), color, 18, 170.0, 0.55)
+		_burst(self, _center_of(card), color, 18, 170.0, 0.55)
 		## What its blows will ring as they land (a Flawless Barrage) is held back until they do.
 		var resonance: int = int(event.get("resonance", 0)) - int(event.get("rung", 0))
 		page.ring_value = resonance
@@ -6551,7 +6571,7 @@ func _harmony_bow(from: Control, to: Control, tone: Color) -> void:
 			spark.modulate.a = sin(PI * t), 0.0, 1.0, 0.26)
 	DeepUi.spring(from, 0.14, 5.0, 0.4)
 	_later_do(0.27, func() -> void:
-		DeepUi.burst(self, b, tone, 14, 120.0, 0.4))
+		_burst(self, b, tone, 14, 120.0, 0.4))
 
 func _gem_card(unit_id: String, socket: int) -> Control:
 	## A rail's card (or rider chip) for a socket, while its player's page is the one up.
@@ -6694,11 +6714,11 @@ func _dice_dues(dues: Dictionary, die_ids: Array = []) -> void:
 		## resolving); this is only the ring of the die that paid it.
 		DeepAudio.from(_resonance_box, "resonance", {"volume": 0.55, "pitch": 1.15})
 		_float_at(_resonance_box, "+" + DeepUi.number(resonance), tone, 18)
-		DeepUi.burst(self, _center_of(_resonance_box), tone, 10 + mini(resonance, 30) * 4, 110.0, 0.5)
+		_burst(self, _center_of(_resonance_box), tone, 10 + mini(resonance, 30) * 4, 110.0, 0.5)
 		for id in die_ids:
 			var lit: Control = _die_anchor(str(id))
 			if lit != _tray_box:
-				DeepUi.burst(self, _center_of(lit), tone, 8, 70.0, 0.45)
+				_burst(self, _center_of(lit), tone, 8, 70.0, 0.45)
 	var pyrite: int = int(dues.get("pyrite", 0))
 	if pyrite > 0:
 		_later_do(0.14, func() -> void:
@@ -6711,7 +6731,7 @@ func _dice_dues(dues: Dictionary, die_ids: Array = []) -> void:
 		_later_do(0.28, func() -> void:
 			DeepAudio.play("hit_light", {"volume": 0.5})
 			_float_at(_hp_bar, "-%d" % blood, gore, 20)
-			DeepUi.burst(self, _center_of(anchor), gore, 14, 90.0, 0.5))
+			_burst(self, _center_of(anchor), gore, 14, 90.0, 0.5))
 		## Each Blood die that took it sends the blood to the reader's own health ring. These are
 		## only ever the reader's dues (a teammate's reroll plays nothing here), and a die
 		## whose page is not up plays nothing either (DiceView.blood_reroll).
@@ -6728,7 +6748,7 @@ func _dice_dues(dues: Dictionary, die_ids: Array = []) -> void:
 			DeepAudio.from(grown, "tally", {"volume": 0.6})
 			_float_at(grown, "↑ %d" % shown, DiceIcons.face_kind_tint("tally"), 20)
 			DeepUi.pulse(grown, 1.22, 0.35)
-			DeepUi.burst(self, _center_of(grown), DiceIcons.face_kind_tint("tally"), 12, 80.0, 0.5))
+			_burst(self, _center_of(grown), DiceIcons.face_kind_tint("tally"), 12, 80.0, 0.5))
 		beat += 0.16
 	for broken in dues.get("shattered", []):
 		var lost: Control = _die_anchor(str(broken))
@@ -6736,7 +6756,7 @@ func _dice_dues(dues: Dictionary, die_ids: Array = []) -> void:
 		_later_do(beat, func() -> void:
 			DeepAudio.play("die_break", {"volume": 0.85})
 			_float_at(lost, "Shattered", shards, 20)
-			DeepUi.burst(self, _center_of(lost), shards, 26, 190.0, 0.7)
+			_burst(self, _center_of(lost), shards, 26, 190.0, 0.7)
 			_screen_fx.blink(DeepUi.PAPER, 0.05))
 		beat += 0.18
 
@@ -6748,11 +6768,11 @@ func _crowns_ring(ids: Array) -> void:
 	var box: Control = _local_page.resonance_box
 	DeepAudio.from(box, "resonance", {"volume": 0.6, "pitch": 1.25})
 	_float_at(box, "+%d" % ids.size(), StreakFx.BULB, 18)
-	DeepUi.burst(self, _center_of(box), StreakFx.BULB, 8 + 4 * ids.size(), 110.0, 0.5)
+	_burst(self, _center_of(box), StreakFx.BULB, 8 + 4 * ids.size(), 110.0, 0.5)
 	for id in ids:
 		var lit: Control = _die_anchor(str(id))
 		if lit != null and lit != _tray_box:
-			DeepUi.burst(self, _center_of(lit), StreakFx.BULB, 10, 80.0, 0.45)
+			_burst(self, _center_of(lit), StreakFx.BULB, 10, 80.0, 0.45)
 			DeepUi.pulse(lit, 1.15, 0.25)
 
 func _bonus_rim(holder: Node, lent: bool) -> void:
@@ -6770,7 +6790,7 @@ func _bonus_rim(holder: Node, lent: bool) -> void:
 		rim.size = Vector2(DIE_EDGE + 6, DIE_EDGE + 6)
 		holder.add_child(rim)
 		if not _headless and holder.is_inside_tree():
-			DeepUi.burst(self, _center_of(holder as Control), StreakFx.EMBER, 26, 150.0, 0.6)
+			_burst(self, _center_of(holder as Control), StreakFx.EMBER, 26, 150.0, 0.6)
 	if rim != null:
 		rim.visible = lent
 
@@ -6841,7 +6861,7 @@ func _die_boost(anchor: Control, event: Dictionary, color: Color) -> void:
 			named.append(word)
 	_float_at(anchor, "×%.2f %s" % [boost, ", ".join(named)], tone, 20)
 	DeepUi.pulse(anchor, 1.26, 0.45)
-	DeepUi.burst(self, _center_of(anchor), tone, 18 + int(round(minf(boost, 20.0) * 6.0)), 200.0, 0.65)
+	_burst(self, _center_of(anchor), tone, 18 + int(round(minf(boost, 20.0) * 6.0)), 200.0, 0.65)
 	DeepAudio.from(anchor, "gleam", {"volume": 0.6, "pitch": 1.1})
 
 func _later_do(seconds: float, work: Callable) -> void:
@@ -6944,7 +6964,7 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 						var grown: Control = _counted_die(str(id), by)
 						if grown != null:
 							DeepUi.pulse(grown, 1.22, 0.45)
-							DeepUi.burst(self, _center_of(grown), color, 10, 110.0, 0.5, 4.0)
+							_burst(self, _center_of(grown), color, 10, 110.0, 0.5, 4.0)
 			"fight_count":
 				## A Bloodroot's count of the 1s it has been shown: what it costs follows it.
 				pass
@@ -7045,7 +7065,7 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 				if not bool(effect.get("nothing", false)):
 					if bool(effect.get("destroyed", false)):
 						if anchor != null:
-							DeepUi.burst(self, _center_of(anchor), FlawlessFx.tone(), 40, 220.0, 0.8)
+							_burst(self, _center_of(anchor), FlawlessFx.tone(), 40, 220.0, 0.8)
 						DeepAudio.play("gem_shatter", {"volume": 0.8})
 					for socket in effect.get("sockets", []):
 						var kin: Control = _gem_card(by, int(socket))
@@ -7069,7 +7089,7 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 					_float_at(_tray_box, kind.replace("_", " ").capitalize(), Color.WHITE, 15)
 					for id in _dice_views:
 						var view: Control = _dice_views[id]
-						DeepUi.burst(self, _center_of(view), color, 6, 80.0, 0.4, 4.0)
+						_burst(self, _center_of(view), color, 6, 80.0, 0.4, 4.0)
 				if kind in REWRITES:
 					_rewrite_dice(effect, by, color)
 			"tick_poison", "poison_tick":
@@ -7093,7 +7113,7 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 				DeepAudio.play("ore", {"volume": 0.9})
 				_announce("Royal Flush", DeepUi.ORE, "A stone falls from the rock", 1.1)
 				if anchor != null:
-					DeepUi.burst(self, _center_of(anchor), DeepUi.ORE, 40, 220.0, 0.9)
+					_burst(self, _center_of(anchor), DeepUi.ORE, 40, 220.0, 0.9)
 			_:
 				if mine and anchor != null:
 					_float_at(anchor, kind.replace("_", " ").capitalize(), color.lightened(0.3), 13)
@@ -7523,7 +7543,7 @@ func _creature_fx(effect: Dictionary, creature: CrystalCreature, source: Vector3
 					if int(socket) < _socket_cards.size():
 						var card: Control = _socket_cards[int(socket)]
 						DeepUi.shake(card, 10.0, 0.45)
-						DeepUi.burst(self, _center_of(card), Color("b58cff"), 14, 120.0, 0.5)
+						_burst(self, _center_of(card), Color("b58cff"), 14, 120.0, 0.5)
 				if int(pair[0]) < _socket_cards.size():
 					_float_at(_socket_cards[int(pair[0])], "Swapped", Color("b58cff"), 16)
 				DeepAudio.play("ui_deny", {"volume": 0.6})
@@ -7543,7 +7563,7 @@ func _toll_paid(toll: Dictionary) -> void:
 	for id in toll.get("dice", []):
 		if _dice_views.has(str(id)) and is_instance_valid(_dice_views[str(id)]):
 			var die: Control = (_dice_views[str(id)] as Control).get_parent()
-			DeepUi.burst(self, _center_of(die), Color("eef2ff"), 8, 90.0, 0.4, 3.0)
+			_burst(self, _center_of(die), Color("eef2ff"), 8, 90.0, 0.4, 3.0)
 	DeepAudio.play("enemy_strike", {"volume": 0.45})
 	_screen_fx.wound(0.3)
 	_float_at(_hp_bar, "−%d %s" % [int(toll.get("amount", 0)), str(EffectChips.rule_move(DeepBattle.enemy(state, str(toll.get("by", ""))), "set_toll").get("name", "Mirrors"))], tone, 17)
@@ -7573,7 +7593,7 @@ func _jagged_paid(event: Dictionary) -> void:
 		return
 	## Said once the blows have landed: near the end of the gem's own beat.
 	_later_do(maxf(0.5, float(event.get("duration", 1.0)) * 0.85), func() -> void:
-		DeepUi.burst(self, _center_of(_hp_bar), Color("ffd8e8"), 10, 120.0, 0.45, 3.0)
+		_burst(self, _center_of(_hp_bar), Color("ffd8e8"), 10, 120.0, 0.45, 3.0)
 		_float_at(_hp_bar, "−%d Jagged" % int(paid[0]), Color("ff9ab8"), 17))
 
 func _hit_extras(hit: Dictionary, creature: CrystalCreature, at: Vector3) -> void:
@@ -7689,7 +7709,7 @@ func _gem_fizzle(event: Dictionary) -> void:
 	DeepAudio.from(card, "gem_fizzle", {"volume": 0.6 if mine else 0.45, "gap": 0.02})
 	if mine:
 		DeepAudio.rumble(0.0, 0.18, 0.07)
-	DeepUi.burst(self, _center_of(card), Color(0.5, 0.5, 0.55), 10, 60.0, 0.6, 6.0)
+	_burst(self, _center_of(card), Color(0.5, 0.5, 0.55), 10, 60.0, 0.6, 6.0)
 	_float_at(card, "fizzle", DeepUi.DIM, 14)
 	if int(event.get("healed", 0)) > 0:
 		_float_at(page.hp_bar, "+" + DeepUi.number(int(event.healed)), DeepUi.GOOD, 18)
@@ -7922,7 +7942,7 @@ func _enemy_effect(effect: Dictionary, creature: CrystalCreature) -> void:
 				if kind == "die_steal" and not _dice_views.is_empty():
 					var view: Control = _dice_views.values().back()
 					DeepUi.shake(view, 12.0, 0.4)
-					DeepUi.burst(self, _center_of(view), DeepUi.BAD, 12, 120.0, 0.5)
+					_burst(self, _center_of(view), DeepUi.BAD, 12, 120.0, 0.5)
 				if kind == "stun":
 					DeepUi.shake(_dock, 4.0, 0.4)
 			elif target_id != "" and _creature(target_id) != null and kind == "stun":
@@ -7935,7 +7955,7 @@ func _enemy_effect(effect: Dictionary, creature: CrystalCreature) -> void:
 					if _dice_views.has(str(id)):
 						var view: Control = _dice_views[str(id)]
 						DeepUi.shake(view, 10.0, 0.4)
-						DeepUi.burst(self, _center_of(view), DeepUi.INFO, 10, 100.0, 0.5)
+						_burst(self, _center_of(view), DeepUi.INFO, 10, 100.0, 0.5)
 						_float_at(view, "Locked", DeepUi.INFO, 15)
 		"steal_gold", "gold":
 			if target_id == local_id:
@@ -8060,7 +8080,7 @@ func _enemy_effect(effect: Dictionary, creature: CrystalCreature) -> void:
 				for socket in effect.get("sockets", []):
 					if int(socket) < _socket_cards.size():
 						DeepUi.shake(_socket_cards[int(socket)], 12.0, 0.5)
-						DeepUi.burst(self, _center_of(_socket_cards[int(socket)]), DeepUi.BAD, 16, 140.0, 0.6)
+						_burst(self, _center_of(_socket_cards[int(socket)]), DeepUi.BAD, 16, 140.0, 0.6)
 
 # --- the Creature Tells pass: what creatures do, shown on the dock (October 27, 2026) ------------
 
@@ -8357,7 +8377,7 @@ func _sync_socket_marks(unit: Dictionary, socket: int, card: Control, stone: Var
 		slot.add_child(rubble)
 		if not _headless and is_inside_tree():
 			(rubble as Marks.Rubble).fall_in()
-			DeepUi.burst(self, _center_of(slot), Marks.DUST, 14, 90.0, 0.7, 6.0)
+			_burst(self, _center_of(slot), Marks.DUST, 14, 90.0, 0.7, 6.0)
 	elif not buried and rubble != null:
 		rubble.name = "RubbleGone"
 		rubble.queue_free()
@@ -8768,13 +8788,13 @@ func _dock_tell(effect: Dictionary, creature: CrystalCreature) -> void:
 				if view != null and is_instance_valid(view) and not _headless:
 					_telegraph(view.get_parent(), _acting_move)
 					var at: Vector2 = _center_of(view)
-					DeepUi.burst(self, at, Color("ff7a2a"), 14, 90.0, 0.5, 5.0)
-					DeepUi.burst(self, at + Vector2(0, -20), Color("9aa4c2"), 8, 50.0, 0.9, 7.0)
+					_burst(self, at, Color("ff7a2a"), 14, 90.0, 0.5, 5.0)
+					_burst(self, at + Vector2(0, -20), Color("9aa4c2"), 8, 50.0, 0.9, 7.0)
 					(view as DiceView).pop(1.0, Color("ff7a2a"))
 			_refresh_marks()
 		"dice_dread":
 			if target_id == local_id and not _headless and _tray_box != null:
-				DeepUi.burst(self, _center_of(_tray_box), Marks.WATER, 26, 150.0, 0.6, 5.0)
+				_burst(self, _center_of(_tray_box), Marks.WATER, 26, 150.0, 0.6, 5.0)
 				DeepAudio.play("splash", {"volume": 0.6})
 		"grind_die", "blank_face":
 			if target_id != local_id or _headless:
@@ -8798,7 +8818,7 @@ func _dock_tell(effect: Dictionary, creature: CrystalCreature) -> void:
 				_telegraph(holder, _acting_move)
 				if kind == "grind_die":
 					tile.drop()
-					DeepUi.burst(self, at, Color.WHITE, 8, 90.0, 0.4, 3.0)
+					_burst(self, at, Color.WHITE, 8, 90.0, 0.4, 3.0)
 					DeepAudio.play("chisel", {"volume": 0.6})
 				else:
 					tile.burn(self, at)
@@ -8854,7 +8874,7 @@ func _dock_tell(effect: Dictionary, creature: CrystalCreature) -> void:
 								shown.modulate.a = 1.0)
 					Marks.fly(self, copy, _center_of(_socket_cards[there]), _center_of(_socket_cards[here]), 0.5, 1.0, 36.0 * (1.0 if k == 0 else -1.0))
 			if int(pair[0]) < _socket_cards.size() and int(pair[1]) < _socket_cards.size():
-				DeepUi.burst(self, (_center_of(_socket_cards[int(pair[0])]) + _center_of(_socket_cards[int(pair[1])])) * 0.5, Color("b58cff"), 16, 120.0, 0.5)
+				_burst(self, (_center_of(_socket_cards[int(pair[0])]) + _center_of(_socket_cards[int(pair[1])])) * 0.5, Color("b58cff"), 16, 120.0, 0.5)
 		"bury_socket":
 			if target_id == local_id and effect.has("socket") and int(effect.socket) < _socket_cards.size():
 				_telegraph(_socket_cards[int(effect.socket)], _acting_move)
@@ -9071,7 +9091,7 @@ func _rail_spent(event: Dictionary) -> void:
 	## Said on the screen's own clock: the rail was racing (DeepBattle.rush) when it was spent.
 	_announce("The rail is spent", DeepUi.ACCENT_HI, "%d played this turn · %s didn't fire" % [plays, DeepUi.number(int(event.get("dropped", 0)))], 1.4, true)
 	if anchor != null:
-		DeepUi.burst(self, _center_of(anchor), DeepUi.ACCENT_HI, 40, 220.0, 0.6)
+		_burst(self, _center_of(anchor), DeepUi.ACCENT_HI, 40, 220.0, 0.6)
 	DeepAudio.play("tally_fuse", {"volume": 0.7, "pitch": 0.7, "gap": 0.0})
 	if _screen_fx != null:
 		_screen_fx.blink(DeepUi.ACCENT_HI, 0.18)
@@ -9241,14 +9261,14 @@ func _infinity_moment(event: Dictionary) -> void:
 	## Sparks: one blast from the middle in every color, then light running round the figure of
 	## eight, then the air full of falling color.
 	for tint in INFINITY_TINTS:
-		DeepUi.burst(layer, middle, Color(tint), 80, 950.0, 1.5, 9.0, 95)
+		_burst(layer, middle, Color(tint), 80, 950.0, 1.5, 9.0, 95)
 	var trace := layer.create_tween()
 	trace.set_ignore_time_scale(true)
 	for k in range(36):
 		var point: Vector2 = mark.position + InfinityMark.point(PI * 0.5 + TAU * float(k) / 36.0, mark_size)
 		var tint: Color = infinity_tint(float(k) / 6.0)
 		trace.tween_interval(0.024)
-		trace.tween_callback(func() -> void: DeepUi.burst(layer, point, tint, 26, 280.0, 0.9, 7.0, 96))
+		trace.tween_callback(func() -> void: _burst(layer, point, tint, 26, 280.0, 0.9, 7.0, 96))
 	_infinity_confetti(layer)
 
 func _infinity_float(point: Vector3) -> void:
@@ -9271,7 +9291,7 @@ func _infinity_float(point: Vector3) -> void:
 	rise.tween_property(mark, "phase", 6.0, 1.3)
 	rise.tween_property(mark, "modulate:a", 0.0, 0.5).set_delay(0.8)
 	rise.chain().tween_callback(mark.queue_free)
-	DeepUi.burst(self, at, Color("ffd76a"), 40, 260.0, 0.6, 6.0)
+	_burst(self, at, Color("ffd76a"), 40, 260.0, 0.6, 6.0)
 
 func _infinity_confetti(layer: Control) -> void:
 	## The air full of color: a fall of sparks across the whole width of the room.
@@ -9309,8 +9329,33 @@ func _infinity_confetti(layer: Control) -> void:
 	layer.add_child(fall)
 	fall.emitting = true
 
+## A sped-up turn throws its flourishes (2D sparks, floating words) many times a second: past
+## FLOURISH_MOST in a FLOURISH_MS window of the wall's time the rest are left out while the clock
+## runs fast, so a rail of thousands of plays does not build hundreds of sprays a frame
+## (November 17, 2026). At the fight's own pace every one is drawn.
+const FLOURISH_MOST: int = 8
+const FLOURISH_MS: int = 120
+var _flourish_window: int = 0
+var _flourish_count: int = 0
+
+func _flourish_ok() -> bool:
+	if Engine.time_scale <= 2.0:
+		return true
+	var now: int = Time.get_ticks_msec()
+	if now - _flourish_window > FLOURISH_MS:
+		_flourish_window = now
+		_flourish_count = 0
+	_flourish_count += 1
+	return _flourish_count <= FLOURISH_MOST
+
+func _burst(parent: Control, at: Vector2, color: Color, amount: int = 16, speed: float = 160.0, seconds: float = 0.6, size: float = 5.0, z: int = 60) -> void:
+	if _flourish_ok():
+		DeepUi.burst(parent, at, color, amount, speed, seconds, size, z)
+
 func _float_at(anchor: Control, text: String, color: Color, size: int = 18) -> void:
 	if anchor == null or not is_instance_valid(anchor) or _headless:
+		return
+	if not _flourish_ok():
 		return
 	anchor = _shown_anchor(anchor)
 	var at: Vector2 = anchor.global_position + Vector2(anchor.size.x * 0.5, 0) - global_position

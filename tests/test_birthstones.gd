@@ -272,6 +272,17 @@ func _test_renown() -> void:
 	e = fired(run_turn(f))
 	var total: int = hits(tier(e, "Lance")).size() + hits(tier(e, "Tourney")).size() + hits(tier(e, "Grand Melee")).size()
 	check(lit(e) == ["Lance", "Tourney", "Grand Melee"] and total == 10, "all five at 6 or more: ten Lances (%d)" % total)
+	## A Twin face is two dice showing 6 (owner, Nov 17 2026): one more pass, and two of the
+	## five a Grand Melee wants.
+	f = fight("ARDOR", "RENOWN", [6, 6, 1, 2, 3], 10, ["CAVE_TICK", "RAIL_RAT"])
+	f.unit.hand[0].kind = "twin"
+	e = fired(run_turn(f))
+	check(lit(e) == ["Lance", "Tourney"] and hits(tier(e, "Tourney")).size() == 2, "a Twin six and a six: three Lances (%d in the Tourney)" % hits(tier(e, "Tourney")).size())
+	f = fight("ARDOR", "RENOWN", [6, 6, 6, 7, 1], 10, ["CAVE_TICK", "RAIL_RAT"])
+	f.unit.hand[0].kind = "twin"
+	e = fired(run_turn(f))
+	total = hits(tier(e, "Lance")).size() + hits(tier(e, "Tourney")).size() + hits(tier(e, "Grand Melee")).size()
+	check(lit(e) == ["Lance", "Tourney", "Grand Melee"] and total == 10, "four dice at 6 or more, one a Twin: the Grand Melee, ten Lances (%d)" % total)
 
 # --- Vesper ---------------------------------------------------------------------------------
 
@@ -331,14 +342,22 @@ func _test_nocturne() -> void:
 	var events: Array = run_turn(f)
 	var e: Dictionary = fired(events)
 	check(lit(e) == ["Hush"] and _forced(events) == ["HEARTWOOD"], "a total of 15: Hush wakes the first gem that stayed dark (%s)" % str(_forced(events)))
-	f = fight("CADENCE", "NOCTURNE", [1, 2, 3, 1, 4], 10, ["CAVE_TICK"], rail)
+	f = fight("CADENCE", "NOCTURNE", [1, 2, 3, 1, 5], 10, ["CAVE_TICK"], rail)
 	events = run_turn(f)
 	e = fired(events)
-	check(lit(e) == ["Nocturne"] and bool(tier(e, "Hush").get("eclipsed", false)) and _forced(events) == ["HEARTWOOD", "PETRIFY"], "a total of 11: Nocturne wakes them all (%s)" % str(_forced(events)))
+	check(lit(e) == ["Nocturne"] and bool(tier(e, "Hush").get("eclipsed", false)) and _forced(events) == ["HEARTWOOD", "PETRIFY"], "a total of 12: Nocturne wakes them all (%s)" % str(_forced(events)))
 	f = fight("CADENCE", "NOCTURNE", [1, 1, 2, 2, 3], 10, ["CAVE_TICK"], rail)
 	events = run_turn(f)
 	e = fired(events)
 	check(lit(e) == ["Small Hours"] and _forced(events) == ["HEARTWOOD", "HEARTWOOD", "PETRIFY", "PETRIFY"], "a total of 9: Small Hours wakes each of them twice (%s)" % str(_forced(events)))
+	## Dead of Night (November 17, 2026): the quietest hand wakes each of them three times and
+	## stuns the room.
+	f = fight("CADENCE", "NOCTURNE", [1, 1, 1, 2, 2], 10, ["CAVE_TICK", "RAIL_RAT"], rail)
+	events = run_turn(f)
+	e = fired(events)
+	check(lit(e) == ["Dead of Night"] and bool(tier(e, "Small Hours").get("eclipsed", false)) and _forced(events) == ["HEARTWOOD", "HEARTWOOD", "HEARTWOOD", "PETRIFY", "PETRIFY", "PETRIFY"],
+		"a total of 7: Dead of Night wakes each of them three times (%s)" % str(_forced(events)))
+	check(hits(tier(e, "Dead of Night"), "stun").size() == 2, "and stuns every creature (%d)" % hits(tier(e, "Dead of Night"), "stun").size())
 	f = fight("CADENCE", "NOCTURNE", [2, 3, 4, 5, 6], 10, ["CAVE_TICK"], rail)
 	check(not bool(fired(run_turn(f)).get("fired", true)), "a total of 20 is not a quiet hand")
 	## A gem that fired is not woken, and with nothing dark the tier fires on nothing.
@@ -372,15 +391,17 @@ func _test_arpeggio() -> void:
 func _test_mithridate() -> void:
 	var f: Dictionary = fight("RUE", "MITHRIDATE", [1, 2, 3, 1, 1])
 	var e: Dictionary = fired(run_turn(f))
-	check(lit(e) == ["Coat"] and int(f.unit.statuses.get("envenom", 0)) == 1, "three in a row: one Envenomed")
+	var coat: int = maxi(1, int(e.resonance) / 5)
+	check(lit(e) == ["Coat"] and int(f.unit.statuses.get("envenom", 0)) == coat and coat == 2, "three in a row: one Envenomed for every 5 Resonance (%d)" % int(f.unit.statuses.get("envenom", 0)))
 	f = fight("RUE", "MITHRIDATE", [1, 2, 3, 4, 1])
 	e = fired(run_turn(f))
-	check(lit(e) == ["Coat", "Double Dose"] and int(f.unit.statuses.get("envenom", 0)) == 3, "four in a row: one more for every 5 Resonance (%d)" % int(f.unit.statuses.get("envenom", 0)))
+	var dose: int = coat + maxi(1, int(e.resonance) / 2)
+	check(lit(e) == ["Coat", "Double Dose"] and int(f.unit.statuses.get("envenom", 0)) == dose and dose == 7, "four in a row: one more for every 2 Resonance (%d)" % int(f.unit.statuses.get("envenom", 0)))
 	f = fight("RUE", "MITHRIDATE", [2, 3, 4, 5, 1])
 	e = fired(run_turn(f))
 	var stabs: Array = hits(tier(e, "Mithridate"))
-	check(lit(e) == ["Coat", "Double Dose", "Mithridate"] and stabs.size() == 3 and int(stabs[0].amount) == 10, "five in a row: a stab of Resonance for each Envenomed she carries (%d)" % stabs.size())
-	check(stabs.all(func(h: Dictionary) -> bool: return int(h.get("envenom", {}).get("amount", 0)) == 3), "and every stab leaves her Envenomed as Poison")
+	check(lit(e) == ["Coat", "Double Dose", "Mithridate"] and stabs.size() == dose and int(stabs[0].amount) == 10, "five in a row: a stab of Resonance for each Envenomed she carries (%d)" % stabs.size())
+	check(stabs.all(func(h: Dictionary) -> bool: return int(h.get("envenom", {}).get("amount", 0)) == dose), "and every stab leaves her Envenomed as Poison")
 	f = fight("RUE", "MITHRIDATE", [1, 1, 3, 3, 1])
 	check(not bool(fired(run_turn(f)).get("fired", true)), "no run of three, no coat")
 
@@ -517,13 +538,13 @@ func _test_bandit() -> void:
 	var res: int = int(e.resonance)
 	var pair: Dictionary = tier(e, "Two of a kind").effects[0]
 	var triple: Dictionary = tier(e, "Three of a kind").effects[0]
-	check(lit(e) == ["Two of a kind", "Three of a kind"] and pair.paid.size() == 1 and int(pair.paid[0].value) == 2 and str(pair.paid[0].prize) == "block" and int(pair.paid[0].amount) == res,
+	check(lit(e) == ["Two of a kind", "Three of a kind"] and pair.paid.size() == 1 and int(pair.paid[0].value) == 2 and str(pair.paid[0].prize) == "block" and int(pair.paid[0].amount) == 5 * res,
 		"a pair of 2s: the Block prize, once (%s)" % str(pair.get("paid", [])))
-	check(int(triple.paid[0].value) == 5 and str(triple.paid[0].prize) == "damage" and int(triple.paid[0].amount) == 2 * res and triple.hits.size() == 3, "three 5s: the damage prize, twice Resonance, three times")
+	check(int(triple.paid[0].value) == 5 and str(triple.paid[0].prize) == "damage" and int(triple.paid[0].amount) == 10 * res and triple.hits.size() == 3, "three 5s: the damage prize, ten times Resonance, three times")
 	f = fight("FLORIN", "ONE_ARMED_BANDIT", [1, 1, 3, 4, 7])
-	f.unit.hp = 30
+	f.unit.hp = 10
 	e = fired(run_turn(f))
-	check(lit(e) == ["Two of a kind"] and str(tier(e, "Two of a kind").effects[0].paid[0].prize) == "heal" and int(tier(e, "Two of a kind").effects[0].hits[0].healed) == int(e.resonance), "a pair of 1s heals Resonance")
+	check(lit(e) == ["Two of a kind"] and str(tier(e, "Two of a kind").effects[0].paid[0].prize) == "heal" and int(tier(e, "Two of a kind").effects[0].hits[0].healed) == 5 * int(e.resonance), "a pair of 1s heals five times Resonance")
 	f = fight("FLORIN", "ONE_ARMED_BANDIT", [3, 3, 4, 4, 7])
 	e = fired(run_turn(f))
 	var both: Array = tier(e, "Two of a kind").effects[0].paid
@@ -532,9 +553,12 @@ func _test_bandit() -> void:
 	e = fired(run_turn(f))
 	check(lit(e) == ["Three of a kind"] and tier(e, "Three of a kind").effects[0].hits.size() == 3, "four of a kind pays as three")
 	f = fight("FLORIN", "ONE_ARMED_BANDIT", [7, 7, 7, 7, 7])
+	## Seven prizes of twenty times Resonance: more health than the fixture's creature has.
+	foe(f).hp = 100000
+	foe(f).max_hp = 100000
 	e = fired(run_turn(f))
 	var jackpot: Dictionary = tier(e, "Jackpot")
-	check(lit(e) == ["Jackpot"] and jackpot.effects[0].hits.size() == 7 and int(jackpot.effects[0].paid[0].amount) == 4 * int(e.resonance) and int(hits(jackpot, "gold")[0].amount) == 7 * int(e.resonance),
+	check(lit(e) == ["Jackpot"] and jackpot.effects[0].hits.size() == 7 and int(jackpot.effects[0].paid[0].amount) == 20 * int(e.resonance) and int(hits(jackpot, "gold")[0].amount) == 7 * int(e.resonance),
 		"five 7s: the 7s' prize seven times, and seven times Resonance in pyrite")
 	f = fight("FLORIN", "ONE_ARMED_BANDIT", [6, 6, 1, 2, 3])
 	e = fired(run_turn(f))
@@ -545,14 +569,14 @@ func _test_bandit() -> void:
 func _test_blackjack() -> void:
 	var f: Dictionary = fight("FLORIN", "BLACKJACK", [5, 4, 3, 7, 1])
 	var e: Dictionary = fired(run_turn(f))
-	check(lit(e) == ["Stand"] and int(hits(tier(e, "Stand"))[0].amount) == 4 * int(e.resonance), "a total of 20: Resonance for each of the four points over 16")
+	check(lit(e) == ["Stand"] and int(hits(tier(e, "Stand"))[0].amount) == 5 * 4 * int(e.resonance), "a total of 20: five times Resonance for each of the four points over 16")
 	f = fight("FLORIN", "BLACKJACK", [5, 4, 3, 4, 1])
 	e = fired(run_turn(f))
-	check(lit(e) == ["Stand"] and int(hits(tier(e, "Stand"))[0].amount) == int(e.resonance), "a total of 17: Resonance once")
+	check(lit(e) == ["Stand"] and int(hits(tier(e, "Stand"))[0].amount) == 5 * int(e.resonance), "a total of 17: five times Resonance once")
 	f = fight("FLORIN", "BLACKJACK", [5, 5, 3, 7, 1])
 	e = fired(run_turn(f))
 	var blackjack: Dictionary = tier(e, "Twenty-One")
-	check(lit(e) == ["Twenty-One"] and hits(blackjack).size() == 3 and int(hits(blackjack)[0].amount) == 7 * int(e.resonance) and int(hits(blackjack, "gold")[0].amount) == 21, "exactly 21: seven times Resonance three times, and 21 pyrite")
+	check(lit(e) == ["Twenty-One"] and hits(blackjack).size() == 3 and int(hits(blackjack)[0].amount) == 35 * int(e.resonance) and int(hits(blackjack, "gold")[0].amount) == 21, "exactly 21: thirty-five times Resonance three times, and 21 pyrite")
 	f = fight("FLORIN", "BLACKJACK", [7, 7, 5, 2, 1])
 	var hp: int = int(f.unit.hp)
 	e = fired(run_turn(f))
@@ -625,13 +649,15 @@ func _test_run() -> void:
 	var floors: int = DeepContent.mine_bottom(str(order[0])) + DeepContent.mine_bottom(str(order[1]))
 	run = _run("ARDOR", "RENOWN", str(order[2]))
 	unit = run.players[0]
-	check(DeepBattle.trophies(unit) == floors * 40 / 100 and int(unit.head_start.trophies) == DeepBattle.trophies(unit) and DeepBattle.trophies(unit) > 0,
+	var trophy_rate: int = int(DeepContent.birthstone_def("ARDOR", "RENOWN").get("head_start", {}).get("trophies", 0))
+	check(DeepBattle.trophies(unit) == floors * trophy_rate / 100 and int(unit.head_start.trophies) == DeepBattle.trophies(unit) and DeepBattle.trophies(unit) > 0,
 		"a Renown that starts two mines down opens with the Trophies of the floors above (%d for %d floors)" % [DeepBattle.trophies(unit), floors])
 	check(DeepBattle.trophies(_run("ARDOR", "RAMPART", str(order[2])).players[0]) == 0 and not _run("ARDOR", "", str(order[2])).players[0].has("head_start"), "no other stone of his does")
 	run = _run("RUE", "BLOODROOT", str(order[2]))
 	unit = run.players[0]
 	var base: int = int(DeepContent.character("RUE").hp)
-	check(int(unit.max_hp) == base + floors * 350 / 100 and int(unit.hp) == int(unit.max_hp), "a Bloodroot opens with the max health they would have grown (%d)" % int(unit.max_hp))
+	var health_rate: int = int(DeepContent.birthstone_def("RUE", "BLOODROOT").get("head_start", {}).get("max_hp", 0))
+	check(health_rate > 0 and int(unit.max_hp) == base + floors * health_rate / 100 and int(unit.hp) == int(unit.max_hp), "a Bloodroot opens with the max health they would have grown (%d)" % int(unit.max_hp))
 	## The Trophies come out of a fight with the fighter and go into the next.
 	var fighter: Dictionary = unit.duplicate(true)
 	fighter.run_counts = {DeepBattle.TROPHIES: 3}

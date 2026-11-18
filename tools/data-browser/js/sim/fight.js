@@ -281,7 +281,7 @@ export function railContext(state, unit, socket, opts = {}) {
 export function wornSocket(unit, socket) {
 	const stone = unit.rail[socket];
 	if (!stone || String(Stone.skillOf(stone).wears || '') !== 'prev') return -1;
-	for (let behind = socket - 1; behind >= 0; behind--) if (unit.rail[behind] && !Stone.isOpal(unit.rail[behind])) return behind;
+	for (let behind = socket - 1; behind >= 0; behind--) if (unit.rail[behind] && !Stone.outOfReach(unit.rail[behind])) return behind;
 	return -1;
 }
 
@@ -298,7 +298,8 @@ export function stoneAt(unit, socket) {
 // false) reaches every gem. Replays still only reach gems earlier on the rail.
 export function repeatable(unit, socket, byOpal = true) {
 	if (socket < 0 || socket >= unit.rail.length || !unit.rail[socket]) return false;
-	if (!byOpal || !Stone.isOpal(unit.rail[socket])) return true;
+	// A Transcendent counts as an opal here (owner, November 17, 2026).
+	if (!byOpal || !Stone.outOfReach(unit.rail[socket])) return true;
 	return wornSocket(unit, socket) >= 0;
 }
 
@@ -511,11 +512,9 @@ export function resolveGem(state, unit, socket, opts, rng) {
 	// Blood a gem asks for itself (Bloodletting) is paid with whatever an inclusion asks.
 	let hpCost = I(ev.hp_cost);
 	for (const effect of ev.effects) hpCost += Math.max(0, I(effect.hp_cost));
-	if (hpCost > 0) {
-		const before = I(unit.hp);
-		unit.hp = Math.max(1, before - hpCost);
-		state.ledger.hpLost += before - unit.hp;
-	}
+	// A Bruise's price can take the last of it: its owner is down and the blow does not land
+	// (sim/battle.gd _bleed). A balance run's player never goes down: they stand at 1.
+	const fell = bleed(state, unit, hpCost);
 	let harmony = false;
 	if (unit.previous_fired) for (const color of unit.previous_colors) if (ev.colors.includes(color)) harmony = true;
 	// A lit socket, one that shows the gem's color, adds a point of Resonance of its own.
@@ -534,7 +533,7 @@ export function resolveGem(state, unit, socket, opts, rng) {
 	// What a Chainmail or a Contagion earlier this turn hands over for this gem: taken now.
 	const answers = fireAnswers(unit);
 	const crownsBefore = allOrNothing(unit) ? crownIds(unit.hand) : null;
-	for (const effect of ev.effects) {
+	for (const effect of fell ? [] : ev.effects) {
 		const applied = { ...effect };
 		if (scale !== 100 && effect.scaled) applied.amount = satFloor((I(effect.amount)) * scale / 100);
 		if (effect.once) {
@@ -566,9 +565,9 @@ export function resolveGem(state, unit, socket, opts, rng) {
 		}
 	}
 	// A Flawless Seam's second instance: what the replayed gem adds, read off the Resonance now.
-	if (!isEmpty(opts.each) && !dry) results.push(...seamEach(state, unit, opts.each, rng));
+	if (!isEmpty(opts.each) && !dry && !fell) results.push(...seamEach(state, unit, opts.each, rng));
 	if (crownsBefore) crownsChanged(unit, crownsBefore);
-	results.push(...answerFire(state, unit, answers, rng));
+	if (!fell) results.push(...answerFire(state, unit, answers, rng));
 	// Only its most recent go is kept: a replay of it overwrites what the first go did.
 	(unit.gem_results || (unit.gem_results = {}))[String(stone.id || '')] = unit.firing_results;
 	if (outerResults) unit.firing_results = outerResults; else delete unit.firing_results;
@@ -591,7 +590,24 @@ export function resolveGem(state, unit, socket, opts, rng) {
 	settleMarks(state);
 	state.ledger.fires += 1;
 	return { kind: 'gem_fire', socket, skill: stone.skill, resonance: unit.resonance, gain, harmony, lit, retrigger, cut_step: I(ev.cut_step), carat: I(ev.carat),
-		magnitude: ev.magnitude, fires: I(ev.fires), promised: retrigger ? 0 : promised, effects: results };
+		magnitude: ev.magnitude, fires: I(ev.fires), promised: retrigger ? 0 : promised, effects: results, downed: fell };
+}
+
+// Blood a player pays for their own gem (a Bruise, a Bloodletting's price): soaked by no block,
+// and it can take the last of it; a Lifeline still catches them. True when it took them down.
+function bleed(state, unit, loss) {
+	if (loss <= 0 || unit.downed) return false;
+	const before = I(unit.hp);
+	unit.hp = Math.max(0, before - loss);
+	state.ledger.hpLost += before - unit.hp;
+	if (I(unit.hp) > 0) return false;
+	const rescued = lifeline(unit);
+	if (rescued > 0) state.ledger.healed += rescued;
+	if (I(unit.hp) > 0) return false;
+	if (state.noDowns) { unit.hp = 1; state.ledger.downs += 1; return false; }
+	unit.downed = true;
+	unit.block = 0;
+	return true;
 }
 
 // --- the Birthstone ------------------------------------------------------------------------
@@ -1261,7 +1277,7 @@ export function selfEffect(state, unit, effect, socket, previousSocket, dry, rng
 			if (!dry) unit.repeat_next = (I(unit.repeat_next)) + Math.max(0, amount);
 			break;
 		case 'void_copy': {
-			// An Echo: a Void copy of the last gem that fired, never an opal, joins the rail behind this one.
+			// An Echo: a Void copy of the last gem that fired, never an opal nor a Transcendent, joins the rail behind this one.
 			const source = previousSocket;
 			const copyable = socket >= 0 && source >= 0 && source < unit.rail.length && unit.rail[source] && repeatable(unit, source) && !isEcho(stoneAt(unit, source));
 			if (dry || !copyable) { out.nothing = true; break; }
@@ -1280,21 +1296,25 @@ export function selfEffect(state, unit, effect, socket, previousSocket, dry, rng
 			break;
 		}
 		case 'fire_neighbours': {
-			// A Gemini: the gems either side of it fire, once for every pair; never an opal, not even
+			// A Gemini: for every pair one gem beside it fires, the one before it and then the one after
+			// in turn (one beside it to fire takes every go); never an opal, not even
 			// a Doublet wearing a gem (beside a Gemini it would wear it and wake it back for ever).
 			const twins = [];
 			const woken = [];
 			for (const at of [socket - 1, socket + 1]) {
-				if (at === socket || !repeatable(unit, at) || Stone.isOpal(unit.rail[at])) continue;
+				if (at === socket || !repeatable(unit, at) || Stone.outOfReach(unit.rail[at])) continue;
 				twins.push(at);
 			}
-			// A Flawless Gemini: two neighbours of one color go once more.
-			let goes = Math.max(0, amount);
+			const goes = Math.max(0, amount);
+			if (twins.length) for (let time = 0; time < goes; time++) woken.push({ kind: 'gem', unit: unit.id, socket: twins[time % twins.length], retrigger: true, force: true });
+			// A Flawless Gemini: two neighbours of one color go once more, each.
 			if (effect.twin_bonus && twins.length === 2) {
 				const other = Stone.colors(stoneAt(unit, twins[1]), String(unit.sockets[twins[1]]));
-				if (Stone.colors(stoneAt(unit, twins[0]), String(unit.sockets[twins[0]])).some((color) => other.includes(color))) { goes += 1; out.twinned = true; }
+				if (Stone.colors(stoneAt(unit, twins[0]), String(unit.sockets[twins[0]])).some((color) => other.includes(color))) {
+					for (const at of twins) woken.push({ kind: 'gem', unit: unit.id, socket: at, retrigger: true, force: true });
+					out.twinned = true;
+				}
 			}
-			for (const at of twins) for (let time = 0; time < goes; time++) woken.push({ kind: 'gem', unit: unit.id, socket: at, retrigger: true, force: true });
 			out.sockets = twins;
 			if (dry || !woken.length) out.nothing = true; else state.queue = woken.concat(state.queue);
 			break;
@@ -2365,7 +2385,7 @@ function policyScore(policy, a) {
 	if (policy.startsWith('value:')) { const wanted = policy.slice(6).split(',').map(Number); let n = 0; for (const w of wanted) n += (a.ids_by_value.get(w) || []).length; return n; }
 	// What the variant Birthstones chase (simulate.js policyFor): dice at a number or more, a total
 	// in a window (how far outside it, the nearer the better), a scale, crowns and 1s.
-	if (policy.startsWith('floor:')) { const floor = Number(policy.slice(6)); return Hand.matching(a, (v) => v >= floor).length; }
+	if (policy.startsWith('floor:')) { const floor = Number(policy.slice(6)); return Hand.weigh(a, Hand.matching(a, (v) => v >= floor)); }
 	if (policy.startsWith('total:')) { const [least, most] = policy.slice(6).split(':').map(Number); return -Math.max(0, least - a.total, a.total - most); }
 	if (policy === 'scale') return I((a.scale || {}).length);
 	if (policy === 'faces') return new Set([...(a.crown_ids || []), ...(a.one_ids || [])]).size;

@@ -751,7 +751,31 @@ static func rail_refusal(profile: Dictionary, character_key: String, index: int,
 	var cap: int = int(character.get("carat_max", 0))
 	if cap > 0 and int(stone.carat) > cap:
 		return "%s takes nothing heavier than %d carats" % [str(character.get("name", "this character")), cap]
-	return ""
+	return opal_refusal(profile, character_key, index, skill)
+
+static func opal_set(profile: Dictionary, character_key: String, except_index: int, skill: String) -> int:
+	## The open socket (other than `except_index`) of the loadout that already holds an opal
+	## other than this stone, or -1.
+	var rail: Array = profile.get("characters", {}).get(character_key, {}).get("rail", [])
+	for i in range(mini(rail.size(), open_sockets(profile, character_key))):
+		if i == except_index or not rail[i] is String or str(rail[i]) == skill:
+			continue
+		if DeepStone.is_opal(owned(profile, str(rail[i]))):
+			return i
+	return -1
+
+static func opal_refusal(profile: Dictionary, character_key: String, index: int, skill: String) -> String:
+	## One opal a loadout (owner, November 17, 2026): an opal cannot be set while another opal
+	## sits in an open socket other than `index` (-1: any socket). Set it in that opal's
+	## socket to swap them. "" when it may go.
+	var stone: Dictionary = owned(profile, skill)
+	if stone.is_empty() or not DeepStone.is_opal(stone):
+		return ""
+	var at: int = opal_set(profile, character_key, index, skill)
+	if at < 0:
+		return ""
+	var other: String = DeepStone.name(owned(profile, str(profile.characters[character_key].rail[at])))
+	return "only one opal goes down in a loadout: %s is set in socket %d, so set this one in its place or take it out first" % [other, at + 1]
 
 static func set_rail(profile: Dictionary, character_key: String, index: int, skill: Variant) -> String:
 	## Puts an owned stone (by skill) in a socket of the loadout, or clears it with null.
@@ -800,6 +824,15 @@ static func tidy(profile: Dictionary) -> bool:
 			for slot in range(open_sockets(profile, str(key))):
 				if slot < rail.size() and rail[slot] == null and set_rail(profile, str(key), slot, skill).is_empty():
 					break
+		## A save from before one opal a loadout keeps its first opal; the rest come out.
+		var opal_seen: bool = false
+		for index in range(mini(rail.size(), open_sockets(profile, str(key)))):
+			if not rail[index] is String or not DeepStone.is_opal(owned(profile, str(rail[index]))):
+				continue
+			if opal_seen:
+				rail[index] = null
+				moved = true
+			opal_seen = true
 	return moved
 
 # --- what comes home -----------------------------------------------------------------------

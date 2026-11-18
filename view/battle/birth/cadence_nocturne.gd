@@ -2,10 +2,10 @@ extends "res://view/battle/birth_act.gd"
 ## Cadence's Nocturne: a quiet hand wakes the gems that stayed dark.
 ##
 ## The game shows no total of its own, so the hand's total stands over the tray on a track cut
-## at the stone's three rungs (16, 12 and 9 as content has them), a marker on the cell the hand
+## at the stone's rungs (18, 14, 11 and 7 as content has them), a marker on the cell the hand
 ## is in and the rung's name beside the number. Every dark gem the hand would wake wears a small
 ## moon at its ring's corner before the rail closes: the first of them under Hush, all of them
-## under Nocturne, two moons each under Small Hours.
+## under Nocturne, two moons each under Small Hours, three under Dead of Night.
 ##
 ## When the stone fires the dock dims to indigo for a beat and the moons glow. The woken gems
 ## then fire as events of their own, the way the screen plays any gem: as each arrives its moon
@@ -20,6 +20,8 @@ const TotalTrack = preload("res://view/battle/birth/total_track.gd")
 const INDIGO := Color("1b2150")
 const NIGHT := Color(0.05, 0.06, 0.13)
 const MOONLIGHT := Color("e6eaff")
+## The rung under Small Hours (Dead of Night): the moon at its fullest, a warmer white.
+const FULL_MOON := Color("fff1c9")
 const WASH_SECONDS: float = 1.5
 const FADE_MS: int = 480
 
@@ -41,7 +43,9 @@ var _last_woken: int = -1
 func _open() -> void:
 	_track = TotalTrack.new()
 	_track.visible = false
-	place(_track, "over_tray", 0.5)
+	## Five cells since Dead of Night: on the phone the track keeps to the tray's right end, clear
+	## of the rung's name as it floats up off the stone.
+	place(_track, "over_tray", 1.0 if DeepUi.phone else 0.5)
 	tip(_track, _plate, {"tone": tint.lightened(0.3)})
 
 # --- the hand's total ----------------------------------------------------------------------------
@@ -64,8 +68,11 @@ func _read_rungs() -> void:
 				times = maxi(1, int(effect.get("repeat", 1)))
 		out.append({"name": str(def.get("name", "")), "most": int(def.trigger.get("amount", 0)), "wakes": wakes, "times": times, "text": str(def.get("text", ""))})
 	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a.most) < int(b.most))
-	## The quietest rung is the brightest: moonlight, then the iolite's blue, then its grey.
+	## The quietest rung is the brightest: moonlight, then the iolite's blue, then its grey. A
+	## fourth rung under those three is the full moon.
 	var tones: Array = [MOONLIGHT, tint.lightened(0.42), tint.lerp(tint2, 0.55).lightened(0.12)]
+	if out.size() > tones.size():
+		tones.push_front(FULL_MOON)
 	for index in range(out.size()):
 		out[index].tone = tones[mini(index, tones.size() - 1)]
 	_rungs = out
@@ -122,7 +129,7 @@ func _look_key() -> String:
 	return "%s|%s|%s|%s" % [str(_moons), str(_waking), str(settled), str(_stone_fired)]
 
 func _plate() -> Control:
-	## The three rungs in words, for a hover or a held finger: the one the hand is on is lit.
+	## The rungs in words, for a hover or a held finger: the one the hand is on is lit.
 	var box: VBoxContainer = Plates.plate()
 	Plates.head(box, "Total %d" % _total(), "nocturne", tint.lightened(0.4))
 	var reached: Dictionary = _rung_lit()

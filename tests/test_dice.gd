@@ -116,6 +116,41 @@ func _test_analysis() -> void:
 	var twin: Dictionary = DeepHand.analyze(twin_hand)
 	check(twin.best_set.value == 4 and twin.best_set.count == 3, "a Twin face counts twice in its set: %s" % str(twin.best_set))
 	check(twin.distinct == 4, "a twin die is still one value for distinct")
+	## Counts as two dice for every gem that counts dice, not only for sets (owner, Nov 17 2026).
+	check(int(twin.even) == 5 and int(twin.odd) == 1 and int(twin.dice_count) == 6, "a Twin 4 is two even dice, and two in the hand: %d even, %d dice" % [int(twin.even), int(twin.dice_count)])
+	check(int(twin.low_dice) == 2 and DeepHand.weigh(twin, [str(twin_hand[0].die_id)]) == 2, "the Twin is a high die once and weighs two")
+	var sixes: Array = hand([6, 6, 2, 1, 3])
+	sixes[0].kind = "twin"
+	var lance: Dictionary = DeepPatterns.evaluate({"kind": "high_count", "value": 6, "amount": 1}, 0, DeepHand.analyze(sixes))
+	check(bool(lance.active) and int(lance.count) == 3, "a Twin six is two dice showing 6 or more: %d" % int(lance.count))
+	var melee_hand: Array = hand([6, 6, 6, 6, 1])
+	melee_hand[0].kind = "twin"
+	var melee: Dictionary = DeepPatterns.evaluate({"kind": "high_count", "value": 6, "amount": 5}, 0, DeepHand.analyze(melee_hand))
+	check(bool(melee.active), "four sixes, one of them a Twin, are the five a Grand Melee wants")
+	var plain_melee: Dictionary = DeepPatterns.evaluate({"kind": "high_count", "value": 6, "amount": 5}, 0, DeepHand.analyze(hand([6, 6, 6, 6, 1])))
+	check(not bool(plain_melee.active), "four plain sixes are not")
+	var ones: Array = hand([1, 2, 3, 4, 5])
+	ones[0].kind = "twin"
+	var two_ones: Dictionary = DeepPatterns.evaluate({"kind": "value", "values": [1], "amount": 2}, 0, DeepHand.analyze(ones))
+	check(bool(two_ones.active) and int(two_ones.count) == 2, "a Twin 1 is two dice showing a 1")
+	var odd_hand: Array = hand([1, 3, 2, 4, 6])
+	odd_hand[0].kind = "twin"
+	check(bool(DeepPatterns.evaluate({"kind": "odd", "amount": 3}, 0, DeepHand.analyze(odd_hand)).active), "a Twin odd die is two odd dice")
+	var crown_hand: Array = hand([6, 6, 2, 1, 3])
+	crown_hand[0].kind = "twin"
+	check(int(DeepHand.analyze(crown_hand).crowns) == 3, "a Twin crown is two crowns")
+	var at_most: Dictionary = DeepPatterns.evaluate({"kind": "at_most", "amount": 1}, 0, DeepHand.analyze(ones))
+	check(int(at_most.count) == 2, "and two dice to the count a low-die gem reads")
+	check(DeepRules.term("count_at_least", {"value": 6}, {"a": DeepHand.analyze(sixes)}) == 3, "and to a term that counts dice")
+	## A Graining's held die counts twice in sets only: it is no Twin face.
+	var grained: Array = hand([6, 6, 2, 1, 3])
+	grained[0].twinned = true
+	var grain: Dictionary = DeepHand.analyze(grained)
+	check(int(grain.best_set.count) == 3 and DeepPatterns.evaluate({"kind": "high_count", "value": 6, "amount": 3}, 0, grain).active == false, "a Graining's held die is two only in its set")
+	## Straights count values, so a Twin is still one there.
+	var run_hand: Array = hand([1, 2, 3, 4, 6])
+	run_hand[0].kind = "twin"
+	check(int(DeepHand.analyze(run_hand).straight.length) == 4, "a Twin does not lengthen a straight")
 	var pct: Dictionary = DeepHand.analyze(hand([6, 6, 6, 6, 6]))
 	check(pct.total == 30 and pct.high_pct == 100, "a perfect hand is 100 percent")
 

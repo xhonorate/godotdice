@@ -56,6 +56,12 @@ static func is_transcendent(stone: Dictionary) -> bool:
 	## Made at an altar and nowhere else. See DeepAltar.
 	return str(skill_of(stone).get("rarity", "")) == DeepContent.TRANSCENDENT
 
+static func out_of_reach(stone: Dictionary) -> bool:
+	## What a gem that copies or replays never touches: an opal, or a Transcendent, which
+	## counts as one here (owner, November 17, 2026). A Seam, Matrix or Rainbow Seam replay
+	## leaves it, an Echo never copies it, a Doublet never wears it and a Gemini never fires it.
+	return is_opal(stone) or is_transcendent(stone)
+
 static func colors(stone: Dictionary, socket: String = "") -> Array:
 	## Every color the stone counts as: its skill's (all of them, for a gem made from several),
 	## any color Zoning, and the socket's own color for an Alexandrite. An opal is only "OPAL"
@@ -194,6 +200,20 @@ static func modifier_sum(mods: Array, kind: String, field: String = "amount") ->
 
 static func is_locked(stone: Dictionary) -> bool:
 	return has_modifier(modifiers(stone), "locked")
+
+static func knot_held(unit: Dictionary, stone: Dictionary) -> bool:
+	## A Knot set in one of this player's sockets (or riding one): it cannot leave it during a
+	## run. A Knot loose in the bag is free to be offered, sold, thrown in a well or laid on an
+	## altar like any stone (owner, November 17, 2026). With no player to ask, any Knot holds.
+	if not is_locked(stone):
+		return false
+	if unit.is_empty():
+		return true
+	var id: String = str(stone.get("id", ""))
+	for held in rail_stones(unit):
+		if str(held.get("id", "")) == id:
+			return true
+	return false
 
 static func is_slotless(stone: Dictionary) -> bool:
 	return is_voided(stone) or has_modifier(modifiers(stone), "slotless")
@@ -604,6 +624,11 @@ static func grade_breakdown(stone: Dictionary) -> Dictionary:
 	for key in counted_inclusions(stone):
 		inclusion_pts += float(INCLUSION_SCORE.get(str(DeepContent.inclusion(str(key)).get("rarity", "COMMON")), 2.0))
 	inclusion_pts = minf(15.0, inclusion_pts)
+	## A Flawless stone has nothing frozen inside to want: it earns the inclusions' 15 in full,
+	## so it never grades under an Included stone of the same carat and cut, and a Flawless
+	## Perfect stone of the most carats grades 100.
+	if is_flawless(stone):
+		inclusion_pts = 15.0
 	var skill_pts: float = DeepContent.rarity_score(str(skill_of(stone).get("rarity", "COMMON"))) / 28.0 * 8.0
 	return {"carat_pts": carat_pts, "cut_pts": cut_pts, "clarity_pts": clarity_pts, "inclusion_pts": inclusion_pts,
 		"skill_pts": skill_pts, "total": carat_pts + cut_pts + clarity_pts + inclusion_pts + skill_pts}
@@ -767,6 +792,28 @@ static func proc_lines(stone: Dictionary, c: Dictionary = {}) -> Array:
 	if chance > 0:
 		out.append({"sure": false, "text": "%d%% chance of %s." % [chance, "twice over" if times == 1 else str(NEXT_TIME[mini(times, NEXT_TIME.size() - 1)])]})
 	return out
+
+static func weight_carried(stone: Dictionary) -> bool:
+	## A gem whose weight rides on the skills it fires rather than on a number of its own: a
+	## Black Opal plays every skill it absorbed as a stone at its own four C's.
+	for def in skill_of(stone).get("effects", []):
+		if def is Dictionary and str(def.get("kind", "")) == "absorbed":
+			return true
+	return false
+
+static func weight_note(stone: Dictionary, c: Dictionary = {}) -> String:
+	## What weight does for a Transcendent, in words, where no multiplier or proc line says it:
+	## a Gemini, a Certainty and a Black Opal's own effect count exactly (see test_stones), so a
+	## heavy one says so instead of looking as if its bonus were missing. Empty for any other gem.
+	if is_birthstone(stone) or not is_transcendent(stone):
+		return ""
+	if weight_carried(stone):
+		var mult: float = float(effective(stone, c).magnitude)
+		var shown: String = ("%.2f" % mult).rstrip("0").rstrip(".")
+		return "Every skill it absorbed fires at its weight: ×%s, or more goes where a number cannot be a fraction." % shown
+	if magnitude_matters(stone) or procs_matter(stone):
+		return ""
+	return "Its weight changes nothing it does: what it counts is exact."
 
 static func text(stone: Dictionary, c: Dictionary = {}) -> String:
 	## The skill's card text with this stone's Cut (and, for a multiplier, its weight) written into it.

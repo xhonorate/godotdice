@@ -519,9 +519,10 @@ static func die(item: Dictionary, roll: Dictionary = {}, opts: Dictionary = {}) 
 	if not ghosts.is_empty():
 		section(box, "%s behind it" % DeepUi.plural(ghosts.size(), "phantom"))
 		var ghost_row := DeepUi.hbox(box, 6)
-		for ghost in ghosts:
-			ghost_row.add_child(DiceIcons.readable_face(22, int(ghost.get("value", 0)), DeepUi.INFO, str(item.get("shape", "D6")), true, str(int(ghost.get("value", 0)))))
-		var ghost_words := DeepUi.vbox(ghost_row, 0)
+		ghost_faces(ghost_row, ghosts, str(item.get("shape", "D6")))
+		## The words under the faces once they take the row's width (a few numbers with ×N
+		## under them), beside them for one or two.
+		var ghost_words := DeepUi.vbox(ghost_row if ghost_row.get_child_count() <= 2 else box, 0)
 		ghost_words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		ghost_words.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		DeepUi.wrap(ghost_words, "Copies made by a Refract: each counts for every gem after the one that made it, then fades.", 11, DeepUi.MUTED)
@@ -530,13 +531,43 @@ static func die(item: Dictionary, roll: Dictionary = {}, opts: Dictionary = {}) 
 		DeepUi.stat(box, str(opts.get("note_glyph", "spark")), note, Color(opts.get("note_tone", DeepUi.INFO)), 12)
 	return box
 
+## The most faces a plate lays out for a die's phantoms; past it the rest are one "+N".
+const GHOST_FACES: int = 4
+
+static func ghost_faces(parent: Control, ghosts: Array, shape: String) -> void:
+	## A die's phantoms as their faces, one mark a number with "×N" under a run of the same:
+	## a Refract on a Gemini can leave thousands behind one die, and a mark each made a plate
+	## wider than the screen, which stood over the pointer and flickered (November 17, 2026).
+	var counts: Dictionary = {}
+	var order: Array = []
+	for ghost in ghosts:
+		var value: int = int(ghost.get("value", 0)) if ghost is Dictionary else 0
+		if not counts.has(value):
+			counts[value] = 0
+			order.append(value)
+		counts[value] = int(counts[value]) + 1
+	var shown: int = mini(order.size(), GHOST_FACES if order.size() > GHOST_FACES + 1 else order.size())
+	var rest: int = 0
+	for index in range(order.size()):
+		var value: int = int(order[index])
+		if index >= shown:
+			rest += int(counts[value])
+			continue
+		var cell := DeepUi.vbox(parent, 0)
+		cell.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		cell.add_child(DiceIcons.readable_face(22, value, DeepUi.INFO, shape, true, str(value)))
+		if int(counts[value]) > 1:
+			DeepUi.label(cell, "×" + DeepUi.number(int(counts[value])), 11, DeepUi.INFO, HORIZONTAL_ALIGNMENT_CENTER)
+	if rest > 0:
+		var more := DeepUi.label(parent, "+" + DeepUi.number(rest), 12, DeepUi.INFO)
+		more.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+
 static func phantom(ghosts: Array, source: Dictionary) -> Control:
 	## A Refract's phantoms behind the die they copy: each one, and what it is.
 	var box := plate(300.0)
 	head(box, "%s behind this die" % DeepUi.plural(ghosts.size(), "phantom"), "copies", DeepUi.INFO)
 	var row := DeepUi.hbox(box, 6)
-	for ghost in ghosts:
-		row.add_child(DiceIcons.readable_face(22, int(ghost.get("value", 0)), DeepUi.INFO, str(source.get("shape", ghost.get("shape", "D6"))), true, str(int(ghost.get("value", 0)))))
+	ghost_faces(row, ghosts, str(source.get("shape", "D6")))
 	DeepUi.wrap(box, "Copies of your %s, made by a Refract. Each counts for every gem after the one that made it this turn, then fades." % DeepDice.describe(source), 12, DeepUi.MUTED)
 	return box
 
@@ -569,7 +600,7 @@ static func grade(stone: Dictionary, footer_words: String = "") -> Control:
 		["Carat", "%d ct" % int(stone.get("carat", 1)), float(parts.get("carat_pts", 0.0)), 45.0, DeepUi.MUTED],
 		["Cut", DeepContent.cut_name(int(stone.get("cut", 0))), float(parts.get("cut_pts", 0.0)), 20.0, DeepUi.MUTED],
 		["Clarity", DeepContent.clarity_name(int(stone.get("clarity", 0))), float(parts.get("clarity_pts", 0.0)), 20.0, DeepUi.BAD if clear else DeepUi.MUTED],
-		["Inclusions", "none" if held == 0 else str(held), float(parts.get("inclusion_pts", 0.0)), 15.0, DeepUi.MUTED],
+		["Inclusions", "Flawless" if DeepStone.is_flawless(stone) else ("none" if held == 0 else str(held)), float(parts.get("inclusion_pts", 0.0)), 15.0, DeepUi.MUTED],
 		["Rarity", rarity.capitalize(), float(parts.get("skill_pts", 0.0)), 8.0, DeepUi.MUTED]]
 	for row in rows:
 		var line := DeepUi.hbox(box, 8)

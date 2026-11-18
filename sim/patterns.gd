@@ -52,6 +52,10 @@ extends RefCounted
 ##                       then it starts again (the fight keeps the count, `DeepCreatures.countdown_in`)
 ## A creature's trigger may also name `die`, the index of the one die it reads.
 ##
+## A Twin face is two dice to every trigger that counts dice (DeepHand.weigh), and to the count a
+## gem reads after (`count`): a Twin six is two of the five a Grand Melee wants. Straights, scales
+## and distinct values count values, so a Twin is one die there.
+##
 ## `describe` turns a trigger into the pictograph the interface draws and the sentence a
 ## tooltip says. Nothing here evaluates content by name.
 
@@ -229,10 +233,12 @@ static func evaluate(trigger: Dictionary, cut_step: int, a: Dictionary, context:
 				var ghosts: Array = a.get("phantom_ids", [])
 				var wilds: Array = a.get("wilds", [])
 				dice = dice.filter(func(id: Variant) -> bool: return not wilds.has(id) and not ghosts.has(id))
-			if dice.size() >= maxi(1, need):
+			## A Twin face is two dice here, as in every count of dice (DeepHand.weigh).
+			var showing: int = DeepHand.weigh(a, dice)
+			if showing >= maxi(1, need):
 				result.active = true
 				result.dice = dice
-				result.count = dice.size()
+				result.count = showing
 				result.value = int(wanted[0]) if not wanted.is_empty() else 0
 		"at_most", "below":
 			var judge: Callable = func(v: int) -> bool: return v < need if kind == "below" else v <= need
@@ -240,14 +246,14 @@ static func evaluate(trigger: Dictionary, cut_step: int, a: Dictionary, context:
 			if dice.size() >= 1:
 				result.active = true
 				result.dice = dice
-				result.count = dice.size()
+				result.count = DeepHand.weigh(a, dice)
 				result.value = need
 		"at_least":
 			if int(a.get("high", 0)) >= need:
 				result.active = true
 				result.dice = DeepHand.matching(a, func(v: int) -> bool: return v >= need)
 				result.value = int(a.high)
-				result.count = result.dice.size()
+				result.count = DeepHand.weigh(a, result.dice)
 		"total_pct_at_least":
 			if int(a.get("total", 0)) * 100 >= int(a.get("max_total", 1)) * need:
 				result.active = true
@@ -337,10 +343,12 @@ static func evaluate(trigger: Dictionary, cut_step: int, a: Dictionary, context:
 		"high_count":
 			var floor_value: int = int(trigger.get("value", 6))
 			var dice: Array = DeepHand.matching(a, func(v: int) -> bool: return v >= floor_value)
-			if dice.size() >= maxi(1, need):
+			## A Twin six is two passes with Renown's lance, and two of the five Grand Melee wants.
+			var high_dice: int = DeepHand.weigh(a, dice)
+			if high_dice >= maxi(1, need):
 				result.active = true
 				result.dice = dice
-				result.count = dice.size()
+				result.count = high_dice
 				result.value = floor_value
 		"total_at_most":
 			var quiet: int = int(a.get("total", 0)) - int(a.get("wild_total", 0)) + a.get("wilds", []).size()
@@ -348,14 +356,14 @@ static func evaluate(trigger: Dictionary, cut_step: int, a: Dictionary, context:
 				result.active = true
 				result.dice = _all_dice(a)
 				result.value = quiet
-				result.count = result.dice.size()
+				result.count = DeepHand.weigh(a, result.dice)
 		"total_window":
 			var most: int = int(trigger.get("max", -1))
 			if int(a.get("dice_count", 0)) > 0 and int(a.get("total", 0)) >= need and (most < 0 or int(a.get("total", 0)) <= most):
 				result.active = true
 				result.dice = _all_dice(a)
 				result.value = int(a.get("total", 0))
-				result.count = result.dice.size()
+				result.count = DeepHand.weigh(a, result.dice)
 		"scale":
 			var climb: Dictionary = a.get("scale", {})
 			if int(climb.get("length", 0)) >= maxi(1, need):
@@ -368,11 +376,12 @@ static func evaluate(trigger: Dictionary, cut_step: int, a: Dictionary, context:
 			for id in a.get("one_ids", []):
 				if not faced.has(id):
 					faced.append(id)
-			if int(a.get("dice_count", 0)) >= maxi(2, need) and faced.size() >= int(a.get("dice_count", 0)):
+			var faced_count: int = DeepHand.weigh(a, faced)
+			if int(a.get("dice_count", 0)) >= maxi(2, need) and faced_count >= int(a.get("dice_count", 0)):
 				result.active = true
 				result.dice = faced
-				result.count = faced.size()
-				result.value = faced.size()
+				result.count = faced_count
+				result.value = faced_count
 		"colors":
 			result.active = int(context.get("colors", 0)) >= maxi(1, need)
 			result.count = int(context.get("colors", 0))

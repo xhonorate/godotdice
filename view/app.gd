@@ -38,7 +38,11 @@ var _conquests: Dictionary = {}
 ## True for the frame between the Descend click putting the cage up and the run's screen
 ## being built behind it; see `_on_run_started`.
 var _behind_cage: bool = false
-const WON_BEAT: float = 2.8
+const WON_BEAT: float = 1.2
+## The most fight time one frame may play while a turn is sped up (see `_process`), and the
+## wall's time a frame takes, smoothed.
+const FRAME_GAME_MOST: float = 0.5
+var _real_frame: float = 1.0 / 60.0
 ## A change made by looking (a stone seen) waits this long to be saved, so a sweep of the
 ## pointer over new tiles is one write; see `_touched`.
 const TOUCH_SAVE_WAIT: float = 1.5
@@ -527,7 +531,11 @@ func _process(delta: float) -> void:
 	## that won the fight (a gem counted out over its socket, then landing twenty times over)
 	## is still being thrown when the state says everything is dead, and speeding that up
 	## turned the finisher into a blur.
-	if (resolving or settled) and not session.paused and DeepBattle.living(fight.get("enemies", [])).is_empty():
+	## The beat is counted from the killing blow seen to land (the creatures' bars read zero on
+	## the screen), not from the step the rules killed them on: that step's count, its bolts and
+	## its landings are still to play, and speeding them up gave away the turn's end before it
+	## was seen (owner, November 17, 2026).
+	if (resolving or settled) and not session.paused and DeepBattle.living(fight.get("enemies", [])).is_empty() and descent.foes_seen_down():
 		_won_for += delta
 		if _won_for > WON_BEAT:
 			want = clampf(maxf(want * 3.0, DeepSession.HURRY_SPEED), 3.0, 8.0)
@@ -542,6 +550,14 @@ func _process(delta: float) -> void:
 	var warp: float = ScreenFx.time_warp()
 	if warp < 1.0:
 		want = minf(want, warp)
+	## No frame plays more than FRAME_GAME_MOST of fight time: a fast clock on a slow frame
+	## handed every particle, tween and fidget seconds to catch up on at once, which slowed
+	## the next frame further, until a rushed rail of thousands of phantoms stalled the game
+	## for minutes (November 17, 2026). Slow frames now slow the fight instead.
+	var real: float = delta / maxf(Engine.time_scale, 0.001)
+	_real_frame = lerpf(_real_frame, clampf(real, 1.0 / 240.0, 1.0), 0.2)
+	if want > 1.0:
+		want = maxf(1.0, minf(want, FRAME_GAME_MOST / _real_frame))
 	if not is_equal_approx(Engine.time_scale, want):
 		Engine.time_scale = want
 

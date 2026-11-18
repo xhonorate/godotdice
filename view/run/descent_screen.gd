@@ -383,7 +383,7 @@ func _ready() -> void:
 	_map_margin.visible = false
 	_map = ShaftMap.new()
 	_map.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_map.vote.connect(_vote)
+	_map.vote.connect(_chart_pick)
 	_map.light.connect(func() -> void: command.emit({"kind": "light"}))
 	if DeepUi.phone:
 		## The phone's chart: 260 points inside the safe edge, the map drawn at CHART_SCALE in a
@@ -414,6 +414,7 @@ func _ready() -> void:
 	_run_dock.drawer_toggled.connect(func(_open: bool) -> void: _fit_area())
 	_run_dock.chose.connect(_on_dock_chose)
 	_run_dock.trade_with.connect(_open_trade)
+	_run_dock.bench_asked.connect(func(stone_id: String) -> void: open_bench("gems", stone_id))
 	_run_dock.visible = false
 	_run_dock.bag_anchor = func() -> Control: return _bag_pill if _bag_pill != null and is_instance_valid(_bag_pill) else null
 	_body.add_child(_run_dock)
@@ -714,7 +715,11 @@ func show_state(state: Dictionary) -> void:
 		if _descend_via >= 0:
 			var via: int = _descend_via
 			_descend_via = -1
-			_choose_mouth.call_deferred(via)
+			## Only while the landing's answer still stands: a mouth clicked and then given up
+			## for the cage (or refused) used to cast a vote nobody made at the next crossroads,
+			## and the rest of the party saw this player "want" a way they had never chosen.
+			if _went_down_by(via):
+				_choose_mouth.call_deferred(via)
 		return
 	if phase == "chamber" and str(run.chamber.get("kind", "")) in DeepDescent.ROCK_ROOMS and _hold.is_empty():
 		## A vein is worked in the room itself.
@@ -1245,6 +1250,11 @@ func _paged(parent: Node, list: String, items: Array, per_page: int) -> Array:
 				(child as Label).add_theme_color_override("font_outline_color", Color(DeepUi.INK, 0.9))
 	return DeepUi.page_of(items, page, per_page)
 
+func foes_seen_down() -> bool:
+	## Whether every creature of the fight on screen reads as down there too: the blow that
+	## killed the last one has landed, not only been decided (BattleScreen.foes_seen_down).
+	return _battle == null or _battle.foes_seen_down()
+
 func handle(event: Dictionary) -> void:
 	## One event from the host. Fights are animated; everything else gets a line of text.
 	var kind: String = str(event.get("kind", ""))
@@ -1402,6 +1412,13 @@ func handle(event: Dictionary) -> void:
 		"altar_left":
 			if str(event.get("unit", "")) != local_id:
 				toast("%s walked on from the altar." % str(DeepDescent.player(run, str(event.get("unit", ""))).get("name", "Someone")), DeepUi.MUTED, "altar")
+		"unready":
+			## Someone who was done is not done after all: the party is waiting on them again.
+			if str(event.get("unit", "")) != local_id:
+				var who: String = str(DeepDescent.player(run, str(event.get("unit", ""))).get("name", "Someone"))
+				var said: Dictionary = {"vote": "%s took back their choice of way.", "landing": "%s took back their answer.", "stall": "%s went back to the stall.",
+					"altar": "%s went back to the altar.", "vein": "%s picked the pick up again.", "oddity": "%s went back to the card."}
+				toast(str(said.get(str(event.get("what", "")), "%s is not done yet.")) % who, DeepUi.MUTED, "hourglass")
 		"appraised":
 			if str(event.get("unit", "")) == local_id:
 				_appraisal(event.stone)
@@ -2493,10 +2510,13 @@ func _show_vein() -> void:
 	## Walking on is the room's way out, a key in its corner as an oddity's Leave it is (the
 	## owner, November 9, 2026): in the middle it stood over the rock it was struck at.
 	if mining:
-		_main(_way_out("Put the pick down", func() -> void:
-			command.emit({"kind": "stop_mining"}), false, "Leave the rest of the rock where it is and take the way on."))
+		var put_down: Button = _way_out("Put the pick down", func() -> void:
+			command.emit({"kind": "stop_mining"}), false, "Leave the rest of the rock where it is and take the way on.")
+		put_down.set_meta("pinned", true)
+		_main(put_down)
+		_place_way_out()
 	else:
-		_drop_way_out()
+		_unready_key("Pick it up again", "Back to the rock while the party is still swinging at it.", "pick")
 	DeepUi.stat(row, "pick", "%s so far" % DeepUi.plural(swings, "swing"), DeepUi.ACCENT, 12, "Every few swings the next one costs another point of health.")
 	DeepUi.stat(row, "heart", ("next swing free" if cost <= 0 else "next swing: %d HP" % cost), DeepUi.BAD if cost > 0 else DeepUi.GOOD, 12)
 	if motherlode:
@@ -2671,6 +2691,10 @@ func _press_pick(id: String) -> void:
 					_run_dock.toggle_drawer()
 				if _whom_plate != null and is_instance_valid(_whom_plate):
 					_close_whom()
+		"scales", "lens" when not _stall_shut(parts[0]).is_empty():
+			## Dimmed: nothing to sell or nothing raw to read, said rather than an empty list.
+			DeepAudio.play("ui_back", {"volume": 0.6})
+			toast(_stall_shut(parts[0]), DeepUi.MUTED, "scales" if parts[0] == "scales" else "loupe", 3.6)
 		"item", "scales", "lens", "hoard":
 			_pin(id)
 		"altar":
@@ -2679,6 +2703,12 @@ func _press_pick(id: String) -> void:
 			elif parts.size() > 1:
 				_altar_take(int(parts[1]))
 		"hall":
+			var shut_why: String = _station_shut(parts[1])
+			if not shut_why.is_empty():
+				## Dimmed, it says why rather than opening on nothing (or spending the action).
+				DeepAudio.play("ui_back", {"volume": 0.6})
+				toast(shut_why, DeepUi.MUTED, {"rest": "heart", "appraise": "loupe", "wish": "drop"}.get(parts[1], "cross_out"), 3.6)
+				return
 			match parts[1]:
 				"rest":
 					_respite("rest", "")
@@ -2860,9 +2890,16 @@ func _show_stall() -> void:
 	var row := DeepUi.hbox(tools, 14)
 	## The tool first, then what it does: "sold, read or raw" after a colon read as three choices.
 	## The phone's three capsules say it shorter (board run-merchant).
-	DeepUi.stat(row, "loupe", ("Lens · %d" if DeepUi.phone else "Lens: appraise a raw stone · %d pyrite") % cost, DeepUi.INFO, 12)
-	DeepUi.stat(row, "scales", "Scales: sell any stone" if DeepUi.phone else "Scales: sell any stone, read or raw", DeepUi.ORE, 12)
-	## A Restock (review card S1): new goods for pyrite, 15 more each time (15, 30, 45, ...).
+	## A tool with nothing in it for this player is greyed, here and on the counter (the owner,
+	## November 17, 2026): no raw stone for the lens, nothing the scales would buy.
+	var lens_shut: String = _stall_shut("lens")
+	var scales_shut: String = _stall_shut("scales")
+	DeepUi.stat(row, "loupe", ("Lens · %d" if DeepUi.phone else "Lens: appraise a raw stone · %d pyrite") % cost, DeepUi.DIM if not lens_shut.is_empty() else DeepUi.INFO, 12, lens_shut)
+	DeepUi.stat(row, "scales", "Scales: sell any stone" if DeepUi.phone else "Scales: sell any stone, read or raw", DeepUi.DIM if not scales_shut.is_empty() else DeepUi.ORE, 12, scales_shut)
+	if counter != null and counter.has_method("set_shut"):
+		counter.set_shut("lens", not lens_shut.is_empty())
+		counter.set_shut("scales", not scales_shut.is_empty())
+	## A Restock (review card S1): new goods for pyrite, dearer each time (15, 25, 45, 75, ...).
 	var restock: int = DeepDescent.restock_cost(run, local_id)
 	if not bool(unit.get("downed", false)) and not bool(unit.get("ready", false)):
 		var again := DeepUi.icon_button(_cross_hint, "reroll", "Restock · %d" % restock, func() -> void:
@@ -2873,9 +2910,9 @@ func _show_stall() -> void:
 		again.disabled = int(unit.get("ore", 0)) < restock
 		if DeepUi.phone:
 			again.custom_minimum_size.y = DeepUi.pt(DeepUi.FINGER_LEAST)
-		var step: int = int(DeepContent.constant("restock_step", 15))
+		var used: int = int(run.get("chamber", {}).get("restocks", {}).get(local_id, 0))
 		var said: String = "New goods on the counter, still chosen for what you carry; what you bought stays bought. Now and then one is a lucky find."
-		said += " %d pyrite now, %d more each time after (next %d)." % [restock, step, restock + step]
+		said += " %d pyrite now, dearer each time after (next %d, then %d)." % [restock, DeepDescent.restock_price_at(used + 1), DeepDescent.restock_price_at(used + 2)]
 		Tips.attach(again, func() -> Control: return Plates.words("Restock", said, "reroll", DeepUi.ORE))
 	## Done here is the stall's way out, in the room's corner (November 9, 2026).
 	if not bool(unit.get("ready", false)) and not bool(unit.get("downed", false)):
@@ -2883,7 +2920,8 @@ func _show_stall() -> void:
 			_pin("")
 			command.emit({"kind": "leave"})))
 	else:
-		_drop_way_out()
+		## Done early, and someone is still at the counter: back to it, to buy or sell more.
+		_unready_key("Keep shopping", "Back to the stall while the party is still at it.", "scales")
 	_fill_chip()
 
 func _buy_socket(unit: Dictionary, item: Dictionary) -> int:
@@ -2904,6 +2942,20 @@ func _buy_socket(unit: Dictionary, item: Dictionary) -> int:
 func _buy(item_id: String) -> void:
 	DeepAudio.play("ui_confirm", {"volume": 0.6})
 	command.emit({"kind": "buy", "item_id": item_id})
+
+func _stall_shut(which: String) -> String:
+	## Why the stall's lens or scales has nothing for this player, or "": what greys it and what
+	## a click on it says. The lens wants a raw stone in the bag; the scales, any stone carried
+	## that the merchant would buy (not a fragile one, nor a Knot held in its socket).
+	var unit: Dictionary = me()
+	match which:
+		"lens":
+			if not _loose(unit).any(func(st: Dictionary) -> bool: return not bool(st.get("appraised", false))):
+				return "Nothing to appraise: you carry no raw stone."
+		"scales":
+			if not _carried(unit).any(func(st: Dictionary) -> bool: return not DeepStone.known_fragile(st) and not DeepStone.knot_held(unit, st)):
+				return "Nothing to sell: you carry no stone the merchant would buy."
+	return ""
 
 func _sell(stone_id: String) -> void:
 	command.emit({"kind": "sell", "stone_id": stone_id})
@@ -3088,6 +3140,14 @@ func _stall_chip(box: VBoxContainer, id: String, parts: PackedStringArray) -> bo
 			else:
 				DeepUi.stat(box, "ore", ("%d pyrite  ·  tap to buy" if DeepUi.phone else "%d pyrite  ·  drag it to buy, or click") % int(item.price), DeepUi.ORE if ore >= int(item.price) else DeepUi.DIM, 12)
 			return true
+		"scales" when not _stall_shut("scales").is_empty():
+			DeepUi.section(box, "scales", "The scales", DeepUi.DIM)
+			DeepUi.stat(box, "cross_out", _stall_shut("scales"), DeepUi.MUTED, 12)
+			return true
+		"lens" when not _stall_shut("lens").is_empty():
+			DeepUi.section(box, "loupe", "The lens", DeepUi.DIM)
+			DeepUi.stat(box, "cross_out", _stall_shut("lens"), DeepUi.MUTED, 12)
+			return true
 		"scales":
 			DeepUi.section(box, "scales", "The scales", DeepUi.ORE)
 			DeepUi.label(box, "Half what an appraised stone is worth; a raw one fetches what its size class is worth and no more.", 12, DeepUi.MUTED)
@@ -3148,7 +3208,7 @@ func _altar_forget_missing() -> void:
 	## A gem that left our hands since it was set down (a trade, a fall) leaves its socket too.
 	for index in range(_altar_slots.size()):
 		var id: String = str(_altar_slots[index])
-		if not id.is_empty() and DeepAltar.refusal(DeepOddities.find_stone(me(), id)) != "":
+		if not id.is_empty() and DeepAltar.refusal(DeepOddities.find_stone(me(), id), me()) != "":
 			_altar_slots[index] = ""
 
 func _altar_open() -> bool:
@@ -3157,13 +3217,13 @@ func _altar_open() -> bool:
 func _altar_takes(data: Dictionary) -> bool:
 	if str(data.get("kind", "")) != "stone" or not _altar_open():
 		return false
-	return DeepAltar.refusal(DeepOddities.find_stone(me(), str(data.get("stone_id", "")))).is_empty()
+	return DeepAltar.refusal(DeepOddities.find_stone(me(), str(data.get("stone_id", ""))), me()).is_empty()
 
 func _altar_place(index: int, stone_id: String) -> void:
 	if not _altar_open() or index < 0 or index >= _altar_slots.size():
 		return
 	var stone: Dictionary = DeepOddities.find_stone(me(), stone_id)
-	if not DeepAltar.refusal(stone).is_empty():
+	if not DeepAltar.refusal(stone, me()).is_empty():
 		return
 	## One gem fills one socket: set down again, it moves.
 	for other in range(_altar_slots.size()):
@@ -3273,7 +3333,7 @@ func _show_altar() -> void:
 			_pin("")
 			command.emit({"kind": "altar_leave"})))
 	else:
-		_drop_way_out()
+		_unready_key("Back to the altar", "Not done after all: back to the altar while the party is still here.", "altar")
 	_fill_chip()
 
 func _altar_chip(box: VBoxContainer, which: String) -> bool:
@@ -3454,13 +3514,21 @@ func _show_landing() -> void:
 	if lift != null:
 		lift.set("names_hushed", not _landing_view.is_empty())
 	var offered: Array = []
+	## A camp station with nothing in it for this player stands dim, and a click on it says why
+	## (the owner, November 17, 2026): a fire for someone whole, a bench with nothing raw to
+	## read, a well with nothing to throw in.
+	var shut: Array = []
 	if lift != null and (not cleared or boss_hall):
 		if not _landing_view.is_empty():
 			offered = [_landing_view] if lift.parts.has(_landing_view) else []
 		else:
 			offered = _landing_stations().filter(func(key: String) -> bool: return lift.parts.has(key))
+			shut = offered.filter(func(key: String) -> bool: return not _station_shut(key).is_empty())
+			offered = offered.filter(func(key: String) -> bool: return not shut.has(key))
 		lift.set_taken(taken)
 		lift.set_offered(offered)
+		if lift.has_method("set_shut"):
+			lift.set_shut(shut)
 		for key in ["rest", "appraise", "wish", "up", "trade"]:
 			if not lift.parts.has(key):
 				continue
@@ -3488,7 +3556,7 @@ func _show_landing() -> void:
 						options.offset = Vector3(0, 1.1, 0)
 						options.half = Vector3(1.0, 1.2, 1.0)
 						options.accepts = func(data: Dictionary) -> bool:
-							return str(me().get("respite", "")).is_empty() and str(data.get("kind", "")) == "stone" and DeepDescent.can_wish(DeepOddities.find_stone(me(), str(data.get("stone_id", ""))))
+							return str(me().get("respite", "")).is_empty() and str(data.get("kind", "")) == "stone" and DeepDescent.can_wish(DeepOddities.find_stone(me(), str(data.get("stone_id", ""))), me())
 						options.drop = func(data: Dictionary) -> void: _respite("wish", str(data.stone_id))
 					"trade":
 						## The whole booth, awning and all, the way the cage is the whole cage. A stone
@@ -3502,7 +3570,7 @@ func _show_landing() -> void:
 						options.drop = func(data: Dictionary) -> void: _trade_station(str(data.get("stone_id", "")))
 				_stage.add_pick(id, part, options.get("half", Vector3.ONE), options)
 			## The cage takes a click before it opens too, to say why it is shut (review card M2).
-			_stage.enable_pick(id, key in offered or (key == "up" and (not cleared or boss_hall) and _landing_view.is_empty()))
+			_stage.enable_pick(id, key in offered or key in shut or (key == "up" and (not cleared or boss_hall) and _landing_view.is_empty()))
 	var cage: bool = lift != null and lift.parts.has("up") and (not cleared or boss_hall)
 	if not crossroads or _reading() or not _landing_view.is_empty():
 		## The camp: the ways on are shut until the whole party has taken its respite. Nothing
@@ -3627,6 +3695,30 @@ func _tradeable() -> Array:
 		if id != local_id and DeepDescent.can_trade_with(run, local_id, id):
 			out.append(id)
 	return out
+
+func _station_shut(key: String) -> String:
+	## Why a camp station has nothing for this player, or "" while it does (or is not a camp
+	## station still to use): what dims it and what a click on it says.
+	var unit: Dictionary = me()
+	if str(run.get("phase", "")) != "landing" or not str(unit.get("respite", "")).is_empty() or not key in ["rest", "appraise", "wish"]:
+		return ""
+	match key:
+		"rest":
+			if DeepDescent.has_mod(run, "NO_BENCH"):
+				return "You cannot rest at a landing today."
+			if int(unit.get("hp", 0)) >= int(unit.get("max_hp", 0)):
+				return "You are at full health: resting would gain nothing."
+			if not DeepDescent.has_mod(run, "NIGHT_TERRORS") and DeepDescent.rest_amount(unit, run) <= 0:
+				return "Resting would gain you nothing now."
+		"appraise":
+			if not _loose(unit).any(func(st: Dictionary) -> bool: return not bool(st.get("appraised", false))):
+				return "Nothing to appraise: you carry no raw stone."
+		"wish":
+			var stones: Array = _loose(unit)
+			stones.append_array(DeepStone.rail_stones(unit))
+			if not stones.any(func(st: Dictionary) -> bool: return DeepDescent.can_wish(st, unit)) and int(unit.get("ore", 0)) < DeepDescent.WISH_LEAST:
+				return "Nothing to throw in: no stone you can part with, and under %d pyrite." % DeepDescent.WISH_LEAST
+	return ""
 
 func _landing_stations() -> Array:
 	## What the landing offers this player now, by station, read off the run alone: the camp's
@@ -3797,7 +3889,7 @@ func _trade_page() -> void:
 	## on the rail or riding it (it comes off the rail as it is offered), chosen on the ask with
 	## the things that would do lit on the dock, or dragged onto the table. A copy of a vault
 	## stone stays out of it: it goes home with nobody. So does a sealed Geode, which nobody can
-	## trade until the workshop has cracked it, and a Knot, which never leaves its socket.
+	## trade until the workshop has cracked it, and a Knot set in a socket, which never leaves it.
 	var candidates: Array = _offerable_stones(unit)
 	var refusals: Dictionary = {}
 	for candidate in candidates:
@@ -3835,7 +3927,7 @@ func _offer_refusal(stone: Dictionary) -> String:
 		return "nothing to offer"
 	if bool(run.get("marks_lent", false)) and DeepDescent.is_lent(run, stone):
 		return "A copy of a stone in your vault: only stones found down here change hands."
-	if DeepStone.is_locked(stone):
+	if DeepStone.knot_held(me(), stone):
 		return "A Knot cannot leave its socket."
 	return ""
 
@@ -4015,6 +4107,13 @@ func _hall_chip(box: VBoxContainer, id: String, key: String) -> bool:
 	var unit: Dictionary = me()
 	var pinned: bool = _pinned == id
 	var taken: bool = not str(unit.get("respite", "")).is_empty()
+	var shut_reason: String = _station_shut(key)
+	if not shut_reason.is_empty():
+		## Dimmed: what it is, and why there is nothing in it for you.
+		var heads: Dictionary = {"rest": ["heart", "Rest by the fire"], "appraise": ["loupe", "Appraise"], "wish": ["drop", "The wishing well"]}
+		DeepUi.section(box, str(heads[key][0]), str(heads[key][1]), DeepUi.DIM)
+		DeepUi.stat(box, "cross_out", shut_reason, DeepUi.MUTED, 12)
+		return true
 	match key:
 		"rest":
 			DeepUi.section(box, "heart", "Rest by the fire", DeepUi.GOOD)
@@ -4045,7 +4144,7 @@ func _hall_chip(box: VBoxContainer, id: String, key: String) -> bool:
 			var stones: Array = _loose(unit)
 			if not appraise:
 				stones.append_array(DeepStone.rail_stones(unit))
-			var fit: Array = stones.filter(func(st: Dictionary) -> bool: return (not bool(st.get("appraised", false))) if appraise else DeepDescent.can_wish(st))
+			var fit: Array = stones.filter(func(st: Dictionary) -> bool: return (not bool(st.get("appraised", false))) if appraise else DeepDescent.can_wish(st, me()))
 			var empty: bool = fit.is_empty() and (appraise or int(unit.get("ore", 0)) < 10)
 			## Standing at it already, there is nowhere to go up to.
 			var here: bool = _landing_view == key
@@ -4373,14 +4472,18 @@ func _bottom_page() -> VBoxContainer:
 	_bottom_content = content
 	return content
 
-func _way_out(text: String, callback: Callable, back: bool = false, tip: String = "") -> Button:
+func _way_out(text: String, callback: Callable, back: bool = false, tip: String = "", glyph: String = "") -> Button:
 	## The way out of a page (the owner's pick, November 9, 2026, docs/UI_REDO.md): a key with
 	## its words on it in a corner of the room, Leave it bottom-right and Back bottom-left, its
 	## foot on the bottom page's, instead of an arrow off the end of the page's row.
 	_drop_way_out()
-	var key := DeepUi.way_out(text, callback, back, tip)
+	var key := DeepUi.way_out(text, callback, back, tip, glyph)
 	_page_holder.add_child(key)
 	_way_out_key = key
+	## Its words are only measured once it is on screen: placed by the 32 px it measured before,
+	## a key on the right stood off the screen's edge, or jumped to the other corner off a rock
+	## that rect was over (owner, November 17, 2026). It is placed again as it takes its width.
+	key.minimum_size_changed.connect(_place_way_out, CONNECT_DEFERRED)
 	_place_way_out()
 	## Once more when the page's rows have been laid out, a frame on: what it gives way to
 	## knows where it stands only then.
@@ -4476,12 +4579,18 @@ func _place_way_out() -> void:
 					went = moved
 	var left: float = (for_rows + went) if back else (for_rows - went)
 	left = minf(left, for_rest) if back else maxf(left, for_rest)
+	## A pinned key (a vein's Put the pick down) keeps its corner whatever stands near it:
+	## one that slid aside, or jumped to the other corner off a rock, was looked for in the
+	## wrong place (owner, November 17, 2026). The page's rows still step aside for it.
+	var pinned: bool = bool(key.get_meta("pinned", false))
+	if pinned:
+		left = rest
 	var edge: float = DeepUi.pt(6) if DeepUi.phone else 4.0
 	left = clampf(left, edge, maxf(edge, room.x - edge - want.x))
 	## Where it would cover something in the room to be clicked or dropped on (the phone's
 	## altar, pushed right by the open bag, has a socket in that corner), a way on takes the
 	## other bottom corner instead, if that one is clear (November 9, 2026).
-	if not back and _covers_pick(Rect2(origin + Vector2(left, top), want)):
+	if not back and not pinned and _covers_pick(Rect2(origin + Vector2(left, top), want)):
 		var other: float = DeepUi.safe_left if DeepUi.phone else 16.0
 		var clear: bool = not _covers_pick(Rect2(origin + Vector2(other, top), want))
 		for item in _page_items():
@@ -4782,6 +4891,15 @@ func _went_by(unit: Dictionary, offer: Dictionary, mouths: int) -> bool:
 	var via: String = str(unit.get("via", ""))
 	return via == str(offer.get("id", "")) or (via.is_empty() and mouths == 1)
 
+func _went_down_by(index: int) -> bool:
+	## Whether the way down this player chose at the landing just left is the mouth at `index`
+	## of the ways now offered, and they have not voted here yet: the vote it carries over.
+	var offers: Array = _mouth_offers()
+	var unit: Dictionary = me()
+	if index < 0 or index >= offers.size() or str(run.get("phase", "")) != "tunnels":
+		return false
+	return str(unit.get("choice", "")) == "descend" and str(unit.get("via", "")) == str(offers[index].get("id", "")) and str(unit.get("vote", "")).is_empty()
+
 func _hover_mouth(index: int) -> void:
 	_chip_index = index
 	if index >= 0:
@@ -4809,6 +4927,16 @@ func _choose_mouth(index: int) -> void:
 			_descend_via = index if str(offers[index].get("kind", "")) != "next_mine" else -1
 			DeepAudio.play("tunnel", {"volume": 0.6})
 			command.emit({"kind": "choose", "choice": "descend", "via": str(offers[index].get("id", ""))})
+
+func _chart_pick(offer_id: String) -> void:
+	## A way on picked on the chart: the same as its mouth in the room, at the tunnels or at a
+	## landing's crossroads (where the chart used to take no click at all).
+	var offers: Array = _mouth_offers()
+	for index in range(offers.size()):
+		if str(offers[index].get("id", "")) == offer_id:
+			DeepAudio.play("ui_confirm", {"volume": 0.7})
+			_choose_mouth(index)
+			return
 
 func _vote(offer_id: String) -> void:
 	## The living choose the way on. A fallen lapidary is carried, and gets back on their feet
@@ -5279,12 +5407,51 @@ func _sync_waiting() -> void:
 	## choice read as if the choice had not been taken.
 	var words: String = _waiting_words()
 	_cross_wait.visible = not words.is_empty()
-	if words == _wait_key:
+	## A way chosen, or up or down answered at a landing, can be taken back while the party
+	## still waits (the owner, November 17, 2026): "Not yet" beside the line. A room's own
+	## corner key does it there (a stall's Keep shopping, see `_unready_key`).
+	var back: String = _unready_what()
+	var offer: bool = not words.is_empty() and back in ["vote", "landing"]
+	var key: String = words + ("|back" if offer else "")
+	if key == _wait_key:
 		return
-	_wait_key = words
+	_wait_key = key
 	DeepUi.clear(_cross_wait)
 	if not words.is_empty():
 		DeepUi.pill(_cross_wait, "hourglass", words, DeepUi.PAPER.darkened(0.12), 13)
+	if offer:
+		var undo := DeepUi.icon_button(_cross_wait, "prev", "Not yet", _send_unready, 12 if DeepUi.phone else 13, DeepUi.PAPER)
+		undo.name = "NotYet"
+		undo.mouse_filter = Control.MOUSE_FILTER_STOP
+		DeepUi.ledger_button(undo, DeepUi.SLATE_HI, DeepUi.LINE_HI, 8)
+		if DeepUi.phone:
+			undo.custom_minimum_size.y = DeepUi.pt(DeepUi.FINGER_LEAST)
+		var said: String = "Take back the way you chose: the party waits for you to choose again." if back == "vote" else "Take back your answer, up or down: the party waits for you to answer again."
+		Tips.attach(undo, func() -> Control: return Plates.words("Not yet", said, "prev", DeepUi.PAPER))
+
+func _unready_what() -> String:
+	## What this player pressed on early and could take back now (`DeepDescent.can_unready`),
+	## or "" outside a party, in a fight, or while a fight's last moments still hold the room.
+	if run.is_empty() or run.get("players", []).size() < 2 or DeepDescent.in_battle(run) or not _hold.is_empty() or _walking:
+		return ""
+	return DeepDescent.can_unready(run, local_id)
+
+func _not_yet_up() -> bool:
+	return _way_out_key != null and is_instance_valid(_way_out_key) and _way_out_key.name == "NotYet" and _way_out_key.is_visible_in_tree()
+
+func _send_unready() -> void:
+	DeepAudio.play("ui_back", {"volume": 0.6})
+	command.emit({"kind": "unready"})
+
+func _unready_key(text: String, tip: String, glyph: String) -> void:
+	## A room's corner key once this player is done in it and the party still waits on someone
+	## else: back to the room ("Keep shopping" at a stall), the same corner the way out stood in.
+	## Nothing to take back, and the key goes.
+	if _unready_what().is_empty():
+		_drop_way_out()
+		return
+	var key := _way_out(text, _send_unready, true, tip, glyph)
+	key.name = "NotYet"
 
 func _waiting_words() -> String:
 	if run.get("players", []).size() < 2 or DeepDescent.in_battle(run) or not _hold.is_empty():
@@ -5868,10 +6035,11 @@ func _fold_chart() -> void:
 	DeepAudio.play("ui_close", {"volume": 0.5})
 	_sync_strip()
 
-func open_bench(which: String = "") -> void:
+func open_bench(which: String = "", pick: String = "") -> void:
+	## `pick`: a stone to open with under the lamp (picked, on the phone, to be moved by taps).
 	if run.is_empty() or str(run.get("phase", "")) == "over":
 		return
-	_bench.open(run, which)
+	_bench.open(run, which, pick)
 
 func _unhandled_key_input(event: InputEvent) -> void:
 	if not is_visible_in_tree() or not event is InputEventKey or not event.pressed or event.echo:
@@ -5898,7 +6066,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	elif event.keycode in [KEY_ENTER, KEY_KP_ENTER] and _press_main():
 		get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_ESCAPE and not run.is_empty() and (not _pinned.is_empty() or _chart_open or not _oddity_step.is_empty()
-			or (not _landing_view.is_empty() and str(run.get("phase", "")) == "landing")):
+			or (not _landing_view.is_empty() and str(run.get("phase", "")) == "landing") or _not_yet_up()):
 		## Esc puts away what was last opened here (a card pinned in the room, the chart, an
 		## oddity's picker, a station at a landing) before it is the way into the menu, the
 		## same as the Back and Never mind buttons beside them.
@@ -5909,6 +6077,9 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		elif not _oddity_step.is_empty():
 			_oddity_step = ""
 			show_state(run)
+		elif _not_yet_up():
+			## The corner key back into a room (Keep shopping) wears the Esc it answers to.
+			_send_unready()
 		else:
 			_open_landing("")
 		get_viewport().set_input_as_handled()
@@ -7538,7 +7709,10 @@ func _bag_slot(row: Node, which_row: String, index: int, die: Dictionary) -> voi
 	_enter(tile, 0.04 * index)
 
 ## Your dice on the Bag of Dice's page stand as large as the dock's (run_dock.gd `DIE`).
-const HAND_DIE: float = BattleScreen.DIE_EDGE
+## Read when drawn: the phone sets the dock's sizes at start-up (BattleScreen.use_phone_sizes),
+## so it is no constant.
+static func hand_die() -> float:
+	return BattleScreen.DIE_EDGE
 
 static func _die_word(die: Dictionary) -> String:
 	## What the dock writes under a die: its material, or else its pattern, or nothing.
@@ -7569,13 +7743,13 @@ func _hand_die(tray: Node, index: int, die: Dictionary, worded: bool = true) -> 
 	card.add_theme_constant_override("separation", 1)
 	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	frame.add_child(card)
-	var thumb := Thumbs.DieThumb.new(die, HAND_DIE)
+	var thumb := Thumbs.DieThumb.new(die, hand_die())
 	thumb.tooltip_text = ""
 	thumb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(thumb)
 	if worded:
 		var words := DeepUi.label(card, _die_word(die).to_lower(), 10, DeepUi.ACCENT_DIM, HORIZONTAL_ALIGNMENT_CENTER)
-		words.custom_minimum_size = Vector2(HAND_DIE, BattleScreen.DIE_WORDS - 1.0)
+		words.custom_minimum_size = Vector2(hand_die(), BattleScreen.DIE_WORDS - 1.0)
 		words.clip_text = true
 		words.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_bag_wire(frame, "hand", index, die)
@@ -7953,7 +8127,9 @@ func _page_oddity(content: VBoxContainer, headed: bool = true) -> void:
 	var chosen: String = str(unit.get("oddity_choice", ""))
 	if not chosen.is_empty():
 		## What came of the choice had its own page the moment it was made, and who the room
-		## is still waiting on is on their tabs: there is nothing more to say here.
+		## is still waiting on is on their tabs: there is nothing more to say here. Walked away
+		## from it while the party is still here, it can be come back to.
+		_unready_key("Not yet", "Back to the card while the party is still here.", str(ODDITY_GLYPHS.get(key, "question")))
 		return
 	if bool(unit.get("downed", false)):
 		## The fallen are carried past it: nothing here is theirs to choose.
@@ -8047,7 +8223,7 @@ func _page_oddity(content: VBoxContainer, headed: bool = true) -> void:
 		## A card that costs health (a pry, an idol's pull) shows its price on the ring while pointed at.
 		var hp_action: Dictionary = choice.get("action", {})
 		if str(hp_action.get("kind", "")) in ["pry", "idol"]:
-			var hp_price: int = DeepOddities.idol_price(hp_action, pulled) if str(hp_action.get("kind", "")) == "idol" else int(hp_action.get("hp", 0))
+			var hp_price: int = DeepOddities.hp_price(hp_action, {"done": pulled})
 			card.mouse_entered.connect(func() -> void: _aim_hp(hp_price))
 			card.mouse_exited.connect(func() -> void: _aim_hp(0))
 			card.tree_exiting.connect(func() -> void: _aim_hp(0))
@@ -8089,6 +8265,14 @@ func _page_oddity(content: VBoxContainer, headed: bool = true) -> void:
 				## Short of pyrite, not of things: say what the well wants, as its ask does.
 				why = "You carry %d pyrite: the well wants %d at least." % [int(unit.get("ore", 0)), DeepDescent.WISH_LEAST]
 			DeepUi.stat(box, "cross_out", why, DeepUi.DIM, 12)
+		## Work paid in health is shut while the price would take all that is left (owner,
+		## November 17, 2026): the Idol's pull, a pry, the acid's first stone. The reason is
+		## written on the card, so a tap reads it as well as a pointer.
+		var hp_why: String = DeepOddities.hp_refusal(choice.get("action", {}), unit, run.get("chamber", {}).get("tries", {}).get(local_id, {}))
+		if not hp_why.is_empty():
+			DeepUi.disable_choice(card)
+			card.set_meta("hp_refused", hp_why)
+			DeepUi.stat(box, "cross_out", "You have %d HP: this costs %d." % [int(unit.get("hp", 0)), DeepOddities.hp_price(choice.get("action", {}), run.get("chamber", {}).get("tries", {}).get(local_id, {}))], DeepUi.BAD, 12)
 		_enter(card, 0.12 + 0.08 * index)
 		index += 1
 	## Walking on is not another piece of work: it is the way out, a key in the room's
@@ -8269,6 +8453,8 @@ func _ask_spec(choice: Dictionary, unit: Dictionary, tone: Color, room_key: Stri
 			var raw: Array = _loose(unit).filter(func(s: Dictionary) -> bool: return not bool(s.get("appraised", false)))
 			var most: int = maxi(1, int(action.get("most", 3)))
 			spec.slots = [{"key": "stone_ids", "kind": "stone", "label": "Up to %s" % DeepUi.plural(most, "raw stone"), "items": raw, "refusals": refuse.call(raw), "most": most, "hp": int(action.get("hp", 6))}]
+			## The racks are shut at a price the asker's health cannot pay (`DeepOddities.hp_refusal`).
+			spec.hp_have = int(unit.get("hp", 0))
 		"inclusion":
 			var carriers: Array = stones.filter(func(s: Dictionary) -> bool: return not s.get("inclusions", []).is_empty() and (bool(s.get("appraised", false)) or bool(s.get("inclusions_revealed", false))))
 			spec.slots = [{"key": "stone_id", "kind": "stone", "label": "Which stone?", "items": carriers, "refusals": refuse.call(carriers)}]

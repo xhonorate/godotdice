@@ -444,6 +444,30 @@ func _run(app: Control) -> void:
 			descent.open_bench("dice")
 			await _fits(screen, "the bench's dice")
 			descent._bench.close()
+			## Void riders out of a fight (November 17, 2026): moons round their socket as in a
+			## fight, a tap on the socket opens the riders' popout (each rider held for its close
+			## look, tapped to be moved on the bench), and the bench's riders are a finger wide.
+			var ridden_run: Dictionary = run.duplicate(true)
+			var rider_unit: Dictionary = DeepDescent.player(ridden_run, app.session.local_id)
+			var skill_keys: Array = DeepContent.section("skills").keys()
+			for index in range(5):
+				var void_gem: Dictionary = DeepStone.make(str(skill_keys[index]), 6, 4, 2, ["VOID"], {}, "phone_void%d" % index)
+				void_gem.appraised = true
+				void_gem.inclusions_revealed = true
+				rider_unit.riders[0].append(void_gem)
+			DeepStone.normalize_rail(rider_unit)
+			descent.show_state(ridden_run)
+			await _fits(screen, "the dock with five riders on a socket")
+			check(not descent._run_dock.find_children("Moon*", "Control", true, false).is_empty(), "the dock's riders orbit their socket as moons")
+			descent._run_dock._toggle_riders(0)
+			await process_frame
+			check(descent._run_dock._pop != null and is_instance_valid(descent._run_dock._pop), "a tap on a ridden socket opens its riders' popout")
+			await _fits(screen, "the riders' popout out of a fight")
+			descent._run_dock._close_riders()
+			descent._bench.open(ridden_run, "gems", "phone_void1")
+			await _fits(screen, "the bench with five riders, one picked")
+			descent._bench.close()
+			descent.show_state(run)
 			## A finger on a tunnel (November 10, 2026): held, it shows where the tunnel leads
 			## and chooses nothing; a tap off the plate puts it away; a tap takes the tunnel at
 			## once, no second tap. The fight the bot would take, so the run goes on as before.

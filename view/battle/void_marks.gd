@@ -268,6 +268,35 @@ static func hollow_die(die: Dictionary, edge: float, face: int) -> Control:
 	thumb.configure(die, face)
 	return thumb
 
+static func phantom_die(die: Dictionary, edge: float, face: int, copy: bool) -> Control:
+	## A phantom over the tray. A copy of a die with a material of its own (glass, gold, bone...)
+	## wears that material, as the die it copies does, inside the Void's dashed ring that says
+	## it is a phantom (owner, November 17, 2026: the Hollow look hid what it was a copy of);
+	## a copy of a plain die and a thrown die keep the Hollow look.
+	if not copy or str(die.get("material", "")).is_empty():
+		return hollow_die(die, edge, face)
+	var thumb := Thumbs.DieThumb.new({}, edge)
+	thumb.configure(die, face)
+	var ring := PhantomRing.new()
+	thumb.add_child(ring)
+	return thumb
+
+class PhantomRing extends Control:
+	## The Void's dashed ring round a phantom that wears its source's material: the same
+	## dashes as a rider's moon, so it reads as the same kind of thing.
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+	func _draw() -> void:
+		var centre := size * 0.5
+		var width: float = maxf(1.3, minf(size.x, size.y) * 0.035)
+		var radius: float = minf(size.x, size.y) * 0.5 - width
+		var tone := Color(DeepUi.INFO, 0.9)
+		for arc in range(12):
+			var angle: float = TAU * float(arc) / 12.0
+			draw_arc(centre, radius, angle, angle + TAU / 12.0 * 0.64, 6, tone, width, true)
+
 # --- a Void disc ------------------------------------------------------------------------------
 
 class VoidDisc extends Control:
@@ -787,7 +816,13 @@ class PhantomRow extends Control:
 		## The hand's phantoms laid out: `ghosts` are the phantom rolls in hand order,
 		## `dice_by_id` the player's dice, `arriving` the die ids that have just been thrown (they
 		## fly in from `from`, a point in the screen's pixels).
-		var key: String = ",".join(ghosts.map(func(r: Dictionary) -> String: return "%s=%d=%s" % [str(r.get("die_id", "")), int(r.get("value", 0)), str(r.get("source_id", ""))]))
+		## What the row was laid from, cheaply: thousands of phantoms are read on every step.
+		var parts := PackedStringArray()
+		parts.resize(ghosts.size())
+		for k in range(ghosts.size()):
+			var r: Dictionary = ghosts[k]
+			parts[k] = str(r.get("die_id", "")) + "=" + str(r.get("value", 0)) + "=" + str(r.get("source_id", ""))
+		var key: String = ",".join(parts)
 		if key == _key and not entries.is_empty():
 			return
 		clear()
@@ -820,14 +855,15 @@ class PhantomRow extends Control:
 			var ra: int = DeepDice.TIERS.find(str(a.shape))
 			var rb: int = DeepDice.TIERS.find(str(b.shape))
 			return ra < rb if ra != rb else int(a.value) < int(b.value))
-		var singles: Array = []
-		for group in thrown + copies:
-			for roll in group.rolls:
-				singles.append({"kind": group.kind, "die": group.die, "rolls": [roll], "source_id": str(group.get("source_id", "")), "shape": str(group.get("shape", "")), "value": int(group.get("value", 0))})
 		var span: float = maxf(60.0, _tray.size.x)
 		var split: float = VoidMarks.ROW_SPLIT if not thrown.is_empty() and not copies.is_empty() else 0.0
-		var fit: float = ((span - split + VoidMarks.ROW_GAP) / float(maxi(singles.size(), 1)) - VoidMarks.ROW_GAP) * 0.5
+		var fit: float = ((span - split + VoidMarks.ROW_GAP) / float(maxi(ghosts.size(), 1)) - VoidMarks.ROW_GAP) * 0.5
 		if fit >= VoidMarks.ROW_DIE_LEAST:
+			## One die a copy: only ever a handful, so each is its own entry.
+			var singles: Array = []
+			for group in thrown + copies:
+				for roll in group.rolls:
+					singles.append({"kind": group.kind, "die": group.die, "rolls": [roll], "source_id": str(group.get("source_id", "")), "shape": str(group.get("shape", "")), "value": int(group.get("value", 0))})
 			mode = "single"
 			entries = singles
 			_r = minf(VoidMarks.ROW_DIE_R, fit)
@@ -898,7 +934,7 @@ class PhantomRow extends Control:
 			else:
 				var n: int = entry.rolls.size()
 				var face: int = int(entry.rolls[0].get("face", -1))
-				var thumb: Control = VoidMarks.hollow_die(entry.die, _r * 2.0 * VoidMarks.ROW_DIE_FILL, face)
+				var thumb: Control = VoidMarks.phantom_die(entry.die, _r * 2.0 * VoidMarks.ROW_DIE_FILL, face, str(entry.kind) == "copy")
 				thumb.mouse_filter = Control.MOUSE_FILTER_STOP
 				holder.add_child(thumb)
 				entry.view = thumb
@@ -1092,7 +1128,7 @@ class PhantomRow extends Control:
 				var row: int = k / cap
 				var centre := Vector2(pad + label_w + float(col) * iw + iw * 0.5, y + float(row) * rh + rh * 0.5 - 5.0)
 				var drawn: float = rr * VoidMarks.ROW_DIE_FILL
-				var thumb: Control = VoidMarks.hollow_die(g.die, drawn * 2.0, int(g.rolls[0].get("face", -1)))
+				var thumb: Control = VoidMarks.phantom_die(g.die, drawn * 2.0, int(g.rolls[0].get("face", -1)), str(g.kind) == "copy")
 				thumb.position = centre - Vector2(drawn, drawn)
 				thumb.size = Vector2(drawn * 2.0, drawn * 2.0)
 				thumb.mouse_filter = Control.MOUSE_FILTER_IGNORE

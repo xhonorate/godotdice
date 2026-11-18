@@ -327,7 +327,7 @@ static func _sockets_view(home: Control, content: VBoxContainer, character_key: 
 		var in_rail: bool = false
 		for index in range(rail_cap):
 			in_rail = in_rail or home.rail_skill(record, index) == chosen_key
-		var fits: bool = home._bench_socket < 0 or DeepProfile.rail_refusal(home.profile, character_key, home._bench_socket, chosen_key).is_empty()
+		var fits: bool = pick_refusal(home, character_key, chosen_key).is_empty()
 		var tile := StoneCard.tile(flow, stone, 70)
 		tile.modulate = Color(1, 1, 1, 1.0 if fits else 0.3)
 		tile.mouse_default_cursor_shape = Control.CURSOR_DRAG
@@ -335,6 +335,7 @@ static func _sockets_view(home: Control, content: VBoxContainer, character_key: 
 			home.tile_mark(tile, "check", DeepUi.GOOD, "Already set")
 		elif chosen_key == home._socket_ready:
 			home.tile_mark(tile, "spark", DeepUi.ACCENT, ("From the vault: click it to set it in socket %d" % (home._bench_socket + 1)) if home._bench_socket >= 0 else "From the vault: double-click it to set it")
+		mark_opal(home, tile, character_key, chosen_key)
 		var shown_stone: Dictionary = stone
 		tile.mouse_entered.connect(func() -> void: home.hover_stone(tile, shown_stone, against))
 		dress_pick(home, tile, character_key, shown_stone, fits)
@@ -390,6 +391,19 @@ static func pick_order(home: Control, character_key: String, stones: Array) -> A
 	_pick_order = {"key": key, "socket": socket, "order": stones.map(func(stone: Dictionary) -> String: return str(stone.skill))}
 	return stones
 
+static func pick_refusal(home: Control, character_key: String, skill: String) -> String:
+	## Why the picker's stone cannot be set: in the picked socket, or with none picked, a second
+	## opal (one opal a loadout, owner November 17, 2026). "" when it can.
+	if home._bench_socket >= 0:
+		return DeepProfile.rail_refusal(home.profile, character_key, home._bench_socket, skill)
+	return DeepProfile.opal_refusal(home.profile, character_key, -1, skill)
+
+static func mark_opal(home: Control, tile: PanelContainer, character_key: String, skill: String) -> void:
+	## A lock on an opal the loadout will not take while another opal is set, saying why.
+	var why: String = DeepProfile.opal_refusal(home.profile, character_key, int(home._bench_socket), skill)
+	if not why.is_empty():
+		home.tile_mark(tile, "lock", DeepUi.BAD, why.substr(0, 1).to_upper() + why.substr(1))
+
 static func pick_target(home: Control, character_key: String, skill: String, fits: bool) -> int:
 	## The socket a click (or the close look's Set) puts this stone in: the picked one if it
 	## fits there, else the first empty one it fits; -1 for none.
@@ -421,27 +435,17 @@ static func pick_plate(home: Control, character_key: String, stone: Dictionary, 
 	if not bool(stone.get("appraised", false)):
 		return null
 	var box: Control = Plates.gem(stone, {}, [], {}, [])
+	## Why it cannot go (a second opal, another socket's color), on the plate in both layouts:
+	## hovered on a desk, held on a phone.
+	var why: String = pick_refusal(home, character_key, str(stone.get("skill", "")))
+	if not why.is_empty():
+		DeepUi.wrap(box, why.substr(0, 1).to_upper() + why.substr(1) + ".", 11, DeepUi.BAD).name = "PickRefusal"
+		return box
 	if not DeepUi.phone:
 		var target: int = pick_target(home, character_key, str(stone.get("skill", "")), fits)
 		var how: String = ("Click to set it in socket %d" % (target + 1)) if home._bench_socket >= 0 and fits else "Double-click to set"
 		Plates.footer(box, how + " · Right-click · everything")
 	return box
-
-static func heavy_tag(index: int) -> String:
-	## The socket card's short word for it: "filled: -2 luck" on a socket past the third.
-	var base: int = int(DeepContent.constant("loadout_luck_base", 3))
-	if index + 1 <= base:
-		return ""
-	return "filled: %+d luck" % -int(DeepContent.constant("loadout_luck_per_stone", 2))
-
-static func _heavy_note(index: int) -> String:
-	## What filling a socket past the third does to the luck of every stone found, for the card
-	## that sells it (S3): an empty socket costs nothing, a loaded fourth stone does.
-	var base: int = int(DeepContent.constant("loadout_luck_base", 3))
-	if index + 1 <= base:
-		return ""
-	return "\nA stone set here is your %s: past %d you travel heavy, %d luck off every stone the mine gives you for each stone over. Leave it empty and it costs nothing." % [
-		["first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth"][mini(index, 7)], base, int(DeepContent.constant("loadout_luck_per_stone", 2))]
 
 static func _empty_fit(home: Control, character_key: String, skill: String) -> int:
 	## The first open, empty socket a stone fits, or -1.
@@ -510,13 +514,10 @@ static func _socket_slot(home: Control, parent: Node, index: int, socket_color: 
 			buy.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 			buy.disabled = int(home.profile.get("gold", 0)) < price
 			buy.tooltip_text = ("Open this socket for good: it is filled from the vault before every run, in every mine." if not buy.disabled
-				else "You have %d gold. This socket costs %d." % [int(home.profile.get("gold", 0)), price]) + _heavy_note(index)
+				else "You have %d gold. This socket costs %d." % [int(home.profile.get("gold", 0)), price])
 			DeepUi.voice(buy, "buy")
-			var heavy: String = heavy_tag(index)
-			if not heavy.is_empty():
-				var tag := DeepUi.label(box, heavy, 11, DeepUi.BAD, HORIZONTAL_ALIGNMENT_CENTER)
-				tag.mouse_filter = Control.MOUSE_FILTER_PASS
-				tag.tooltip_text = _heavy_note(index).strip_edges()
+			## A locked socket says nothing of luck (owner, November 17, 2026): only the stones
+			## set in open sockets count (DescendPage.loaded), so it has none to cost.
 		else:
 			DeepUi.label(box, "open socket %d first" % (DeepProfile.open_sockets(home.profile, character_key) + 1), 11, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 		return card

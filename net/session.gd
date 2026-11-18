@@ -648,6 +648,10 @@ func resume_run(saved_run: Dictionary, saved_lobby: Dictionary) -> void:
 	lobby.host = local_id
 	## A room picked up again was saved as it was walked into: it is not saved again mid-way.
 	_room_saved = _room_key()
+	## Every vote starts afresh: one kept from before the break named a way for a player who had
+	## not chosen it in this sitting, and the host's own sent the party down it the moment they
+	## were alone in the run (see `DeepDescent.forget_votes`).
+	DeepDescent.forget_votes(run)
 	## Nobody else is on the line yet. Everyone but the host is away until they say hello, so
 	## a vote or a stake the checkpoint was waiting on them for goes ahead without them.
 	for id in lobby.get("members", {}).keys():

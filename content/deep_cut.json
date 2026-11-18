@@ -51,7 +51,8 @@
     "appraise_gold_mult": 2.0,
     "appraise_cost_step": 50,
     "restock_base": 15,
-    "restock_step": 15,
+    "restock_step": 5,
+    "restock_square": 5,
     "stall_lucky_pct": 8,
     "stall_lucky_luck": 12,
     "stall_lucky_carats": 2,
@@ -579,7 +580,7 @@
       "color": "RED",
       "rarity": "UNCOMMON",
       "tags": ["pair"],
-      "text": "Consume all target Poison. Deal 4 damage per stack consumed.",
+      "text": "Consume all target Poison. Deal {each} damage per stack consumed.",
       "trigger": {
         "kind": "pair",
         "ladder": [5, 4, 3, 2, 1]
@@ -588,7 +589,8 @@
         {
           "kind": "detonate",
           "amount": 4,
-          "target": "enemy"
+          "target": "enemy",
+          "scale": "steps"
         }
       ],
       "flawless": {
@@ -599,6 +601,12 @@
             "poison_splash": 50
           }
         ]
+      },
+      "numbers": {
+        "each": {
+          "const": 4,
+          "scale": "steps"
+        }
       }
     },
     "APEX": {
@@ -720,7 +728,7 @@
       "color": "RED",
       "rarity": "UNCOMMON",
       "tags": ["distinct", "attack", "growth"],
-      "text": "Deal 4 damage, plus 1 for every time it has fired this run.",
+      "text": "Deal 4 damage, plus 1 for every two times it has fired this run.",
       "trigger": {
         "kind": "distinct",
         "ladder": [5, 4, 3, 2, 1]
@@ -734,7 +742,13 @@
             "args": [
               4,
               {
-                "term": "run_fires"
+                "op": "floor_div",
+                "args": [
+                  {
+                    "term": "run_fires"
+                  },
+                  2
+                ]
               }
             ]
           }
@@ -752,7 +766,13 @@
               "args": [
                 4,
                 {
-                  "term": "run_fires"
+                  "op": "floor_div",
+                  "args": [
+                    {
+                      "term": "run_fires"
+                    },
+                    2
+                  ]
                 },
                 {
                   "op": "*",
@@ -1383,7 +1403,7 @@
       "color": "BLUE",
       "rarity": "UNCOMMON",
       "tags": ["distinct", "guard", "growth"],
-      "text": "Gain 3 Block, plus 1 for every time it has fired this run.",
+      "text": "Gain 3 Block, plus 1 for every two times it has fired this run.",
       "trigger": {
         "kind": "distinct",
         "ladder": [5, 4, 3, 2, 1]
@@ -1396,7 +1416,13 @@
             "args": [
               3,
               {
-                "term": "run_fires"
+                "op": "floor_div",
+                "args": [
+                  {
+                    "term": "run_fires"
+                  },
+                  2
+                ]
               }
             ]
           }
@@ -1414,7 +1440,13 @@
               "args": [
                 3,
                 {
-                  "term": "run_fires"
+                  "op": "floor_div",
+                  "args": [
+                    {
+                      "term": "run_fires"
+                    },
+                    2
+                  ]
                 },
                 {
                   "op": "*",
@@ -1436,7 +1468,7 @@
       "color": "BLUE",
       "rarity": "UNCOMMON",
       "tags": ["high", "guard", "attack"],
-      "text": "Deal damage equal to half your Block.",
+      "text": "Deal damage equal to {share}% of your Block.",
       "trigger": {
         "kind": "high_pct_at_least",
         "ladder": [95, 90, 85, 80, 70]
@@ -1453,11 +1485,12 @@
               },
               50
             ]
-          }
+          },
+          "scale": "steps"
         }
       ],
       "flawless": {
-        "text": "Deal your whole Block instead.",
+        "text": "Deal {share_flawless}% of your Block instead.",
         "modify": [
           {
             "effect": 0,
@@ -1466,6 +1499,16 @@
             }
           }
         ]
+      },
+      "numbers": {
+        "share": {
+          "const": 50,
+          "scale": "steps"
+        },
+        "share_flawless": {
+          "const": 100,
+          "scale": "steps"
+        }
       }
     },
     "FORTIFY": {
@@ -1473,7 +1516,7 @@
       "color": "BLUE",
       "rarity": "RARE",
       "tags": ["full_house", "guard"],
-      "text": "Gain Block equal to half your Block.",
+      "text": "Gain Block equal to {share}% of your Block.",
       "trigger": {
         "kind": "full_house",
         "ladder": [5, 4, 3, 2, 1]
@@ -1489,11 +1532,12 @@
               },
               50
             ]
-          }
+          },
+          "scale": "steps"
         }
       ],
       "flawless": {
-        "text": "Gain your whole Block again.",
+        "text": "Gain {share_flawless}% of your Block instead.",
         "modify": [
           {
             "effect": 0,
@@ -1502,6 +1546,16 @@
             }
           }
         ]
+      },
+      "numbers": {
+        "share": {
+          "const": 50,
+          "scale": "steps"
+        },
+        "share_flawless": {
+          "const": 100,
+          "scale": "steps"
+        }
       }
     },
     "CHAINMAIL": {
@@ -1848,7 +1902,8 @@
               }
             ]
           },
-          "target": "ally_low"
+          "target": "ally_low",
+          "scale": "steps"
         }
       ],
       "flawless": {
@@ -1864,7 +1919,8 @@
       },
       "numbers": {
         "share": {
-          "ladder": [16, 24, 32, 40, 48]
+          "ladder": [16, 24, 32, 40, 48],
+          "scale": "steps"
         }
       }
     },
@@ -1938,7 +1994,8 @@
       "text": "Heal {share}% of the damage you have dealt this turn.",
       "numbers": {
         "share": {
-          "ladder": [8, 12, 16, 20, 24]
+          "ladder": [8, 12, 16, 20, 24],
+          "scale": "steps"
         }
       },
       "trigger": {
@@ -1958,7 +2015,8 @@
                 "ladder": [8, 12, 16, 20, 24]
               }
             ]
-          }
+          },
+          "scale": "steps"
         }
       ],
       "flawless": {
@@ -2902,7 +2960,8 @@
                 "ladder": [10, 10, 15, 15, 20]
               }
             ]
-          }
+          },
+          "scale": "steps"
         }
       ],
       "flawless": {
@@ -2917,7 +2976,8 @@
       },
       "numbers": {
         "share": {
-          "ladder": [10, 10, 15, 15, 20]
+          "ladder": [10, 10, 15, 15, 20],
+          "scale": "steps"
         }
       }
     },
@@ -3419,7 +3479,7 @@
       },
       "trigger": {
         "kind": "straight",
-        "ladder": [4, 4, 4, 4, 4]
+        "ladder": [5, 4, 4, 3, 3]
       },
       "effects": [
         {
@@ -3571,7 +3631,7 @@
       "hue": "f0a7a1",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "Every Red gem before it that has already fired this turn fires again.",
+      "text": "Every Red gem before it that has already fired this turn fires again, except Transcendents.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -3603,7 +3663,7 @@
       "hue": "a3c2f0",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "Every Blue gem before it that has already fired this turn fires again.",
+      "text": "Every Blue gem before it that has already fired this turn fires again, except Transcendents.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -3635,7 +3695,7 @@
       "hue": "a3dbb8",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "Every Green gem before it that has already fired this turn fires again.",
+      "text": "Every Green gem before it that has already fired this turn fires again, except Transcendents.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -3668,7 +3728,7 @@
       "hue": "c7b2eb",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "Every Violet gem before it that has already fired this turn fires again.",
+      "text": "Every Violet gem before it that has already fired this turn fires again, except Transcendents.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -3702,7 +3762,7 @@
       "hue": "f1daa0",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "Every Gold gem before it that has already fired this turn fires again.",
+      "text": "Every Gold gem before it that has already fired this turn fires again, except Transcendents.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -3736,7 +3796,7 @@
       "hue": "f4f7fa",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "Every White gem before it that has already fired this turn fires again.",
+      "text": "Every White gem before it that has already fired this turn fires again, except Transcendents.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -3796,7 +3856,7 @@
       "color": "OPAL",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "Copies the skill of the previous gem, skipping opals.",
+      "text": "Copies the skill of the previous gem, skipping opals and Transcendents.",
       "wears": "prev",
       "trigger": {
         "kind": "resonance",
@@ -3818,7 +3878,7 @@
       "color": "OPAL",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "Activate the first two gems before it that fizzled this turn, skipping opals.",
+      "text": "Activate the first two gems before it that fizzled this turn, skipping opals and Transcendents.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -3831,7 +3891,7 @@
         }
       ],
       "flawless": {
-        "text": "Activate every gem before it that fizzled, except opals.",
+        "text": "Activate every gem before it that fizzled, except opals and Transcendents.",
         "modify": [
           {
             "effect": 0,
@@ -3845,7 +3905,7 @@
       "color": "OPAL",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "Create a Void copy of the last gem that fired, unless it is an opal. It lasts until the end of the turn.",
+      "text": "Create a Void copy of the last gem that fired, unless it is an opal or a Transcendent. It lasts until the end of the turn.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -4001,7 +4061,7 @@
       "hue": "f2e9f7",
       "rarity": "TRANSCENDENT",
       "tags": ["opal", "resonance", "transcendent"],
-      "text": "Every gem before it that has already fired this turn fires again, except opals.",
+      "text": "Every gem before it that has already fired this turn fires again, except opals and Transcendents.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -4253,7 +4313,7 @@
       "cut": "hourglass",
       "rarity": "TRANSCENDENT",
       "tags": ["pair", "transcendent"],
-      "text": "For each pair in your hand, the gems on either side of it fire.",
+      "text": "For each pair in your hand, a gem beside it fires: the one before it, then the one after, in turn.",
       "trigger": {
         "kind": "pair",
         "ladder": [5, 4, 3, 2, 1]
@@ -5737,14 +5797,14 @@
               "kind": "straight",
               "amount": 4
             },
-            "text": "A straight of four: deal four times Resonance to every creature.",
+            "text": "A straight of four: deal six times Resonance to every creature.",
             "effects": [
               {
                 "kind": "damage",
                 "amount": {
                   "op": "*",
                   "args": [
-                    4,
+                    6,
                     {
                       "term": "resonance"
                     }
@@ -5785,9 +5845,9 @@
               "name": "Hush",
               "trigger": {
                 "kind": "total_at_most",
-                "amount": 16
+                "amount": 18
               },
-              "text": "A total of 16 or less: the first gem that fizzled this turn fires anyway.",
+              "text": "A total of 18 or less: the first gem that fizzled this turn fires anyway.",
               "effects": [
                 {
                   "kind": "replay_fizzled",
@@ -5801,10 +5861,10 @@
               "name": "Nocturne",
               "trigger": {
                 "kind": "total_at_most",
-                "amount": 12
+                "amount": 14
               },
               "eclipses": ["Hush"],
-              "text": "A total of 12 or less: every gem that fizzled fires.",
+              "text": "A total of 14 or less: every gem that fizzled fires.",
               "effects": [
                 {
                   "kind": "replay_fizzled",
@@ -5818,10 +5878,10 @@
               "name": "Small Hours",
               "trigger": {
                 "kind": "total_at_most",
-                "amount": 9
+                "amount": 11
               },
               "eclipses": ["Hush", "Nocturne"],
-              "text": "A total of 9 or less: and each of them fires twice.",
+              "text": "A total of 11 or less: and each of them fires twice.",
               "effects": [
                 {
                   "kind": "replay_fizzled",
@@ -5829,6 +5889,29 @@
                   "amount": 99,
                   "repeat": 2,
                   "scale": "none"
+                }
+              ]
+            },
+            {
+              "name": "Dead of Night",
+              "trigger": {
+                "kind": "total_at_most",
+                "amount": 7
+              },
+              "eclipses": ["Hush", "Nocturne", "Small Hours"],
+              "text": "A total of 7 or less: each of them fires three times, and every creature is Stunned.",
+              "effects": [
+                {
+                  "kind": "replay_fizzled",
+                  "target": "self",
+                  "amount": 99,
+                  "repeat": 3,
+                  "scale": "none"
+                },
+                {
+                  "kind": "stun",
+                  "target": "enemies",
+                  "amount": 1
                 }
               ]
             }
@@ -5987,12 +6070,26 @@
                 "kind": "straight",
                 "amount": 3
               },
-              "text": "Three in a row: gain 1 Envenomed for the fight. Every hit of yours that gets past block applies that much poison.",
+              "text": "Three in a row: gain 1 Envenomed for every 5 Resonance (at least 1) for the fight. Every hit of yours that gets past block applies that much poison.",
               "effects": [
                 {
                   "kind": "envenom",
                   "target": "self",
-                  "amount": 1,
+                  "amount": {
+                    "op": "max",
+                    "args": [
+                      1,
+                      {
+                        "op": "floor_div",
+                        "args": [
+                          {
+                            "term": "resonance"
+                          },
+                          5
+                        ]
+                      }
+                    ]
+                  },
                   "scale": "none"
                 }
               ]
@@ -6003,18 +6100,24 @@
                 "kind": "straight",
                 "amount": 4
               },
-              "text": "A straight of four: gain 1 more Envenomed for every 5 Resonance.",
+              "text": "A straight of four: gain 1 more Envenomed for every 2 Resonance (at least 1).",
               "effects": [
                 {
                   "kind": "envenom",
                   "target": "self",
                   "amount": {
-                    "op": "floor_div",
+                    "op": "max",
                     "args": [
+                      1,
                       {
-                        "term": "resonance"
-                      },
-                      5
+                        "op": "floor_div",
+                        "args": [
+                          {
+                            "term": "resonance"
+                          },
+                          2
+                        ]
+                      }
                     ]
                   },
                   "scale": "none"
@@ -6052,7 +6155,7 @@
           "hue2": "b3261e",
           "text": "Every 1 is the price and the growth. Sets spend what the 1s bought.",
           "head_start": {
-            "max_hp": 350
+            "max_hp": 175
           },
           "tiers": [
             {
@@ -6436,7 +6539,7 @@
       "name": "Florin",
       "title": "the Gambler",
       "unlock_order": 5,
-      "hp": 60,
+      "hp": 80,
       "text": "The high roller. Seven sockets, and every roll is all or nothing.",
       "wants": ["fortune", "pyrite"],
       "sockets": ["GOLD", "GOLD", "GOLD", "GOLD", "GOLD", "GOLD", "RAINBOW"],
@@ -6480,13 +6583,14 @@
               "kind": "crowns",
               "amount": 1
             },
-            "text": "Deal Resonance for each crown showing.",
+            "text": "Deal 5× Resonance for each crown showing.",
             "effects": [
               {
                 "kind": "damage",
                 "amount": {
                   "op": "*",
                   "args": [
+                    5,
                     {
                       "term": "resonance"
                     },
@@ -6620,38 +6724,38 @@
           "hue2": "c41e3a",
           "text": "Matching dice pay, and the number they match on names the prize.",
           "keywords": {
-            "prize": "By the number matched. 1s heal Resonance. 2s give Resonance block. 3s poison for Resonance. 4s pay Resonance pyrite. 5s deal 2× Resonance. 7s deal 4× Resonance."
+            "prize": "By the number matched. 1s heal 5× Resonance. 2s give 5× Resonance block. 3s poison for 5× Resonance. 4s pay 5× Resonance pyrite. 5s deal 10× Resonance. 7s deal 20× Resonance."
           },
           "prizes": {
             "1": {
               "kind": "heal",
               "target": "self",
-              "mult": 1
+              "mult": 5
             },
             "2": {
               "kind": "block",
               "target": "self",
-              "mult": 1
+              "mult": 5
             },
             "3": {
               "kind": "poison",
               "target": "enemy",
-              "mult": 1
+              "mult": 5
             },
             "4": {
               "kind": "gold",
               "target": "self",
-              "mult": 1
+              "mult": 5
             },
             "5": {
               "kind": "damage",
               "target": "enemy",
-              "mult": 2
+              "mult": 10
             },
             "7": {
               "kind": "damage",
               "target": "enemy",
-              "mult": 4
+              "mult": 20
             },
             "other": {
               "kind": "damage",
@@ -6743,13 +6847,14 @@
                 "amount": 17,
                 "max": 20
               },
-              "text": "A total of 17 to 20: deal Resonance for every point over 16.",
+              "text": "A total of 17 to 20: deal 5× Resonance for every point over 16.",
               "effects": [
                 {
                   "kind": "damage",
                   "amount": {
                     "op": "*",
                     "args": [
+                      5,
                       {
                         "term": "resonance"
                       },
@@ -6774,14 +6879,14 @@
                 "amount": 21,
                 "max": 21
               },
-              "text": "Exactly 21: deal 7× Resonance three times, and gain 21 pyrite.",
+              "text": "Exactly 21: deal 35× Resonance three times, and gain 21 pyrite.",
               "effects": [
                 {
                   "kind": "damage",
                   "amount": {
                     "op": "*",
                     "args": [
-                      7,
+                      35,
                       {
                         "term": "resonance"
                       }
@@ -7272,10 +7377,16 @@
           "kind": "meddle",
           "mark": "f_coin_taken__m_spark",
           "anim": "peck",
-          "text": "Takes {0} pyrite from the richest player. Then this face becomes Flee: the next time it lands, the magpie leaves with everything it took",
+          "text": "Takes {0}% of the richest player's pyrite, at least 10. Then this face becomes Flee: the next time it lands, the magpie leaves with everything it took",
           "trigger": { "kind": "face" },
           "effects": [
-            { "kind": "steal_gold", "target": "hero_most_gold", "amount": 10 },
+            {
+              "kind": "steal_gold",
+              "target": "hero_most_gold",
+              "amount": 10,
+              "pct": true,
+              "least": 10
+            },
             {
               "kind": "etch",
               "target": "self",
@@ -7775,8 +7886,8 @@
       "block": 13,
       "threat": 30,
       "warden": true,
-      "text": "Warden of the Quarry: a queen of cut glass. Hit it hard and its Reflection throws the damage back; its Mirror sends half of every blow back at the thrower; Mirror Image throws your best die back at you; in its Hall of Mirrors every die that matches another costs you health.",
-      "tip": "Every blow you land comes back when its Reflection lands.",
+      "text": "Warden of the Quarry: a queen of cut glass. Hit it hard and its Reflection throws half the damage back; its Mirror sends half of every blow back at the thrower; Mirror Image throws your best die back at you; in its Hall of Mirrors every die that matches another costs you health.",
+      "tip": "Half of every blow you land comes back when its Reflection lands.",
       "dice": [
         {
           "shape": "D8",
@@ -7798,13 +7909,13 @@
           "kind": "attack",
           "mark": "prism",
           "anim": "mirror",
-          "text": "Throws back the damage it took since its last action",
+          "text": "Throws back half the damage it took since its last action",
           "trigger": { "kind": "face" },
           "effects": [
             {
               "kind": "damage",
               "target": "heroes",
-              "amount": { "term": "taken_since" }
+              "amount": { "op": "pct", "args": [{ "term": "taken_since" }, 50] }
             }
           ]
         },
@@ -8627,7 +8738,7 @@
     },
     "WILL_O_WISP": {
       "name": "Will-o'-Wisp",
-      "hp": 12,
+      "hp": 18,
       "block": 0,
       "threat": 1,
       "text": "A pink cousin of the Lantern Moth. Its light gives you a free reroll; its Lure marks you once for every reroll you used.",
@@ -8718,7 +8829,7 @@
     },
     "GLINT_MAGPIE": {
       "name": "Glint Magpie",
-      "hp": 16,
+      "hp": 24,
       "block": 0,
       "threat": 2,
       "text": "A silver magpie. It snatches pyrite and flees like any magpie, and its glare dulls your gems.",
@@ -8744,10 +8855,16 @@
           "kind": "meddle",
           "mark": "f_coin_taken__m_spark",
           "anim": "peck",
-          "text": "Takes {0} pyrite from the richest player; then this face becomes Flee",
+          "text": "Takes {0}% of the richest player's pyrite, at least 10; then this face becomes Flee",
           "trigger": { "kind": "face" },
           "effects": [
-            { "kind": "steal_gold", "target": "hero_most_gold", "amount": 10 },
+            {
+              "kind": "steal_gold",
+              "target": "hero_most_gold",
+              "amount": 10,
+              "pct": true,
+              "least": 10
+            },
             {
               "kind": "etch",
               "target": "self",
@@ -9133,7 +9250,7 @@
           "anim": "cast",
           "text": "{0} damage",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "damage", "target": "heroes", "amount": 5 }]
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 11 }]
         },
         {
           "name": "Drink",
@@ -9449,7 +9566,7 @@
             {
               "kind": "damage",
               "target": "heroes",
-              "amount": 2,
+              "amount": 1,
               "repeat": 2,
               "poison_through": true
             }
@@ -10211,7 +10328,7 @@
           "anim": "breath",
           "text": "{0} Burn",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "burn", "target": "heroes", "amount": 5 }]
+          "effects": [{ "kind": "burn", "target": "heroes", "amount": 4 }]
         }
       ]
     },
@@ -10220,12 +10337,12 @@
       "hp": 26,
       "block": 0,
       "threat": 3,
-      "text": "A hound of cooling slag. Its maul goes through block, and its howl strengthens every creature for the fight.",
+      "text": "A hound of cooling slag. It bites and it mauls; the maul goes through block, and its howl strengthens every creature for the fight.",
       "tip": "Kill it first: its howl strengthens the whole room.",
       "dice": [
         {
           "shape": "D6",
-          "faces": ["Maul", "Howl", "Maul", "Howl", "Maul", "Maul"]
+          "faces": ["Maul", "Howl", "Bite", "Howl", "Maul", "Bite"]
         }
       ],
       "moves": [
@@ -10253,6 +10370,15 @@
           "text": "Every creature gains {0} Strength for the fight",
           "trigger": { "kind": "face" },
           "effects": [{ "kind": "strength", "target": "allies", "amount": 1 }]
+        },
+        {
+          "name": "Bite",
+          "kind": "attack",
+          "mark": "f_sword",
+          "anim": "bite",
+          "text": "{0} damage",
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 4 }]
         }
       ]
     },
@@ -10758,8 +10884,8 @@
       "hp": 18,
       "block": 0,
       "threat": 2,
-      "text": "A golden magpie that takes three times as much and is gone just as fast.",
-      "tip": "Kill it fast: it takes thirty pyrite at a time.",
+      "text": "A golden magpie that takes twice the share and is gone just as fast.",
+      "tip": "Kill it fast: it takes a fifth of your pyrite at a time.",
       "dice": [
         {
           "shape": "D6",
@@ -10781,10 +10907,16 @@
           "kind": "meddle",
           "mark": "f_coin_taken__m_spark",
           "anim": "peck",
-          "text": "Takes {0} pyrite from the richest player; then this face becomes Flee",
+          "text": "Takes {0}% of the richest player's pyrite, at least 30; then this face becomes Flee",
           "trigger": { "kind": "face" },
           "effects": [
-            { "kind": "steal_gold", "target": "hero_most_gold", "amount": 30 },
+            {
+              "kind": "steal_gold",
+              "target": "hero_most_gold",
+              "amount": 20,
+              "pct": true,
+              "least": 30
+            },
             {
               "kind": "etch",
               "target": "self",

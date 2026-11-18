@@ -292,7 +292,15 @@ func _test_grade_and_names() -> void:
 	var chaos: Dictionary = DeepStone.grade(stone("STRIKE", 12, 2, 0, ["STAR", "FRACTURE", "FEATHER"]))
 	check(rough.tier == "ROUGH", "a small poor clear common stone is Rough (%s)" % str(rough))
 	check(peerless.tier == "PEERLESS", "a perfect flawless 24-carat stone is Peerless whatever its skill (%s)" % str(peerless))
-	check(DeepStone.grade(stone("STRIKE", 18, 4, 5)).tier == "EXQUISITE", "an 18-carat perfect flawless stone is only Exquisite")
+	check(DeepStone.grade(stone("STRIKE", 12, 4, 5)).tier == "EXQUISITE", "a 12-carat perfect flawless stone is only Exquisite (%s)" % str(DeepStone.grade(stone("STRIKE", 12, 4, 5))))
+	## Flawless is never worth less than inclusions (owner, Nov 17 2026): it earns their 15 in full.
+	check(int(peerless.score) == 100, "a perfect flawless 24-carat stone grades 100 (%d)" % int(peerless.score))
+	for carat in [1, 8, 16, 24]:
+		for cut in [0, 2, 4]:
+			var flawless_score: int = int(DeepStone.grade(stone("STRIKE", carat, cut, 5)).score)
+			var included_score: int = int(DeepStone.grade(stone("STRIKE", carat, cut, 0, ["STAR", "FRACTURE", "FEATHER"])).score)
+			check(flawless_score >= included_score, "a Flawless %d ct grades no lower than three inclusions (%d against %d)" % [carat, flawless_score, included_score])
+	check(is_equal_approx(float(DeepStone.grade_breakdown(stone("STRIKE", 10, 2, 5)).inclusion_pts), 15.0), "its inclusion points are the full 15")
 	check(DeepStone.grade(stone("STRIKE", 17, 4, 0, ["STAR", "FRACTURE", "FEATHER"])).tier == "PEERLESS", "the chaos route reaches Peerless too (%s)" % str(DeepStone.grade(stone("STRIKE", 17, 4, 0, ["STAR", "FRACTURE", "FEATHER"]))))
 	check(chaos.index >= 2, "an Intricate stone with a Star grades well (%s)" % str(chaos))
 	check(DeepStone.value(stone("STRIKE", 1, 0, 3)) < DeepStone.value(stone("STRIKE", 8, 2, 4)), "bigger stones are worth more")
@@ -544,6 +552,15 @@ func _test_idol(rng: RandomNumberGenerator, ctx: Dictionary) -> void:
 		and str(DeepOddities.at_pull(card, 1).label) == "Pull harder" and DeepOddities.choice_text(card, 3, 1) == "It's still stuck. Costs 5 HP.",
 		"the card says what the next pull costs, and is reworded after one fails: %s" % DeepOddities.choice_text(card, 3, 1))
 	check(DeepOddities.choice_text(card, 3, 9).ends_with("Costs 21 HP."), "past the ladder the last rung stands, at the climbing price")
+	## Work paid in health is refused at or below its price (owner, November 17, 2026).
+	var weak: Dictionary = {"haul": [stone("STRIKE", 3, 2, 3)], "rail": [], "hp": 5, "max_hp": 60}
+	var idol_ctx: Dictionary = {"mine": ctx.mine, "depth": ctx.depth, "run": "r1", "tries": {"needed": 5, "done": 1}}
+	check(not DeepOddities.apply(action, weak, {}, rng, idol_ctx).ok and int(weak.hp) == 5, "a pull costing 5 is refused at 5 HP")
+	check(DeepOddities.hp_refusal(action, weak, {"done": 0}).is_empty() and not DeepOddities.hp_refusal(action, weak, {"done": 1}).is_empty(), "the first pull (3) is paid at 5 HP, the second (5) is not")
+	check(not DeepOddities.apply({"kind": "pry", "bonus": 4, "hp": 8}, {"haul": [], "rail": [], "hp": 8, "max_hp": 60}, {}, rng, ctx).ok, "a pry costing 8 is refused at 8 HP")
+	check(DeepOddities.apply({"kind": "pry", "bonus": 4, "hp": 8}, {"haul": [], "rail": [], "hp": 9, "max_hp": 60}, {}, rng, ctx).ok, "and paid at 9")
+	check(not DeepOddities.apply({"kind": "acid_appraise", "most": 3, "hp": 6}, {"haul": [stone("STRIKE", 1), stone("GUARD", 1)], "rail": [], "hp": 12, "max_hp": 60}, {"stone_ids": ["strike", "guard"]}, rng, ctx).ok, "two stones in the acid (12) are refused at 12 HP")
+	check(DeepOddities.apply({"kind": "acid_appraise", "most": 3, "hp": 6}, {"haul": [stone("STRIKE", 1)], "rail": [], "hp": 12, "max_hp": 60}, {"stone_ids": ["strike"]}, rng, ctx).ok, "one (6) is paid")
 
 func _test_well(rng: RandomNumberGenerator, ctx: Dictionary) -> void:
 	## Everything down the well is weighed into pyrite, and that number picks a rung. Even

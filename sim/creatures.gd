@@ -1060,6 +1060,8 @@ static func effect_words(effect: Dictionary) -> String:
 			var taken: String = ("Takes %s%% of each player's pyrite" % n) if bool(effect.get("pct", false)) else ("Takes %s pyrite from each player" % n)
 			if picked:
 				taken = ("Takes %s%% of the pyrite of %s" % [n, who]) if bool(effect.get("pct", false)) else ("Takes %s pyrite from %s" % [n, who])
+			if int(effect.get("least", 0)) > 0:
+				taken += ", at least %d" % int(effect.least)
 			return taken + ((" · and hits them for what it took" if picked else " · and hits each for what it took") if bool(effect.get("hurt", false)) else "")
 		"gold": return "Drops %s pyrite · %s" % [n, who] if str(effect.get("target", "heroes")) != "self" else "Gains %s pyrite" % n
 		"empower_next": return "Its next attack deals %s%% more" % n

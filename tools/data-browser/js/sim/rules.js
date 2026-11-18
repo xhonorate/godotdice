@@ -60,7 +60,7 @@ export const TARGETS = ['self', 'ally_low', 'allies', 'allies_other', 'enemy', '
 export const EFFECT_OPTIONS = ['chain_on_kill', 'missing_hp_bonus', 'from_result', 'remove_all', 'revive_block', 'scope', 'all_faces', 'refund_mult', 'poison_splash', 'pot_mode',
 	'piercing', 'split_party', 'pick', 'creature', 'pct', 'permanent', 'shape', 'cap', 'turns', 'cancel_pct', 'guard_pct', 'store', 'release',
 	'hurt', 'add', 'flat', 'stones', 'of_status', 'gift', 'overflow', 'resonance_cap', 'shows', 'every_gem', 'elite', 'best_of', 'shrink', 'both_ends',
-	'of', 'pattern', 'keep_all',
+	'of', 'pattern', 'keep_all', 'least',
 	// A creature's etch that only runs when the etchings before it found no face (sim/rules.gd);
 	// the list a random debuff draws from; a share of what each target has (`of_target`).
 	'fallback', 'from', 'of_target', 'for_fight',
@@ -127,7 +127,7 @@ export function term(name, node, c) {
 		case 'even_read': {
 			// The even dice among the ones the trigger read (a Miasma's handful of highest).
 			const evens = Hand.matching(a, (v) => v % 2 === 0);
-			return (trig.dice || []).filter((id) => evens.includes(id)).length;
+			return Hand.weigh(a, (trig.dice || []).filter((id) => evens.includes(id)));
 		}
 		case 'pairs': {
 			// Every pair whose value clears the trigger's rung: four or five alike are two, so is a full house.
@@ -156,7 +156,7 @@ export function term(name, node, c) {
 		case 'matched': {
 			// Every die in a set of two or more: the dice that match another.
 			let matched = 0;
-			for (const group of a.groups || []) if (I(group.count) >= 2) matched += (group.dice || []).length;
+			for (const group of a.groups || []) if (I(group.count) >= 2) matched += Hand.weigh(a, group.dice || []);
 			return matched;
 		}
 		case 'trophies': return I((unit.run_counts || {})['birthstone:trophies']);
@@ -168,9 +168,9 @@ export function term(name, node, c) {
 		case 'target_curse': return I(((c.target_unit || {}).statuses || {}).curse);
 		case 'colors': return I(c.colors);
 		case 'dice': return I(a.dice_count);
-		case 'count_value': { const w = I(node.value); return Hand.matching(a, (v) => v === w).length; }
-		case 'count_at_most': { const w = I(node.value); return Hand.matching(a, (v) => v <= w).length; }
-		case 'count_at_least': { const w = I(node.value); return Hand.matching(a, (v) => v >= w).length; }
+		case 'count_value': { const w = I(node.value); return Hand.weigh(a, Hand.matching(a, (v) => v === w)); }
+		case 'count_at_most': { const w = I(node.value); return Hand.weigh(a, Hand.matching(a, (v) => v <= w)); }
+		case 'count_at_least': { const w = I(node.value); return Hand.weigh(a, Hand.matching(a, (v) => v >= w)); }
 		case 'run_high': return I((a.straight || {}).high);
 		case 'run_length': return I((a.straight || {}).length);
 		case 'set_value': return I((a.best_set || {}).value);
@@ -387,7 +387,7 @@ export function effectWords(effect, cutStep = null) {
 		exhibit: 'fires every gem it holds, as its own',
 		die_lock: `locks your ${pick === 'high' ? 'highest die' : pick === 'low' ? 'lowest die' : diceWords(Number.isFinite(count) ? count : 1)} · it comes up the same and cannot be rerolled next turn`,
 		// One player picked (the Magpie robs the richest; the target is named after the label), or every player.
-		steal_gold: (HERO_PICKS.includes(target) ? (effect.pct ? `takes ${n}% of their pyrite` : `takes ${n} pyrite`) : (effect.pct ? `takes ${n}% of each player's pyrite` : `takes ${n} pyrite from each player`)) + (effect.hurt ? (HERO_PICKS.includes(target) ? ' · and hits them for what it took' : ' · and hits each for what it took') : ''),
+		steal_gold: (HERO_PICKS.includes(target) ? (effect.pct ? `takes ${n}% of their pyrite` : `takes ${n} pyrite`) : (effect.pct ? `takes ${n}% of each player's pyrite` : `takes ${n} pyrite from each player`)) + (effect.least > 0 ? `, at least ${effect.least}` : '') + (effect.hurt ? (HERO_PICKS.includes(target) ? ' · and hits them for what it took' : ' · and hits each for what it took') : ''),
 		empower_next: `its next attack deals ${n}% more`,
 		rally: `every creature deals ${n} more this turn`,
 		grow_die: `grows another head: +1 ${String(effect.shape || 'D6').toLowerCase()} (${effect.cap ?? 5} at most)`,

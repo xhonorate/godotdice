@@ -11,6 +11,7 @@ const Homecoming = preload("res://view/home/homecoming.gd")
 const DescentScreen = preload("res://view/run/descent_screen.gd")
 const MarketPage = preload("res://view/home/market_page.gd")
 const DiceIcons = preload("res://view/dice/dice_icons.gd")
+const BattleScreen = preload("res://view/battle/battle_screen.gd")
 
 var checks: int = 0
 var failures: Array = []
@@ -853,6 +854,11 @@ func _run(app: Control) -> void:
 	descent._bench._haul_page = 1
 	descent.open_bench("gems")
 	await _fits(screen, "the bench's second page of the haul")
+	descent._bench._haul_page = 0
+	descent._bench._render()
+	for _wait in range(8):
+		await process_frame
+	_bench_page_full(descent._bench, "the bench's first page of a heavy haul")
 	for part in ["raw", "geodes"]:
 		descent._bench._haul_tab = part
 		descent._bench._haul_page = 0
@@ -1093,6 +1099,57 @@ func _run(app: Control) -> void:
 		descent.show_state(app.session.run)
 		await _fits(screen, "a fight with every chip on show")
 
+func _run_riders(dock: Control, unit: Dictionary, where: String) -> void:
+	## Out of a fight the Void riders orbit their socket as moons, as the fight draws them (a
+	## socket's first rider stands in front when it has no gem of its own); on the desk each
+	## moon is dragged and looked at, and a ridden socket's popout lays every rider out.
+	var moons: Array = dock.find_children("Moon*", "Control", true, false)
+	var orbiting: int = 0
+	var slots: int = (VoidMarks.MOON_ANGLES_TIGHT if BattleScreen.rail_tight(unit) else VoidMarks.MOON_ANGLES).size()
+	for socket in range(DeepStone.socket_count(unit)):
+		var line: int = DeepStone.riders_of(unit, socket).size()
+		var round: int = line - (1 if not unit.rail[socket] is Dictionary and line > 0 else 0)
+		orbiting += round if round <= slots else slots - 1
+	check(moons.size() == orbiting and moons.all(func(m: Node) -> bool: return m is VoidMarks.VoidDisc), "%s draws its riders as moons round their sockets (%d, got %d)" % [where, orbiting, moons.size()])
+	if not DeepUi.phone:
+		check(moons.all(func(m: Control) -> bool: return m.mouse_filter == Control.MOUSE_FILTER_STOP and bool(m.has_meta("tip_hold"))), "%s: every moon answers the pointer and a held finger" % where)
+	var ridden: int = -1
+	for socket in range(DeepStone.socket_count(unit)):
+		if DeepStone.riders_of(unit, socket).size() >= 2:
+			ridden = socket
+			break
+	if ridden < 0:
+		return
+	dock._open_riders(ridden, 0)
+	await process_frame
+	var pop: Variant = dock._pop
+	check(pop != null and is_instance_valid(pop) and pop.element_for(0) != null and pop.element_for(1) != null, "%s: a ridden socket's popout lays its riders out" % where)
+	if pop != null and is_instance_valid(pop):
+		var area: Rect2 = dock.get_global_rect()
+		check(area.encloses(pop.get_global_rect()), "%s: the riders' popout stands inside the screen" % where)
+	dock._close_riders()
+	await process_frame
+
+func _bench_page_full(bench: Control, where: String) -> void:
+	## A page of the haul fills the tray before the next one begins: every tile on it fits, and
+	## the tray has no room left for another row or another column.
+	var room: Control = bench.find_child("HaulRoom", true, false)
+	var tiles: Control = bench.find_child("HaulTiles", true, false)
+	check(room != null and tiles != null and tiles.get_child_count() > 0, "%s: the haul's tray is drawn" % where)
+	if room == null or tiles == null or tiles.get_child_count() == 0:
+		return
+	var first: Control = tiles.get_child(0)
+	var last: Control = tiles.get_child(tiles.get_child_count() - 1)
+	var gap: float = float(tiles.get_theme_constant("v_separation"))
+	var across: int = 0
+	for tile in tiles.get_children():
+		if is_equal_approx((tile as Control).position.y, first.position.y):
+			across += 1
+	check(tiles.get_child_count() == bench._per_page, "%s: the page holds %d tiles (got %d)" % [where, bench._per_page, tiles.get_child_count()])
+	check(last.position.y + last.size.y <= room.size.y + 0.5, "%s: the last row fits in the tray" % where)
+	check(last.position.y + last.size.y + gap + first.size.y > room.size.y, "%s: no room for another row" % where)
+	check(float(across + 1) * (first.size.x + gap) - gap > room.size.x, "%s: no room for another column" % where)
+
 func _void_views(app: Control) -> void:
 	## Fourteen Void gems riding five sockets, three or two to a socket: the dock, the bench
 	## and the fight must still hold the whole rail on one page, with nothing scrolling.
@@ -1115,6 +1172,7 @@ func _void_views(app: Control) -> void:
 	app.descent.show_state(run)
 	await _fits(screen, "the run dock with fourteen riders")
 	check(app.descent.find_children("*", "ScrollContainer", true, false).is_empty(), "the run dock has nothing that scrolls")
+	await _run_riders(app.descent._run_dock, unit, "the run dock")
 	app.descent._bench.open(run, "gems")
 	app.descent._bench._pick = str(rider.id)
 	app.descent._bench._render()

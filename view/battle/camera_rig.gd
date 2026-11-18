@@ -34,12 +34,19 @@ func _ready() -> void:
 	fov = home_fov
 	look_at_from_position(home_position, home_look, Vector3.UP)
 
+## A fight played fast (the fight speed, a held hurry, a rail's rush) throws many more blows a
+## second: each knocks the view less, and the shake has a lower ceiling, so a quick turn does
+## not rattle the room to pieces (owner, November 17, 2026). 1 at the fight's own pace.
+static func _speed_damp() -> float:
+	return 1.0 / sqrt(maxf(1.0, Engine.time_scale))
+
 func add_trauma(amount: float) -> void:
-	trauma = clampf(trauma + amount, 0.0, 1.0)
+	var damp: float = _speed_damp()
+	trauma = clampf(trauma + amount * damp, 0.0, maxf(trauma, damp))
 
 func punch(degrees: float, seconds: float = 0.35) -> void:
 	## A quick zoom: negative is in, toward the blow.
-	degrees *= lerpf(0.25, 1.0, comfort)
+	degrees *= lerpf(0.25, 1.0, comfort) * _speed_damp()
 	var tween := create_tween()
 	tween.tween_property(self, "_punch", degrees, seconds * 0.25).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	tween.tween_property(self, "_punch", 0.0, seconds * 0.75).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
@@ -53,6 +60,7 @@ func focus(point: Vector3, weight: float = 0.18, seconds: float = 0.5) -> void:
 
 func nudge(offset: Vector3, seconds: float = 0.3) -> void:
 	## A physical knock: the view is shoved and springs back.
+	offset *= _speed_damp()
 	var tween := create_tween()
 	tween.tween_property(self, "_offset", offset, seconds * 0.2).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	tween.tween_property(self, "_offset", Vector3.ZERO, seconds * 0.8).set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT)
@@ -129,7 +137,10 @@ func calm(amount: float) -> void:
 	_sway = amount
 
 func _process(delta: float) -> void:
-	_clock += delta
+	## The view's own clock (its breathing, the shake's noise) runs on the wall's time when the
+	## fight runs fast: on the fight's it jittered eight times as quick at 8x. A held beat's slow
+	## motion still slows it.
+	_clock += delta / maxf(1.0, Engine.time_scale)
 	trauma = maxf(0.0, trauma - delta * 1.1)
 	var shake: float = trauma * trauma * shake_scale * comfort
 	var t: float = _clock * 24.0

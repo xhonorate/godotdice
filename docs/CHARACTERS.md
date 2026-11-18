@@ -44,7 +44,7 @@ policy that chases the character's own Birthstone. "Res" is Resonance when the B
 | **Cadence**, the Wizard           | 70  | d4 d6 d8 d10 d12 (22.5)     | Red, Blue, White, Violet, Gold, Rainbow | +1 reroll         | Straights                         |
 | **Rue**, the Apothecary           | 70  | d4 d4 d6 d6 Phial (13.7)    | Green/Violet ×4, Rainbow ×2    | Heal Res when poison ticks | Low dice and ones                 |
 | **Puck**                          | 70  | d6 d6 d8 d8 d10 (21.5)      | Red/Blue, Green/Violet, White/Gold, Rainbow ×3 | Flip one die   | Parity                            |
-| **Florin**, the Gambler           | 60  | five d6 with 7 for 6 (18.3) | Gold ×6, Rainbow               | All or Nothing             | Crowns                            |
+| **Florin**, the Gambler           | 80  | five d6 with 7 for 6 (18.3) | Gold ×6, Rainbow               | All or Nothing             | Crowns                            |
 
 Socket layouts revised October 29, 2026 (the older ones were Red, Blue, Green, Any, Any, Any for Ardor and so on, with Any taking anything). Vesper and Florin bring one color only before a run; Puck's three two-tones are the easiest loadout to fill after Rue's.
 
@@ -106,8 +106,9 @@ _The combo player. Runs of numbers, and the turn that plays twice._
     Added October 23, 2026: a run of three is 75% of chased turns with two rerolls and 85% with
     Study's third (31% of natural hands), and until then most of her turns ended with one and
     nothing to show for it.
-  - Small straight, four in a row (_Overture_): deal 4×Res damage to every creature. (The owner
-    kept 4× on October 23, 2026, over the 5× picked on the balance page the day before.)
+  - Small straight, four in a row (_Overture_): deal 6×Res damage to every creature. (4× until
+    November 17, 2026, when the owner picked 6× on the tuning page; the balance runs played it and
+    found her runs no better for it, so her health is the lever still to pull.)
   - Large straight, five in a row (_Encore_): replay every gem that fired this turn from the first
     socket onward, Overture included. Resonance keeps climbing through the replay. **Replayed gems do
     exactly what they did the first time, hand mutations included**: a Glimmer raises the lowest die
@@ -141,7 +142,7 @@ _The low roller. Wants ones. Everything the other five dread, Rue drinks._
 
 _The seven-socket high roller. Every roll is all or nothing._
 
-- **HP** 60. **Dice** five **Gambler's Dice**: d6s whose 6 is a 7 (faces 1 2 3 4 5 7, bowl mean
+- **HP** 80 (60 until November 17, 2026). **Dice** five **Gambler's Dice**: d6s whose 6 is a 7 (faces 1 2 3 4 5 7, bowl mean
   18.3). The 7 is the crown, and it is the face Lucky Seven pays on. **Sockets** Gold, Gold, Gold,
   Gold, Gold, Gold, Rainbow (seven).
 - **Passive: All or Nothing.** Florin throws all his dice together or none of them: a reroll throws
@@ -149,7 +150,7 @@ _The seven-socket high roller. Every roll is all or nothing._
   phantom dice and a die a gem turns onto its top face included, adds 1 Resonance; the throws of
   the planning phase bank it before the rail starts.
 - **Birthstone: High Roller.** A _crown_ is a die showing its top face. Every tier the hand reaches pays.
-  - One crown or more (_Lucky_): deal Resonance for each crown showing.
+  - One crown or more (_Lucky_): deal 5× Resonance for each crown showing (1× until November 17, 2026).
   - Two or more (_Heating Up_): +1 reroll next turn.
   - Three or more (_Hot Streak_): a phantom Gambler's die joins next turn's throw. It is thrown and
     rerolled with the hand and leaves after that turn, unless a Contra Luz keeps the turn's phantoms.
@@ -164,7 +165,8 @@ _The seven-socket high roller. Every roll is all or nothing._
 - **Odds** (dice-only model, two rerolls, a rail ringing 5 on its own): about 2.2× Resonance a turn
   when he rerolls one-crown hands, busting 1 turn in 4; 1.8× when he stops on any crown, busting 1 in
   18. The Jackpot comes about 1 turn in 2,700 on bare dice; face changes and extra rerolls bring it closer.
-- **What the seventh socket costs.** Lowest HP, a flat bowl, and rerolls that cannot chase a pattern.
+- **What the seventh socket costs.** A flat bowl, and rerolls that cannot chase a pattern (and,
+  until November 17, 2026, the lowest HP).
   Wild and Twin faces are the Gambler's shopping list.
 - **Reworked October 22, 2026.** House Money and the pot (Ante, Raise, All In) are gone: the pot was
   never spent, so every fire dealt it again, it doubled for free on a win, and it grew with the bank,
@@ -400,7 +402,8 @@ moved Bloodroot's root to the middle of its drop.
 | Others | about 1-2× |
 
 Quilt's White gift was Charged worth Resonance and fed itself turn after turn (29× Motley). It is now
-1 Charged for each color. The head-start rates (Renown 40%, Bloodroot 350%) are placeholders. The
+1 Charged for each color. The head-start rates are Renown 40% (a placeholder) and Bloodroot 175%
+(350% until November 17, 2026: the balance runs grew 1.5 to 2.4 max health a floor walking down). The
 balance gate (`balance.mjs check`) was already over its limit before this work, and it wears first
 stones only.
 
@@ -444,9 +447,12 @@ stones only.
 
 *Dart cut, emblem `crescent_note`, hue 5560b8 / 9a9fb0.* A quiet hand wakes the gems that stayed dark.
 
-- **Hush**: A total of 16 or less: the first gem that fizzled this turn fires anyway.
-- **Nocturne** (takes the place of Hush): A total of 12 or less: every gem that fizzled fires.
-- **Small Hours** (takes the place of Hush and Nocturne): A total of 9 or less: and each of them fires twice.
+- **Hush**: A total of 18 or less: the first gem that fizzled this turn fires anyway.
+- **Nocturne** (takes the place of Hush): A total of 14 or less: every gem that fizzled fires.
+- **Small Hours** (takes the place of Hush and Nocturne): A total of 11 or less: and each of them fires twice.
+- **Dead of Night** (takes the place of the other three): A total of 7 or less: each of them fires three times, and every creature is Stunned.
+- The lines were 16, 12 and 9 until November 17, 2026 (lit on 26% of turns then, 37% now). Dead of
+  Night was added the same day at the owner's word; its effect is the builder's and awaits a look.
 
 #### Cadence · Arpeggio (2,500 gold)
 
@@ -459,8 +465,8 @@ stones only.
 
 *Pill cut, emblem `coated_blade`, hue 2f8a5b / 14523a.* Runs of dice coat the Apothecary's own blades.
 
-- **Coat**: Three in a row: gain 1 Envenomed for the fight. Every hit of yours that gets past block applies that much poison.
-- **Double Dose**: A straight of four: gain 1 more Envenomed for every 5 Resonance.
+- **Coat**: Three in a row: gain 1 Envenomed for every 5 Resonance (at least 1) for the fight. Every hit of yours that gets past block applies that much poison. (A flat 1 until November 17, 2026.)
+- **Double Dose**: A straight of four: gain 1 more Envenomed for every 2 Resonance (at least 1; every 5 until November 17, 2026).
 - **Mithridate**: A straight of five: stab the target once for each Envenomed you carry. Each stab deals Resonance.
 
 #### Rue · Bloodroot (2,500 gold)
@@ -471,7 +477,7 @@ stones only.
 - **Take Root**: Three of a kind: gain Resonance max health for this fight, then deal damage equal to the health you are missing.
 - **Transfusion**: Four of a kind: heal Resonance, and deal the health restored to every creature.
 - **Heartsblood**: Five of a kind: deal damage equal to your max health to a random creature, once per pip on the face. (Five 1s strike once, five 6s six times; before November 16, 2026 it was once for every point in the set.)
-- Deep start: opens with 350% of the skipped mines' floors as max health (`head_start`).
+- Deep start: opens with 175% of the skipped mines' floors as max health (`head_start`; 350% until November 17, 2026).
 
 #### Puck · Highs and Lows (1,000 gold)
 
@@ -496,11 +502,12 @@ stones only.
 - **Two of a kind**: A pair: its Prize.
 - **Three of a kind**: Three or four of a kind: its Prize, three times.
 - **Jackpot**: Five of a kind: its Prize seven times, and 7× Resonance pyrite.
+- The Prizes (five times what they were before November 17, 2026): 1s heal 5× Resonance, 2s give 5× Resonance block, 3s poison for 5× Resonance, 4s pay 5× Resonance pyrite, 5s deal 10× Resonance, 7s deal 20× Resonance.
 
 #### Florin · Blackjack (2,500 gold)
 
 *Card cut, emblem `ace_card`, hue 4a3418 / e0a030.* Bring the hand's total to 21 without going over.
 
-- **Stand**: A total of 17 to 20: deal Resonance for every point over 16.
-- **Twenty-One**: Exactly 21: deal 7× Resonance three times, and gain 21 pyrite.
+- **Stand**: A total of 17 to 20: deal 5× Resonance for every point over 16 (1× until November 17, 2026).
+- **Twenty-One**: Exactly 21: deal 35× Resonance three times, and gain 21 pyrite (7× until November 17, 2026).
 - **Bust** (a penalty): 22 or more: take Resonance damage.

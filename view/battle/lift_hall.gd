@@ -52,6 +52,9 @@ var _hover: String = ""
 var _taken: String = ""
 ## What can be done here now: their names show faintly without pointing at them.
 var _offered: Array = []
+## What stands here with nothing in it for this player (a fire for someone whole, a bench with
+## no raw stone to read, a well with nothing to throw in): dimmed, its name greyed.
+var _shut: Array = []
 ## While a landing's page is open its own words say what the station is: the names float no more.
 var names_hushed: bool = false
 var _respites: bool = true
@@ -424,6 +427,19 @@ func set_hover(key: String) -> void:
 func set_offered(keys: Array) -> void:
 	_offered = keys
 
+func set_shut(keys: Array) -> void:
+	## The stations with nothing for this player go dim and grey (the owner, November 17, 2026);
+	## the screen says why when one is clicked.
+	_shut = keys
+	for key in _labels:
+		var spot: Node3D = _labels[key]
+		if not spot.has_meta("base_tone"):
+			spot.set_meta("base_tone", spot.get_meta("tone", DeepUi.PAPER))
+		spot.set_meta("tone", DeepUi.DIM if _shut.has(key) else spot.get_meta("base_tone"))
+
+func is_shut(key: String) -> bool:
+	return _shut.has(key)
+
 func set_taken(choice: String) -> void:
 	## The respite taken: that one stays warm; the others go quiet.
 	_taken = choice
@@ -445,24 +461,24 @@ func _process(delta: float) -> void:
 	_clock += delta
 	if _fire_light != null:
 		var flicker: float = sin(_clock * 9.0) * 0.5 + sin(_clock * 13.7) * 0.3 + sin(_clock * 23.0) * 0.2
-		_fire_light.light_energy = (2.2 if _taken in ["", "rest"] else 1.4) * (1.0 + 0.18 * flicker) * (1.3 if _hover == "rest" else 1.0)
+		_fire_light.light_energy = (0.9 if _shut.has("rest") else (2.2 if _taken in ["", "rest"] else 1.4)) * (1.0 + 0.18 * flicker) * (1.3 if _hover == "rest" else 1.0)
 	if _bench_lamp != null:
-		_bench_lamp.light_energy = (2.4 if _hover == "appraise" else 1.6) * (1.0 if _taken in ["", "appraise"] else 0.5)
+		_bench_lamp.light_energy = (2.4 if _hover == "appraise" else 1.6) * (1.0 if _taken in ["", "appraise"] else 0.5) * (0.35 if _shut.has("appraise") else 1.0)
 	if _booth_light != null:
 		## The booth is open whatever respite was taken: a trade is not the landing's action.
 		_booth_light.light_energy = 2.4 if _hover == "trade" else (1.6 if _offered.has("trade") else 0.9)
 	if _well != null and is_instance_valid(_well):
-		_well.rest_light(0.9 if _hover == "wish" else (0.4 if _taken in ["", "wish"] else 0.12))
+		_well.rest_light((0.3 if _shut.has("wish") else 0.9) if _hover == "wish" else (0.4 if _taken in ["", "wish"] and not _shut.has("wish") else 0.12))
 	for key in _glows:
 		var light: OmniLight3D = _glows[key]
-		var on: bool = key == _hover
+		var on: bool = key == _hover and not _shut.has(key)
 		light.light_energy = move_toward(light.light_energy, 2.4 if on else (0.9 if _offered.has(key) else 0.15), delta * 10.0)
 	for key in _beams:
 		var beam: SpotLight3D = _beams[key]
-		var lit: float = 7.0 if key == _hover else (4.2 if _offered.has(key) else 0.8)
+		var lit: float = (1.4 if _shut.has(key) else 7.0) if key == _hover else (4.2 if _offered.has(key) else 0.8)
 		## A breath in it, so a thing waiting to be used is never quite still.
 		beam.light_energy = move_toward(beam.light_energy, lit * (1.0 + 0.06 * sin(_clock * 1.7 + float(key.length()))), delta * 6.0)
 	for key in _labels:
 		var spot: Node3D = _labels[key]
-		var shown: float = 0.0 if names_hushed else (1.0 if key == _hover else (0.88 if _offered.has(key) else 0.0))
+		var shown: float = 0.0 if names_hushed else ((0.75 if _shut.has(key) else 1.0) if key == _hover else (0.88 if _offered.has(key) else 0.0))
 		spot.set_meta("alpha", move_toward(float(spot.get_meta("alpha", 0.0)), shown, delta * 6.0))

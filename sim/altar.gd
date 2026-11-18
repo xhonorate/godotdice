@@ -21,8 +21,9 @@ extends RefCounted
 
 const SOCKETS: int = 5
 
-static func refusal(stone: Dictionary) -> String:
-	## Why this stone can never go on an altar, or "" when it can.
+static func refusal(stone: Dictionary, unit: Dictionary = {}) -> String:
+	## Why this stone can never go on an altar, or "" when it can. `unit` is whose it is: a
+	## Knot set in one of their sockets cannot leave it, one loose in the bag can.
 	if stone.is_empty():
 		return "there is no such stone"
 	if not bool(stone.get("appraised", false)):
@@ -33,8 +34,8 @@ static func refusal(stone: Dictionary) -> String:
 		return "a temporary stone is only lent for the run"
 	if DeepStone.is_transcendent(stone):
 		return "a Transcendent is never given up"
-	if DeepStone.is_locked(stone):
-		return "it cannot leave its socket"
+	if DeepStone.knot_held(unit, stone):
+		return "a Knot cannot leave its socket"
 	return ""
 
 static func recipe_for(stones: Array) -> Dictionary:

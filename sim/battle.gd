@@ -1118,7 +1118,8 @@ static func rail_context(state: Dictionary, unit: Dictionary, socket: int, opts:
 
 static func worn_socket(unit: Dictionary, socket: int) -> int:
 	## What a Doublet at this socket wears: the nearest gem behind it that is not itself an
-	## opal (owner, November 13, 2026: opals never copy opals). Skipping opals is what makes a
+	## opal, nor a Transcendent, which counts as one (owner, November 13 and 17, 2026: opals
+	## never copy opals; DeepStone.out_of_reach). Skipping opals is what makes a
 	## Doublet terminate (it can never end up wearing a skill that would send it looking
 	## again), and it lets two Doublets share one gem. It looks as far back along the rail as
 	## it must, past empty sockets and past other opals; with nothing behind it to wear it is
@@ -1126,7 +1127,7 @@ static func worn_socket(unit: Dictionary, socket: int) -> int:
 	if not unit.rail[socket] is Dictionary or str(DeepStone.skill_of(unit.rail[socket]).get("wears", "")) != "prev":
 		return -1
 	for behind in range(socket - 1, -1, -1):
-		if unit.rail[behind] is Dictionary and not DeepStone.is_opal(unit.rail[behind]):
+		if unit.rail[behind] is Dictionary and not DeepStone.out_of_reach(unit.rail[behind]):
 			return behind
 	return -1
 
@@ -1143,12 +1144,13 @@ static func repeatable(unit: Dictionary, socket: int, by_opal: bool = true) -> b
 	## Whether a replay may touch this socket: a gem stands there, and it is no opal when the
 	## gem replaying is one (owner, November 13, 2026: a Seam, Matrix or Echo never touches
 	## another opal). A Doublet wearing a gem is no longer opal work, so it plays again like
-	## anything else. The Birthstone is no opal (`by_opal` false) and reaches every gem.
+	## anything else. A Transcendent counts as an opal here (owner, November 17, 2026;
+	## DeepStone.out_of_reach). The Birthstone is no opal (`by_opal` false) and reaches every gem.
 	## Replays still only reach gems earlier on the rail than the gem replaying
 	## (`replay_color`, `replay_fizzled`), so no two can point at each other.
 	if socket < 0 or socket >= unit.rail.size() or not unit.rail[socket] is Dictionary:
 		return false
-	if not by_opal or not DeepStone.is_opal(unit.rail[socket]):
+	if not by_opal or not DeepStone.out_of_reach(unit.rail[socket]):
 		return true
 	return worn_socket(unit, socket) >= 0
 
@@ -1180,7 +1182,7 @@ static func opal_blocks(rail: Array) -> Dictionary:
 			for behind in range(socket - 1, -1, -1):
 				if not rail[behind] is Dictionary:
 					continue
-				if not DeepStone.is_opal(rail[behind]) or (kinds.has("void_copy") and repeatable(unit, behind)):
+				if not DeepStone.out_of_reach(rail[behind]) or (kinds.has("void_copy") and repeatable(unit, behind)):
 					break
 				marks.append({"at": behind, "skill": str(rail[behind].get("skill", "")), "verb": "copy"})
 				if kinds.has("void_copy"):
@@ -1198,7 +1200,7 @@ static func opal_blocks(rail: Array) -> Dictionary:
 				marks.append({"at": at, "skill": str(rail[at].get("skill", "")), "verb": "replay" if kinds.has("replay_color") else "wake"})
 		elif kinds.has("fire_neighbours"):
 			for at in [socket - 1, socket + 1]:
-				if at >= 0 and at < rail.size() and rail[at] is Dictionary and DeepStone.is_opal(rail[at]):
+				if at >= 0 and at < rail.size() and rail[at] is Dictionary and DeepStone.out_of_reach(rail[at]):
 					marks.append({"at": at, "skill": str(rail[at].get("skill", "")), "verb": "fire"})
 		if not marks.is_empty():
 			out[socket] = marks
@@ -1209,8 +1211,12 @@ static func opal_block_line(stone: Dictionary, mark: Dictionary) -> String:
 	## copy opals."
 	var name: String = str(DeepContent.skill(str(mark.get("skill", ""))).get("name", mark.get("skill", "")))
 	var verb: String = str(mark.get("verb", "copy"))
+	## A Transcendent counts as an opal here (owner, November 17, 2026).
+	var transcendent: bool = DeepContent.is_transcendent(str(mark.get("skill", ""))) and str(DeepContent.skill(str(mark.get("skill", ""))).get("color", "")) != DeepContent.OPAL
 	if verb == "fire":
-		return "Can't fire %s: %s never fires an opal." % [name, str(DeepStone.skill_of(stone).get("name", "it"))]
+		return "Can't fire %s: %s never fires an opal%s." % [name, str(DeepStone.skill_of(stone).get("name", "it")), " or a Transcendent" if transcendent else ""]
+	if transcendent:
+		return "Can't %s %s: a Transcendent is never copied or replayed." % [verb, name]
 	return "Can't %s %s: opals never %s opals." % [verb, name, verb]
 
 static func is_echo(stone: Dictionary) -> bool:
@@ -1316,8 +1322,9 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 	## Blood a gem asks for itself (Bloodletting), paid as it fires: block does not soak it.
 	for effect in ev.get("effects", []):
 		hp_cost += maxi(0, int(effect.get("hp_cost", 0)))
-	if hp_cost > 0:
-		unit.hp = maxi(1, int(unit.hp) - hp_cost)
+	## A Bruise's price can take the last of it: then its owner is down, and the gem's blow,
+	## paid for with the last of them, does not land (`fell`).
+	var fell: bool = _bleed(unit, hp_cost)
 	var harmony: bool = false
 	if bool(unit.get("previous_fired", false)):
 		for color in unit.get("previous_colors", []):
@@ -1357,14 +1364,14 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 	## Backlash: with a Riftling Swarm in the room, every gem that fires costs its owner a point
 	## of blood, wherever it sits on the rail. Never the last point.
 	var backlash: int = 0
-	if not dry:
+	if not dry and not fell:
 		for foe in living(state.enemies):
 			if DeepCreatures.has_trait(foe, "backlash"):
 				backlash = 1
 		if backlash > 0:
 			unit.hp = maxi(1, int(unit.hp) - backlash)
 	var crowns_before: Dictionary = _crown_ids(unit.hand) if all_or_nothing(unit) else {}
-	for effect in ev.get("effects", []):
+	for effect in ([] if fell else ev.get("effects", [])):
 		var applied: Dictionary = effect.duplicate(true)
 		if scale != 100 and bool(effect.get("scaled", false)):
 			applied.amount = DeepRules.sat_floor(float(int(effect.amount)) * float(scale) / 100.0)
@@ -1413,10 +1420,10 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 			break
 	## A Flawless Seam's second instance: what the replayed gem adds, read off the Resonance now.
 	var seam_each: Dictionary = opts.get("each", {})
-	if not seam_each.is_empty() and not dry and not done(state):
+	if not seam_each.is_empty() and not dry and not done(state) and not fell:
 		results.append_array(_seam_each(state, unit, seam_each, rng))
 	var crowned: Array = _crowns_changed(unit, crowns_before) if all_or_nothing(unit) else []
-	if not done(state):
+	if not done(state) and not fell:
 		results.append_array(_answer_fire(state, unit, answers, rng))
 	## Only its most recent go is kept: a replay of it overwrites what the first go did.
 	if not unit.has("gem_results"):
@@ -1519,6 +1526,7 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 		"forced": bool(opts.get("force", false)), "promised": promised if not retrigger else 0, "worn": str(stone.get("worn_from", "")),
 		"absorbed": str(opts.get("as_skill", "")), "certain": certain, "flawless": bonus, "rung": _rung(results),
 		"backlash": backlash, "fired_count": int(unit.get("fired_count", 0)), "damped": damp > 0, "fed": fed, "crowned": crowned,
+		"downed": fell, "hp_after": int(unit.hp),
 		"duration": BASE_DURATION.gem_fire + tally_span(tally) + effects_span(results, count_pace(state)) + ticks_span(results)})
 
 # --- the Birthstone ----------------------------------------------------------------------
@@ -3104,8 +3112,8 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 			out.total = int(unit.get("repeat_next", 0))
 		"void_copy":
 			## An Echo: a Void copy of the last gem that fired joins the rail riding this
-			## socket, and fires right after it for the rest of the fight. Never an opal
-			## (a Doublet wearing a gem is that gem): copies fire as rail gems every turn, and
+			## socket, and fires right after it for the rest of the fight. Never an opal nor a
+			## Transcendent (a Doublet wearing a gem is that gem): copies fire as rail gems every turn, and
 			## two Echoes would fill a rail with each other. The copy is the fight's own:
 			## nothing carries it out, so it is gone the moment the fight is.
 			var source_socket: int = previous_socket
@@ -3138,26 +3146,30 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 						fresh.append({"kind": "gem", "unit": unit.id, "socket": int(at)})
 					state.queue = fresh + state.queue
 		"fire_neighbours":
-			## A Gemini: the gems either side of it fire, once for every pair in the hand, the
-			## one before it first. Never an opal, which answers only to its Resonance: not even a
-			## Doublet wearing a gem, which beside a Gemini would wear it and wake it back for ever.
+			## A Gemini: for every pair in the hand one gem beside it fires, the one before it and
+			## then the one after in turn (ten alike are five pairs: before, after, before, after,
+			## before). With only one beside it to fire, that one takes every go. Never an opal,
+			## which answers only to its Resonance: not even a Doublet wearing a gem, which beside a
+			## Gemini would wear it and wake it back for ever. Nor a Transcendent, which counts as
+			## an opal here (owner, November 17, 2026): two Geminis no longer wake each other.
 			var twins: Array = []
 			var woken: Array = []
 			for at in [socket - 1, socket + 1]:
-				if at == socket or not repeatable(unit, at) or DeepStone.is_opal(unit.rail[at]):
+				if at == socket or not repeatable(unit, at) or DeepStone.out_of_reach(unit.rail[at]):
 					continue
 				twins.append(at)
-			## A Flawless Gemini: two neighbours of one color go once more.
 			var goes: int = maxi(0, amount)
+			if not twins.is_empty():
+				for time in range(goes):
+					woken.append({"kind": "gem", "unit": unit.id, "socket": int(twins[time % twins.size()]), "retrigger": true, "force": true})
+			## A Flawless Gemini: two neighbours of one color go once more, each.
 			if bool(effect.get("twin_bonus", false)) and twins.size() == 2:
 				for color in DeepStone.colors(stone_at(unit, int(twins[0])), str(unit.sockets[int(twins[0])])):
 					if DeepStone.colors(stone_at(unit, int(twins[1])), str(unit.sockets[int(twins[1])])).has(color):
-						goes += 1
+						for at in twins:
+							woken.append({"kind": "gem", "unit": unit.id, "socket": int(at), "retrigger": true, "force": true})
 						out.twinned = true
 						break
-			for at in twins:
-				for _time in range(goes):
-					woken.append({"kind": "gem", "unit": unit.id, "socket": int(at), "retrigger": true, "force": true})
 			out.sockets = twins
 			if dry or woken.is_empty():
 				out.nothing = true
@@ -4270,7 +4282,9 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 			out.merge(_lock_dice(target, str(effect.get("pick", "random")), amount, rng), true)
 		"steal_gold":
 			var purse: int = DeepRules.pyrite(target)
-			var taken: int = mini(purse, purse * clampi(amount, 0, 100) / 100 if bool(effect.get("pct", false)) else amount)
+			var share: int = purse * clampi(amount, 0, 100) / 100 if bool(effect.get("pct", false)) else amount
+			## A thief's share has a floor (`least`): a tenth of a thin purse is still a snatch.
+			var taken: int = mini(purse, maxi(share, int(effect.get("least", 0))))
 			taken = maxi(0, taken)
 			target.pyrite_delta = int(target.get("pyrite_delta", 0)) - taken
 			source.stolen_gold = int(source.get("stolen_gold", 0)) + taken
@@ -5423,6 +5437,25 @@ static func _damage(state: Dictionary, source: Dictionary, target: Dictionary, a
 	if settle:
 		_check_outcome(state)
 	return out
+
+static func _bleed(unit: Dictionary, loss: int) -> bool:
+	## Blood a player pays for their own gem (a Bruise, a Bloodletting's price): soaked by no
+	## block, and it can take the last of it. A Lifeline still catches them; otherwise they are
+	## down, as a blow would leave them, and the fight's outcome is read as the gem settles.
+	## True when it took them down.
+	if loss <= 0 or bool(unit.get("downed", false)):
+		return false
+	unit.hp = maxi(0, int(unit.hp) - loss)
+	if int(unit.hp) > 0:
+		return false
+	_lifeline(unit)
+	if int(unit.hp) > 0:
+		return false
+	unit.downed = true
+	unit.block = 0
+	if str(unit.get("side", "")) == "player":
+		tally_add(unit, "downs", 1)
+	return true
 
 static func _lifeline(unit: Dictionary) -> int:
 	var stacks: int = int(unit.statuses.get("lifeline", 0))

@@ -16,12 +16,15 @@ const BattleScreen = preload("res://view/battle/battle_screen.gd")
 const HomeParts = preload("res://view/home/home_parts.gd")
 const Plates = preload("res://view/ui/plates.gd")
 const Inspector = preload("res://view/inspect/inspector.gd")
+const Tips = preload("res://view/ui/tips.gd")
 
 signal command(cmd: Dictionary)
 signal closed
 
-## Three rows of the haul tray.
+## Three rows of the haul tray: the first guess at a page, before the tray is measured
+## (`_fit_haul_page`), and the gap between its tiles.
 const HAUL_PAGE: int = 24
+const HAUL_GAP: int = 10
 ## A Void gem riding a socket, on the socket's card.
 const RIDER: float = 26.0
 
@@ -35,6 +38,14 @@ var _content: VBoxContainer
 ## Every drop target on the page, so a drag can light the ones that would take it.
 var _targets: Array = []
 var _haul_page: int = 0
+## How many tiles a page of the haul holds: as many as the tray has room for, measured once it
+## is laid out (`_fit_haul_page`).
+var _per_page: int = HAUL_PAGE
+## The tray's measuring: the latest wait for it, what it was last measured for and how many
+## times the page has been drawn again for it (`_fit_haul_page`).
+var _fit_token: int = 0
+var _fit_seen: String = ""
+var _fit_tries: int = 0
 ## Which part of the haul is showing: "gems", "raw" or "geodes" (see DeepUi.HAUL_TABS).
 var _haul_tab: String = "gems"
 ## What the page was last drawn from (`_shown_key`).
@@ -66,10 +77,14 @@ func _ready() -> void:
 func is_open() -> bool:
 	return visible
 
-func open(state: Dictionary, which: String = "") -> void:
+func open(state: Dictionary, which: String = "", pick: String = "") -> void:
+	## `pick`: a stone to open with picked (a Void rider tapped in the dock's popout, on the
+	## phone, comes here to be moved by taps).
 	run = state
 	if not which.is_empty():
 		tab = which
+	if not pick.is_empty():
+		_pick = pick
 	var was_open: bool = visible
 	if not was_open:
 		## Open on a part of the haul that holds something: an early run often carries only raw stones.
@@ -227,10 +242,17 @@ func _phone_hint(unit: Dictionary) -> String:
 		return ""
 	if _loose(unit, _pick):
 		return "Tap a lit socket to set it"
+	if not DeepStone.rider_place(unit, _pick).is_empty():
+		return "Tap a socket or a rider to move it, the haul to take it out"
 	for stone in unit.get("rail", []):
 		if stone is Dictionary and str(stone.id) == _pick and not DeepStone.is_locked(stone):
 			return "Tap the haul to take it out"
 	return ""
+
+func _rider_moving(unit: Dictionary, socket: int) -> bool:
+	## The stone picked is a Void gem riding some other socket, free to move to this one.
+	var place: Dictionary = DeepStone.rider_place(unit, _pick)
+	return not place.is_empty() and int(place.socket) != socket and not DeepStone.is_locked(DeepOddities.find_stone(unit, _pick))
 
 func _loose(unit: Dictionary, id: String) -> bool:
 	## In the haul: neither set nor riding a socket.
@@ -257,7 +279,7 @@ func _gems_tab(parent: VBoxContainer, unit: Dictionary) -> void:
 			DeepUi.label(haul_head, "Appraise at a merchant or a landing before setting", 12, DeepUi.DIM)
 		"geodes":
 			DeepUi.label(haul_head, "Carried up sealed: the workshop cracks them", 12, DeepUi.DIM)
-	var pages: int = DeepUi.pages(haul.size(), HAUL_PAGE)
+	var pages: int = DeepUi.pages(haul.size(), _per_page)
 	_haul_page = clampi(_haul_page, 0, pages - 1)
 	if pages > 1:
 		DeepUi.spacer(haul_head)
@@ -280,11 +302,33 @@ func _gems_tab(parent: VBoxContainer, unit: Dictionary) -> void:
 					_pick = ""
 					tray.accept_event()
 					_send({"kind": "unsocket", "index": index}, "ui_back")
-					return)
+					return
+			## A Void rider picked: back into the haul.
+			var riding: Dictionary = DeepOddities.find_stone(unit, _pick)
+			if not DeepStone.rider_place(unit, _pick).is_empty() and not DeepStone.is_locked(riding):
+				var id: String = _pick
+				_pick = ""
+				tray.accept_event()
+				_send({"kind": "unsocket", "stone_id": id}, "ui_back"))
+	## The tiles stand in a holder that asks for no room of its own, so the tray is as big as the
+	## sheet leaves it whatever is on the page, and a page holds as many tiles as the tray does
+	## (`_fit_haul_page`), not a fixed count that left rows of it empty.
+	var holder := Control.new()
+	holder.name = "HaulRoom"
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tray.add_child(holder)
 	var flow := HFlowContainer.new()
-	flow.add_theme_constant_override("h_separation", 10)
-	flow.add_theme_constant_override("v_separation", 10)
-	tray.add_child(flow)
+	flow.name = "HaulTiles"
+	flow.add_theme_constant_override("h_separation", HAUL_GAP)
+	flow.add_theme_constant_override("v_separation", HAUL_GAP)
+	flow.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	flow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	holder.add_child(flow)
+	if not haul.is_empty():
+		## Measured whenever the sheet's layout settles the tray's size (it is sorted a frame
+		## or two after the page is built).
+		var count: int = haul.size()
+		holder.resized.connect(func() -> void: _fit_soon(holder, flow, count))
 	_wire(tray, {}, Callable(), func(data: Dictionary) -> bool:
 		return editable() and str(data.get("kind", "")) == "stone" and int(data.get("from_socket", -1)) >= 0,
 		func(data: Dictionary) -> void:
@@ -293,8 +337,49 @@ func _gems_tab(parent: VBoxContainer, unit: Dictionary) -> void:
 		DeepUi.label(flow, {"gems": "No appraised stones in the haul. They wait here until you set them or carry them home.",
 			"raw": "No raw stones. Stones you find wait here, in their rock, until they are appraised.",
 			"geodes": "No Geodes. A Warden's last hoard and the odd chamber offer them; they come home sealed."}[_haul_tab], 13, DeepUi.DIM)
-	for stone in DeepUi.page_of(haul, _haul_page, HAUL_PAGE):
+	for stone in DeepUi.page_of(haul, _haul_page, _per_page):
 		_haul_tile(flow, stone)
+
+func _fit_soon(holder: Variant, flow: Variant, count: int) -> void:
+	## The tray is measured a frame after its size last changed, never inside the layout pass
+	## that changed it (a page drawn again from there would be laid out in the same pass).
+	_fit_token += 1
+	var token: int = _fit_token
+	if not is_inside_tree():
+		return
+	await get_tree().process_frame
+	## The page may have been drawn again (or the bench shut) meanwhile: its tray is gone.
+	if token == _fit_token and is_instance_valid(holder) and is_instance_valid(flow) and is_inside_tree():
+		_fit_haul_page(holder, flow, count)
+
+func _fit_haul_page(holder: Control, flow: HFlowContainer, count: int) -> void:
+	## Once the sheet is laid out: how many tiles the tray holds, rows times columns. A page that
+	## holds a different number is drawn again with that many, turned so the first stone shown
+	## stays on it. Should the count swing back and forth (a pager that comes and goes changes
+	## the tray's height), it settles on the smaller after a few goes, so the page always fits.
+	if not is_instance_valid(holder) or not is_instance_valid(flow) or not visible or flow.get_child_count() == 0:
+		return
+	var tile: Control = flow.get_child(0)
+	var step: Vector2 = tile.get_combined_minimum_size() + Vector2(HAUL_GAP, HAUL_GAP)
+	var room: Vector2 = holder.size + Vector2(HAUL_GAP, HAUL_GAP)
+	if step.x <= HAUL_GAP or step.y <= HAUL_GAP or room.x <= HAUL_GAP or room.y <= HAUL_GAP:
+		return
+	## At least one whole row, should the tray be shorter than a tile (a phone with a long rail).
+	var holds: int = maxi(1, int(floor(room.x / step.x))) * maxi(1, int(floor(room.y / step.y)))
+	if holds == _per_page:
+		return
+	var seen: String = "%s#%d#%s" % [str(get_viewport_rect().size), count, _haul_tab]
+	if seen != _fit_seen:
+		_fit_seen = seen
+		_fit_tries = 0
+	_fit_tries += 1
+	if _fit_tries > 3:
+		if holds > _per_page:
+			return
+	var first: int = _haul_page * _per_page
+	_per_page = holds
+	_haul_page = clampi(first / holds, 0, DeepUi.pages(count, holds) - 1)
+	_render()
 
 func _birth_card(parent: Node, unit: Dictionary) -> void:
 	## The Birthstone at the end of the rail, as the workshop's card shows it, but the one this
@@ -334,7 +419,7 @@ func _socket_card(parent: Node, unit: Dictionary, index: int) -> void:
 		ring.shown = 1 if DeepStone.shows(stone, socket_color) else 0
 	var data: Dictionary = {}
 	## On the phone the sockets that take the stone picked light up, to be tapped.
-	if DeepUi.phone and editable() and _loose(unit, _pick) and DeepDescent.socket_refusal(unit, DeepOddities.find_stone(unit, _pick), index).is_empty():
+	if DeepUi.phone and editable() and (_loose(unit, _pick) or _rider_moving(unit, index)) and DeepDescent.socket_refusal(unit, DeepOddities.find_stone(unit, _pick), index).is_empty():
 		ring.set_ready.call_deferred(true)
 	if set_here:
 		var thumb := StoneCard.mini(slot, stone, 74 if DeepUi.phone else 62)
@@ -366,8 +451,20 @@ func _socket_card(parent: Node, unit: Dictionary, index: int) -> void:
 		line.mouse_filter = Control.MOUSE_FILTER_PASS
 		line.tooltip_text = "Riding this socket: Void gems that fire right after its gem, in this order."
 		box.add_child(line)
-		for at in range(riders.size()):
-			_rider_chip(line, unit, index, at, riders[at])
+		## The phone's card holds one row of finger-wide discs, so the rail never pushes the
+		## haul off the sheet: past two riders it shows the one picked (else the first) and a
+		## "+N" that, tapped, picks the next rider of this socket.
+		var shown: Array = range(riders.size())
+		if DeepUi.phone and riders.size() > 2:
+			var picked_at: int = -1
+			for at in range(riders.size()):
+				if str(riders[at].get("id", "")) == _pick:
+					picked_at = at
+			shown = [maxi(picked_at, 0)]
+		for at in shown:
+			_rider_chip(line, unit, index, int(at), riders[int(at)])
+		if shown.size() < riders.size():
+			_rider_more(line, riders, int(shown[0]))
 	var socket_index: int = index
 	_wire(card, data, func() -> Control: return Thumbs.GemThumb.new(stone, 64) if set_here else Control.new(),
 		func(incoming: Dictionary) -> bool:
@@ -390,7 +487,8 @@ func _phone_socket(card: Control, unit: Dictionary, index: int, set_id: String) 
 		if not (event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT):
 			return
 		card.accept_event()
-		if editable() and _loose(unit, _pick):
+		## A loose stone picked is set (a Void gem rides); a rider picked rides this socket instead.
+		if editable() and (_loose(unit, _pick) or _rider_moving(unit, index)):
 			var held: Dictionary = DeepOddities.find_stone(unit, _pick)
 			if DeepDescent.socket_refusal(unit, held, index).is_empty():
 				_pick = ""
@@ -405,41 +503,81 @@ func _phone_socket(card: Control, unit: Dictionary, index: int, set_id: String) 
 		_render.call_deferred())
 
 func _rider_chip(parent: Node, unit: Dictionary, socket: int, at: int, stone: Dictionary) -> void:
-	var chip := Control.new()
-	chip.custom_minimum_size = Vector2(RIDER, RIDER)
+	## A Void gem riding this socket, as the fight and the dock draw one: its Hollow picture in a
+	## dashed Void disc (VoidMarks). Its plate on hover, the close look on a right-click or a
+	## hold; dragged to move it, and another Void gem dropped on it goes into the line ahead. On
+	## the phone a tap picks it (then a tap on a socket, a rider or the haul moves it), and a tap
+	## on it with another Void gem picked puts that one in the line ahead of it.
+	var edge: float = DeepUi.pt(30) if DeepUi.phone else RIDER
+	var chip := VoidMarks.VoidDisc.new(edge * 0.5)
+	chip.lit = true
 	chip.mouse_filter = Control.MOUSE_FILTER_STOP
 	chip.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	chip.tooltip_text = "%s\n%s\nVoid · rides socket %d and fires right after its gem. Fragile: shatters when the run ends; cannot be sold or kept." % [DeepStone.name(stone), DeepStone.text(stone), socket + 1]
 	parent.add_child(chip)
-	var ring := BattleScreen.SocketRing.new("VOID", false)
-	ring.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	chip.add_child(ring)
-	var picture := Thumbs.GemThumb.new(stone, RIDER - 6)
-	picture.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 3)
-	picture.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	chip.add_child(picture)
-	if str(stone.id) == _pick:
-		var mark := Panel.new()
+	chip.hold(VoidMarks.hollow_gem(stone, edge * 0.95), edge * 0.95)
+	var id: String = str(stone.id)
+	if id == _pick:
+		## Picked: a gold ring round the disc.
+		var mark := Control.new()
 		mark.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		mark.add_theme_stylebox_override("panel", DeepUi.flat(Color(0, 0, 0, 0), DeepUi.ACCENT, 13, 0, 2))
+		mark.draw.connect(func() -> void: mark.draw_arc(mark.size * 0.5, mark.size.x * 0.5 - 1.0, 0.0, TAU, 32, DeepUi.ACCENT, 2.0, true))
 		chip.add_child(mark)
 	var data: Dictionary = {}
 	if editable() and not DeepStone.is_locked(stone):
-		data = {"kind": "stone", "stone_id": str(stone.id), "from_socket": socket, "rider": at}
+		data = {"kind": "stone", "stone_id": id, "from_socket": socket, "rider": at}
+	var takes := func(incoming: Dictionary) -> bool:
+		if not editable() or str(incoming.get("kind", "")) != "stone":
+			return false
+		var other: Dictionary = DeepOddities.find_stone(unit, str(incoming.get("stone_id", "")))
+		if other.is_empty() or not DeepStone.is_slotless(other) or str(other.id) == id or DeepStone.is_locked(other):
+			return false
+		return DeepDescent.socket_refusal(unit, other, socket).is_empty()
 	## Another Void gem dropped on this one goes into the line ahead of it.
-	_wire(chip, data, func() -> Control: return Thumbs.GemThumb.new(stone, 64),
-		func(incoming: Dictionary) -> bool:
-			if not editable() or str(incoming.get("kind", "")) != "stone":
-				return false
-			var other: Dictionary = DeepOddities.find_stone(unit, str(incoming.get("stone_id", "")))
-			if other.is_empty() or not DeepStone.is_slotless(other) or str(other.id) == str(stone.id):
-				return false
-			return DeepDescent.socket_refusal(unit, other, socket).is_empty(),
+	_wire(chip, data, func() -> Control: return VoidMarks.hollow_gem(stone, 64), takes,
 		func(incoming: Dictionary) -> void:
-			_send({"kind": "socket", "stone_id": str(incoming.stone_id), "index": socket, "at": at}, "dice_lock"),
-		ring)
-	_clickable(chip, str(stone.id))
+			_send({"kind": "socket", "stone_id": str(incoming.stone_id), "index": socket, "at": at}, "dice_lock"))
+	## The close look: a right-click on the desk, a finger held on the phone.
+	var look := func() -> void: Inspector.stone(stone)
+	chip.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
+			look.call()
+			chip.accept_event())
+	Tips.hold(chip, func() -> Variant:
+		look.call()
+		return true)
+	if not DeepUi.phone:
+		_clickable(chip, id)
+		return
+	chip.gui_input.connect(func(event: InputEvent) -> void:
+		if not (event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT) or Tips.held(chip):
+			return
+		chip.accept_event()
+		## Another Void gem picked (loose, or riding): it goes into the line ahead of this one.
+		if not _pick.is_empty() and _pick != id and bool(takes.call({"kind": "stone", "stone_id": _pick})):
+			var moving: String = _pick
+			_pick = ""
+			_send({"kind": "socket", "stone_id": moving, "index": socket, "at": at}, "dice_lock")
+			return
+		_pick = "" if _pick == id else id
+		DeepAudio.play("ui_tap", {"volume": 0.6})
+		_render.call_deferred())
+
+func _rider_more(parent: Node, riders: Array, showing: int) -> void:
+	## The phone's "+N" after a socket's one shown rider: a tap picks the next rider in the line
+	## (round to the first again), so every rider can be reached and moved by taps.
+	var more := VoidMarks.CountMark.new(riders.size() - 1, DeepUi.pt(15), int(DeepUi.pt(12)), int(DeepUi.pt(11)))
+	more.mouse_filter = Control.MOUSE_FILTER_STOP
+	more.tooltip_text = "%d more riding this socket. Tap to pick the next." % (riders.size() - 1)
+	parent.add_child(more)
+	var next_id: String = str(riders[(showing + 1) % riders.size()].get("id", ""))
+	more.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			more.accept_event()
+			_pick = next_id
+			DeepAudio.play("ui_tap", {"volume": 0.6})
+			_render.call_deferred())
 
 func _haul_tile(parent: Node, stone: Dictionary) -> void:
 	var appraised: bool = bool(stone.get("appraised", false))

@@ -12,6 +12,7 @@ func _init() -> void:
 	_workshop()
 	_rarity()
 	_hollow()
+	_loose_knots()
 	print("Void: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
 		printerr("FAIL: " + str(failure))
@@ -37,6 +38,37 @@ func run_state() -> Dictionary:
 
 func ids(line: Array) -> Array:
 	return line.map(func(s: Dictionary) -> String: return str(s.id))
+
+func _loose_knots() -> void:
+	## A Knot only holds a gem in its socket (owner, November 17, 2026): one loose in the bag
+	## goes on the table, down the well, to the stalls, on the altar and to the Prospector.
+	var run: Dictionary = run_state()
+	var unit: Dictionary = run.players[0]
+	var loose: Dictionary = gem("STRIKE", "knot_loose", false)
+	loose.inclusions = ["KNOT"]
+	var set: Dictionary = gem("CLEAVE", "knot_set", false)
+	set.inclusions = ["KNOT"]
+	unit.haul.append(loose)
+	unit.rail[0] = set
+	check(not DeepStone.knot_held(unit, loose) and DeepStone.knot_held(unit, set), "only the Knot in a socket is held")
+	check(DeepDescent.can_wish(loose, unit) and not DeepDescent.can_wish(set, unit), "the well takes the loose Knot, not the set one")
+	check(DeepAltar.refusal(loose, unit).is_empty() and not DeepAltar.refusal(set, unit).is_empty(), "so does the altar")
+	for kind in ["trade_up", "wishing_well", "reroll_cut", "collector_sell"]:
+		check(DeepOddities.work_refusal({"kind": kind}, loose, unit).is_empty() and DeepOddities.work_refusal({"kind": kind}, set, unit).contains("Knot"), "%s takes the loose Knot only" % kind)
+	var thrown: Dictionary = DeepOddities.apply({"kind": "wishing_well", "mode": "stone"}, unit, {"stone_id": "knot_loose"}, DeepRng.streams(4).oddities, {})
+	check(bool(thrown.get("ok", false)) and DeepOddities.find_stone(unit, "knot_loose").is_empty(), "a loose Knot goes down an oddity's well: %s" % str(thrown.get("error", thrown.get("reason", ""))))
+	unit.haul.append(loose)
+	run.phase = "landing"
+	run.landing = {"depth": int(run.depth), "cleared": false, "respites": {}}
+	var offered: Dictionary = DeepDescent.command(run, "a", {"kind": "trade_offer", "stone_id": "knot_loose", "to": "b"})
+	check(bool(offered.get("ok", false)), "a loose Knot can be offered in trade: %s" % str(offered.get("error", "")))
+	check(not DeepDescent.command(run, "a", {"kind": "trade_offer", "stone_id": "knot_set", "to": "b"}).ok, "a set Knot cannot")
+	DeepDescent.command(run, "a", {"kind": "trade_withdraw"})
+	run.phase = "chamber"
+	run.chamber = {"kind": "merchant", "settled": false}
+	var ore: int = int(unit.ore)
+	check(DeepDescent.command(run, "a", {"kind": "sell", "stone_id": "knot_loose"}).ok and int(unit.ore) > ore, "the stalls buy a loose Knot")
+	check(not DeepDescent.command(run, "a", {"kind": "sell", "stone_id": "knot_set"}).ok, "but not one set in a socket")
 
 func _rail() -> void:
 	var run: Dictionary = run_state()

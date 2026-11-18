@@ -174,9 +174,13 @@ func play(tally: Dictionary) -> void:
 			_base_box.modulate = Color(1, 1, 1, 0.45)
 	if not dice.is_empty():
 		var gap: float = DeepBattle.tally_die_gap(dice.size()) * _pace
-		for i in range(dice.size()):
-			timeline.tween_callback(_count_die.bind(dice[i], dice_add)).set_delay(gap * float(i))
-		at = gap * float(dice.size() - 1) + DeepBattle.TALLY_FLIGHT * _pace
+		## The beat the rules gave the dice, whatever is drawn in it.
+		var span: float = gap * float(dice.size() - 1)
+		var counted: Array = _gathered(dice)
+		var step: float = span / float(maxi(1, counted.size() - 1))
+		for i in range(counted.size()):
+			timeline.tween_callback(_count_die.bind(counted[i], dice_add)).set_delay(step * float(i))
+		at = span + DeepBattle.TALLY_FLIGHT * _pace
 		if _numbered and not dice_add:
 			## The dice only woke it: the number (or the face their set shows) is the skill's
 			## own, and shows once they have.
@@ -441,15 +445,38 @@ func _place() -> void:
 	at.y = clampf(at.y, 8.0, maxf(8.0, screen.size.y - wanted.y - 8.0))
 	global_position = at
 
+## The most dice a count hops one by one; past it the rest go as one figure (`_gathered`).
+const SHOWN_DICE: int = 16
+
+func _gathered(dice: Array) -> Array:
+	## A count of thousands of dice (a Refract on a Gemini leaves that many phantoms) hopped
+	## each one, a figure, a voice and a rumble a die, all in the same beat: the fight stalled
+	## for seconds at speed (November 17, 2026). The first SHOWN_DICE - 1 still hop; the rest
+	## fly as one figure that carries their sum, from the first of them.
+	if dice.size() <= SHOWN_DICE:
+		return dice
+	var out: Array = dice.slice(0, SHOWN_DICE - 1)
+	var rest: Dictionary = (dice[SHOWN_DICE - 1] as Dictionary).duplicate()
+	var sum: int = 0
+	for k in range(SHOWN_DICE - 1, dice.size()):
+		sum += int(dice[k].get("value", 0)) if dice[k] is Dictionary else 0
+	rest.value = sum
+	rest.material = ""
+	out.append(rest)
+	return out
+
 func _in_tray_order(dice: Array) -> Array:
 	## Counted left to right as they lie, the way the eye reads them; phantoms and anything
-	## not on screen after.
+	## not on screen after. Each die is looked up once, not once a comparison. The sort is
+	## stable on ties (by place in the count), as phantoms all share one x.
 	if not die_anchor.is_valid():
 		return dice
-	var placed: Array = dice.duplicate()
-	placed.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		return _die_x(str(a.get("id", ""))) < _die_x(str(b.get("id", ""))))
-	return placed
+	var keyed: Array = []
+	for k in range(dice.size()):
+		keyed.append([_die_x(str(dice[k].get("id", ""))), k, dice[k]])
+	keyed.sort_custom(func(a: Array, b: Array) -> bool:
+		return a[0] < b[0] or (a[0] == b[0] and a[1] < b[1]))
+	return keyed.map(func(e: Array) -> Variant: return e[2])
 
 func _die_x(id: String) -> float:
 	var found: Variant = die_anchor.call(id)

@@ -248,8 +248,8 @@ const VARIANT_SCENES = [
 	{ character: 'VESPER', worn: 'FAN_OF_KNIVES', hands: [[3, 3, 3, 2, 9], [3, 3, 2, 2, 9], [3, 3, 3, 3, 9]], foes: [5, 5, 0] },
 	{ character: 'VESPER', worn: 'FAN_OF_KNIVES', hands: [[2, 2, 2, 2, 2], [4, 4, 1, 1, 12]], foes: [12, 0, 30, 0] },
 	// Cadence (d4 d6 d8 d10 d12). Nocturne: low totals wake the gems that stayed dark.
-	{ character: 'CADENCE', worn: 'NOCTURNE', hands: [[1, 2, 3, 4, 5], [1, 2, 3, 1, 4], [1, 1, 2, 2, 3], [2, 3, 4, 5, 6]], rail: [gem('HEARTWOOD'), gem('PETRIFY')] },
-	{ character: 'CADENCE', worn: 'NOCTURNE', hands: [[1, 2, 3, 4, 5], [1, 1, 2, 2, 3], [1, 2, 3, 1, 4]], rail: [gem('STRIKE'), gem('PETRIFY'), gem('GUARD'), gem('HEARTWOOD')] },
+	{ character: 'CADENCE', worn: 'NOCTURNE', hands: [[1, 2, 3, 4, 5], [1, 2, 3, 1, 4], [1, 1, 2, 2, 3], [1, 1, 1, 2, 2], [2, 3, 4, 5, 6]], rail: [gem('HEARTWOOD'), gem('PETRIFY')] },
+	{ character: 'CADENCE', worn: 'NOCTURNE', hands: [[1, 2, 3, 4, 5], [1, 1, 2, 2, 3], [1, 2, 3, 1, 4], [1, 1, 1, 1, 2]], rail: [gem('STRIKE'), gem('PETRIFY'), gem('GUARD'), gem('HEARTWOOD')] },
 	// Arpeggio: a scale.
 	{ character: 'CADENCE', worn: 'ARPEGGIO', hands: [[2, 3, 5, 4, 11], [1, 2, 3, 4, 5], [4, 3, 2, 1, 2], [1, 5, 2, 9, 3], [4, 1, 2, 3, 12]] },
 	{ character: 'CADENCE', worn: 'ARPEGGIO', hands: [[1, 2, 3, 4, 5], [2, 3, 5, 4, 11]], rail: [gem('PRISM'), gem('STRIKE')], foes: [20, 0] },

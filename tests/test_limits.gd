@@ -123,12 +123,34 @@ func _test_creature_health() -> void:
 	check(int(deep.hp) == CEIL and int(deep.max_hp) == CEIL, "a creature too big to count has the ceiling's health, not one")
 
 func _test_rail_cap() -> void:
-	## Two Geminis side by side wake each other for ever while the hand holds a pair.
-	var f: Dictionary = fight([gem("STRIKE", 1, 4, 3, "s0"), gem("GEMINI", 1, 4, 3, "g1"), gem("GEMINI", 1, 4, 3, "g2"), gem("STRIKE", 1, 4, 3, "s3")])
+	## Two Geminis side by side used to wake each other for ever; a Transcendent now counts as
+	## an opal (owner, November 17, 2026), so neither fires the other and the rail ends.
+	var calm: Dictionary = fight([gem("STRIKE", 1, 4, 3, "s0"), gem("GEMINI", 1, 4, 3, "g1"), gem("GEMINI", 1, 4, 3, "g2"), gem("STRIKE", 1, 4, 3, "s3")])
+	hand(calm.state.players[0], [4, 4, 4, 4, 4])
+	calm.state.players[0].locked = true
+	var calm_events: Array = [DeepBattle.start_resolution(calm.state)]
+	var calm_steps: int = 0
+	while DeepBattle.has_steps(calm.state) and str(calm.state.get("phase", "")) == "resolving" and calm_steps < 5000:
+		calm_steps += 1
+		var step_event: Dictionary = DeepBattle.step(calm.state, calm.r.dice, calm.r.creatures)
+		if not step_event.is_empty():
+			calm_events.append(step_event)
+	var calm_plays: int = calm_events.filter(func(e: Dictionary) -> bool: return str(e.get("kind", "")) == "gem_fire" and str(e.get("unit", "")) == "a").size()
+	check(calm_plays < 20 and not calm_events.any(func(e: Dictionary) -> bool: return str(e.get("kind", "")) == "rail_spent"), "two Geminis side by side no longer wake each other (%d fires)" % calm_plays)
+	## A rail that would fire for ever (three hundred goes queued for one gem) is spent at the cap.
+	var f: Dictionary = fight([gem("STRIKE", 1, 4, 3, "s0"), gem("GUARD", 1, 4, 3, "g1")])
 	var state: Dictionary = f.state
 	hand(state.players[0], [4, 4, 4, 4, 4])
 	state.players[0].locked = true
 	var events: Array = [DeepBattle.start_resolution(state)]
+	var endless: Array = []
+	for _go in range(300):
+		endless.append({"kind": "gem", "unit": "a", "socket": 0, "retrigger": true})
+	var opening: int = 0
+	while opening < state.queue.size() and str(state.queue[opening].get("kind", "")) != "rail_begin":
+		opening += 1
+	for index in range(endless.size()):
+		state.queue.insert(opening + 1 + index, endless[index])
 	var guard: int = 0
 	while DeepBattle.has_steps(state) and str(state.get("phase", "")) == "resolving" and guard < 5000:
 		guard += 1

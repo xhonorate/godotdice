@@ -432,6 +432,9 @@ func _build() -> void:
 	_extras(tone)
 	if not str(spec.get("blocked", "")).is_empty():
 		DeepUi.stat(box, "cross_out", str(spec.blocked), DeepUi.BAD, 13).alignment = BoxContainer.ALIGNMENT_CENTER
+	var hp_short: String = hp_short()
+	if not hp_short.is_empty():
+		DeepUi.stat(box, "cross_out", hp_short, DeepUi.BAD, 13).alignment = BoxContainer.ALIGNMENT_CENTER
 	## A word on what the current pick costs beyond the room (a Vault stone given up for
 	## good); drawn again with every pick, so it follows what is in the slot.
 	var warn: Callable = spec.get("warn", Callable())
@@ -453,7 +456,7 @@ func _build() -> void:
 		_confirm = DeepUi.primary(buttons, str(spec.get("confirm_glyph", "check")), str(spec.get("confirm", "Do it")), _do, 14 if DeepUi.phone else 16, tone)
 		DeepUi.ledger_primary(_confirm, tone)
 		_confirm.custom_minimum_size = Vector2(DeepUi.pt(130), DeepUi.pt(36)) if DeepUi.phone else Vector2(180, 40)
-		_confirm.disabled = payload().is_empty() or not str(spec.get("blocked", "")).is_empty()
+		_confirm.disabled = payload().is_empty() or not str(spec.get("blocked", "")).is_empty() or not hp_short.is_empty()
 		_confirm.mouse_entered.connect(func() -> void: hp_preview.emit(_hp_cost()))
 		_confirm.mouse_exited.connect(func() -> void: hp_preview.emit(0))
 		_confirm.tree_exiting.connect(func() -> void: hp_preview.emit(0))
@@ -466,6 +469,17 @@ func _build() -> void:
 	## A wrapped line knows how tall it stands only once it is laid out: placed again then, so
 	## its foot keeps clear of the dock.
 	_block.minimum_size_changed.connect(_place)
+
+func hp_short() -> String:
+	## Why the picks cannot be paid in health (owner, November 17, 2026): the asker's HP
+	## (`spec.hp_have`) is at or below what they would cost. "" when they can.
+	if not spec.has("hp_have"):
+		return ""
+	var cost: int = _hp_cost()
+	var have: int = int(spec.hp_have)
+	if cost <= 0 or have > cost:
+		return ""
+	return "You have %d HP: this costs %d." % [have, cost]
 
 func _hp_cost() -> int:
 	## What the current picks would take out of the asker: a slot's `hp` for every stone in it.
@@ -480,7 +494,7 @@ func _hp_cost() -> int:
 
 func _do() -> void:
 	var answer: Dictionary = payload()
-	if answer.is_empty():
+	if answer.is_empty() or not hp_short().is_empty():
 		return
 	DeepAudio.play("ui_confirm", {"volume": 0.8})
 	var was: String = _key

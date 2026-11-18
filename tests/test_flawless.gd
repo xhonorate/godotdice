@@ -138,7 +138,7 @@ func attacks() -> void:
 	check(notes(hone, "kill") == 1, "a Flawless Hone's kill is noted")
 	check(int(f.player.run_counts.get("gem0:kills", 0)) == 1, "and counted for the run")
 	var after: Dictionary = fire(f, "HONE", [1, 2, 3, 4, 5], true, 4)
-	check(total_of(after, "damage") == int(float(4 + 1 + 3) * 1.5), "4, one fire, one kill's 3: %d" % total_of(after, "damage"))
+	check(total_of(after, "damage") == int(float(4 + 0 + 3) * 1.5), "4, one fire (it grows on every second), one kill's 3: %d" % total_of(after, "damage"))
 	## Spall throws its two lowest again, so what comes after reads new dice.
 	f = setup()
 	var spall: Dictionary = fire(f, "SPALL", [1, 2, 3, 4, 5])
@@ -638,7 +638,7 @@ func transcendent() -> void:
 	var four: Dictionary = fire(f, "PROCESSION", [1, 2, 3, 4, 19])
 	check(bool(five.flawless.on) and not bool(four.flawless.on), "a Flawless Procession's line asks for a straight of five")
 	check(five.effects.size() == 2 * four.effects.size(), "and then all of it plays twice: %d, %d" % [five.effects.size(), four.effects.size()])
-	## Gemini: neighbours sharing a color go once more.
+	## Gemini: neighbours sharing a color go once more, each, after the pair's one go.
 	f = setup()
 	equip(f, "STRIKE", false, 4, 0)
 	equip(f, "GEMINI", true, 4, 1)
@@ -646,7 +646,7 @@ func transcendent() -> void:
 	rolls(f, [5, 5, 1, 2, 3])
 	f.state.queue = []
 	var gemini: Dictionary = DeepBattle.resolve_gem(f.state, f.player, 1, {}, f.rng.dice)
-	check(bool(gemini.effects[0].get("twinned", false)) and f.state.queue.size() == 4, "two Red neighbours on one pair: two goes each: %d" % f.state.queue.size())
+	check(bool(gemini.effects[0].get("twinned", false)) and f.state.queue.size() == 3, "two Red neighbours on one pair: the pair's go, then one more each: %d" % f.state.queue.size())
 	f = setup()
 	equip(f, "STRIKE", false, 4, 0)
 	equip(f, "GEMINI", true, 4, 1)
@@ -654,7 +654,7 @@ func transcendent() -> void:
 	rolls(f, [5, 5, 1, 2, 3])
 	f.state.queue = []
 	DeepBattle.resolve_gem(f.state, f.player, 1, {}, f.rng.dice)
-	check(f.state.queue.size() == 2, "a Red and a Blue: one go each: %d" % f.state.queue.size())
+	check(f.state.queue.size() == 1, "a Red and a Blue: the pair's one go: %d" % f.state.queue.size())
 	## Certainty: the gems it forces read the highest die.
 	f = setup()
 	equip(f, "CERTAINTY", true, 4, 0)

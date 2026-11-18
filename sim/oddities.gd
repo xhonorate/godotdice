@@ -195,7 +195,7 @@ static func work_refusal(action: Dictionary, item: Dictionary, player: Dictionar
 				return "fragile stones cannot be sold"
 			if not bool(item.get("appraised", false)):
 				return "nobody has read it yet"
-			if DeepStone.is_locked(item):
+			if DeepStone.knot_held(player, item):
 				return "a Knot cannot leave its socket"
 			## The oven's own rule (push_clarity): a stone at the end of the ladder has nowhere to go.
 			if str(action.get("kind", "")) == "push_clarity":
@@ -205,7 +205,7 @@ static func work_refusal(action: Dictionary, item: Dictionary, player: Dictionar
 			return ""
 		"wishing_well", "trade_up", "echo_stone":
 			## These take a stone as it is: rough or read, it makes no difference to them.
-			if DeepStone.is_locked(item):
+			if DeepStone.knot_held(player, item):
 				return "a Knot cannot leave its socket"
 			## The well's own rule (wishing_well): offered here, it was only refused on "Do it".
 			if str(action.get("kind", "")) == "wishing_well" and DeepStone.is_fragile(item):
@@ -345,6 +345,11 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 		mine = mine.duplicate()
 		mine.luck = int(round(float(DeepForge.mine_luck(mine)) + float(ctx.get("luck", 0.0))))
 	var depth: int = int(ctx.get("depth", 1))
+	## Work paid in health is refused while the price would take everything left.
+	if kind in HP_WORK:
+		var hp_why: String = hp_refusal(action, player, ctx.get("tries", {}), payload.get("stone_ids", []).size() if payload.get("stone_ids", []) is Array else 1)
+		if not hp_why.is_empty():
+			return _refuse(hp_why)
 	match kind:
 		"none":
 			out.message = "You leave it be."
@@ -623,7 +628,7 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			var stone: Dictionary = find_stone(player, str(payload.get("stone_id", "")))
 			if stone.is_empty():
 				return _refuse("choose a stone to trade")
-			if DeepStone.is_locked(stone):
+			if DeepStone.knot_held(player, stone):
 				return _refuse("a Knot cannot leave its socket")
 			var bigger: Dictionary = DeepForge.roll_stone(rng, mine, depth, 0, {"run": ctx.get("run", ""), "source": "prospector"})
 			var gained: int = rng.randi_range(int(action.get("carats", 0)), maxi(int(action.get("carats", 0)), int(action.get("carats_max", 2))))
@@ -957,7 +962,7 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 				var offered: Dictionary = find_stone(player, str(payload.get("stone_id", "")))
 				if offered.is_empty():
 					return _refuse("choose one of your stones")
-				if DeepStone.is_locked(offered):
+				if DeepStone.knot_held(player, offered):
 					return _refuse("a Knot cannot leave its socket")
 				if DeepStone.is_fragile(offered):
 					return _refuse("the well will not take a fragile stone")
@@ -1081,6 +1086,30 @@ static func at_pull(choice: Dictionary, done: int) -> Dictionary:
 static func idol_price(action: Dictionary, done: int) -> int:
 	## What the Idol's next pull costs in health after `done` pulls: each dearer than the last.
 	return maxi(0, int(action.get("hp", 3)) + int(action.get("hp_step", 2)) * done)
+
+## The work paid for in health: a pry at a seam, an Idol's pull, a stone in the acid.
+const HP_WORK: Array = ["idol", "pry", "acid_appraise"]
+
+static func hp_price(action: Dictionary, tries: Dictionary = {}, count: int = 1) -> int:
+	## What this work costs in health: the Idol's next pull (after `tries.done`), a pry's cut,
+	## or the acid's price for `count` stones. 0 for work paid any other way.
+	match str(action.get("kind", "")):
+		"idol":
+			return idol_price(action, int(tries.get("done", 0)))
+		"pry":
+			return maxi(0, int(action.get("hp", 8)))
+		"acid_appraise":
+			return maxi(0, int(action.get("hp", 6))) * maxi(1, count)
+	return 0
+
+static func hp_refusal(action: Dictionary, player: Dictionary, tries: Dictionary = {}, count: int = 1) -> String:
+	## Why the player cannot pay this work's health (owner, November 17, 2026): it is refused
+	## while their HP is at or below its price. "" when they can, or it costs none.
+	var price: int = hp_price(action, tries, count)
+	var hp: int = int(player.get("hp", 0))
+	if price <= 0 or hp > price:
+		return ""
+	return "it costs %d HP and you have %d" % [price, hp]
 
 # --- the chisel -----------------------------------------------------------------------------------
 ##

@@ -41,6 +41,7 @@ func _init() -> void:
 	_test_tally()
 	_test_spoils_and_chart()
 	_test_rooms_nov13()
+	_test_unready()
 	print("Descent/profile: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
 		printerr("FAIL: " + str(failure))
@@ -1310,6 +1311,13 @@ func _test_loadout_luck() -> void:
 	var a: Dictionary = state.players[0]
 	var b: Dictionary = state.players[1]
 	check(int(a.loadout_stones) == 1 and float(a.loadout_luck) == 4.0 and int(b.loadout_stones) == 5 and float(b.loadout_luck) == -4.0, "each player's loadout luck is their own: %s, %s" % [str(a.loadout_luck), str(b.loadout_luck)])
+	## A locked socket never counts (owner, November 17, 2026): a stone past the open sockets
+	## does not go down and costs no luck.
+	var locked: Dictionary = config(66, false)
+	locked.players[0].rail = [stone("STRIKE", 3, 4, 3, "a_strike"), stone("CLEAVE", 3, 4, 3, "a_cleave"), stone("CRUSH", 3, 4, 3, "a_crush"), stone("GUARD", 3, 4, 3, "a_guard"), stone("BARRAGE", 3, 4, 3, "a_barrage")]
+	locked.players[0].sockets = 3
+	var held: Dictionary = DeepDescent.new_run(locked).players[0]
+	check(int(held.loadout_stones) == 3 and float(held.loadout_luck) == 0.0, "stones past the open sockets cost no luck: %d, %s" % [int(held.loadout_stones), str(held.loadout_luck)])
 	state.depth = 5
 	var streams: Dictionary = DeepDescent.streams_of(state)
 	var expected_rng: RandomNumberGenerator = DeepRng.restore(state.rng).stones
@@ -2526,6 +2534,21 @@ func _test_spoils_and_chart() -> void:
 	var taken: Dictionary = cmd(state, "a", "spoils", {"pick": 2})
 	check(taken.ok and int(DeepDescent.player(state, "a").ore) == purse + int(cards[2].ore) and DeepDescent.spoils_of(state, "a").is_empty(), "the pyrite card pays on top, and the spoils are done")
 	check(not cmd(state, "a", "spoils", {"pick": 0}).ok, "and cannot be taken twice")
+	## The pyrite card is a share of the fight's base pay only, never of the pyrite the
+	## player's gems and dice made in it (owner, November 17, 2026).
+	var rich: Dictionary = DeepDescent.new_run(config(3301, true))
+	rich.depth = 2
+	rich.phase = "chamber"
+	rich.chamber = {"kind": "fight", "depth": rich.depth, "settled": false}
+	var rich_streams: Dictionary = DeepDescent.streams_of(rich)
+	DeepDescent._start_fight(rich, rich_streams, false, "")
+	rich.rng = DeepRng.save(rich_streams)
+	rich.chamber.battle.players[0].gold = 400
+	var rich_settle: Dictionary = DeepDescent._settle_fight(rich, "victory")
+	var base_pay: int = int(DeepContent.constant("ore_per_fight", 20)) + 2
+	var share: int = maxi(5, int(ceil(float(base_pay) * float(DeepContent.constant("spoils_pyrite_pct", 150)) / 100.0 / 5.0)) * 5)
+	var rich_card: Array = DeepDescent.spoils_of(rich, "a").cards.filter(func(c: Dictionary) -> bool: return str(c.kind) == "ore")
+	check(int(rich_settle.rewards.a.earned) >= base_pay + 400 and rich_card.size() == 1 and int(rich_card[0].ore) == share, "the pyrite card reads the base pay (%d), not the gems' 400: %s" % [share, str(rich_card)])
 	## Walking on skips whatever is still open.
 	var voted: Dictionary = cmd(state, "b", "vote_tunnel", {"offer": str(state.offers[0].id)})
 	check(voted.ok and bool(voted.event.get("spoils_skipped", false)) and DeepDescent.spoils_of(state, "b").is_empty(), "a vote down a tunnel skips the spoils still open")
@@ -2672,12 +2695,13 @@ func _test_rooms_nov13() -> void:
 	var restocked: Dictionary = cmd(state, "a", "restock")
 	var after: Array = DeepDescent.stall_stock(state, "a").map(func(i: Dictionary) -> String: return str(i.id))
 	check(restocked.ok and int(a.ore) == 385 and after.size() == before.size() and not after.any(func(id: String) -> bool: return before.has(id)), "a Restock (15) lays out all new goods")
-	check(int(restocked.event.get("next", 0)) == 30, "and says the next costs 30")
+	check(int(restocked.event.get("next", 0)) == 25, "and says the next costs 25")
 	check(DeepDescent.stall_stock(state, "b").map(func(i: Dictionary) -> String: return str(i.id)) == others, "and not the other player's")
 	check(DeepDescent.stall_stock(state, "a").all(func(i: Dictionary) -> bool: return str(i.get("kind", "")) == "die" or (bool(i.stone.get("appraised", false)) and not DeepStone.is_opal(i.stone))),
 		"read stones and a die, as the stall always shops")
-	check(cmd(state, "a", "restock").ok and cmd(state, "a", "restock").ok and int(a.ore) == 310, "then 30, then 45")
-	check(DeepDescent.restock_cost(state, "a") == 60 and cmd(state, "a", "restock").ok and int(a.ore) == 250 and DeepDescent.restock_cost(state, "a") == 75, "15 more every time, with no last one")
+	check(cmd(state, "a", "restock").ok and cmd(state, "a", "restock").ok and int(a.ore) == 315, "then 25, then 45")
+	check(DeepDescent.restock_cost(state, "a") == 75 and cmd(state, "a", "restock").ok and int(a.ore) == 240 and DeepDescent.restock_cost(state, "a") == 115, "round(15 + 5x + 5x²): dearer by more every time, with no last one")
+	check([0, 1, 2, 3, 4, 9].map(func(x: int) -> int: return DeepDescent.restock_price_at(x)) == [15, 25, 45, 75, 115, 465], "the price after x Restocks is round(15 + 5x + 5x²)")
 	check(DeepDescent.restock_cost(state, "b") == 15, "and the other player's count is their own")
 	a.ore = 10
 	check(not cmd(state, "a", "restock").ok and int(a.ore) == 10, "a purse short of the price is refused")
@@ -2739,3 +2763,98 @@ func _test_rooms_nov13() -> void:
 	check(not cmd(held, "b", "oddity", {"choice": "chisel", "payload": {"die_id": str(low_die.id), "face": 0, "way": -1}}).ok, "a 1 cannot be cut lower")
 	var lowered: Dictionary = cmd(held, "b", "oddity", {"choice": "chisel", "payload": {"die_id": str(low_die.id), "face": low_die.faces.size() - 1, "way": -1}})
 	check(lowered.ok, "a face comes down by one")
+
+func _to_tunnels(state: Dictionary) -> void:
+	## On down until the party is choosing a way again.
+	var guard: int = 0
+	while str(state.phase) != "tunnels" and guard < 80:
+		guard += 1
+		_advance_once(state)
+
+func _test_unready() -> void:
+	## Done early, and not done after all (the owner, November 17, 2026): a vote, a stall left, a
+	## pick put down, an altar or a card walked on from and a landing's answer are taken back
+	## while the party still waits; work that was done stays done; alone, nothing to take back.
+	var state: Dictionary = DeepDescent.new_run(config(171, true))
+	var guard: int = 0
+	while (str(state.phase) != "tunnels" or int(state.depth) < 1) and guard < 40:
+		guard += 1
+		_advance_once(state)
+	check(str(state.phase) == "tunnels", "unready: the party reaches a crossroads")
+	## Every room below is tried from this same crossroads.
+	var base: Dictionary = state.duplicate(true)
+	var way: Dictionary = state.offers[0]
+	way.kind = "merchant"
+	check(DeepDescent.can_unready(state, "a").is_empty() and not cmd(state, "a", "unready").ok, "unready: nothing to take back before choosing a way")
+	check(cmd(state, "a", "vote_tunnel", {"offer": way.id}).ok and DeepDescent.can_unready(state, "a") == "vote", "unready: a way chosen can be taken back")
+	var taken: Dictionary = cmd(state, "a", "unready")
+	check(taken.ok and str(DeepDescent.player(state, "a").vote).is_empty() and str(taken.event.kind) == "unready" and str(taken.event.what) == "vote", "unready: the vote is withdrawn, and the party is told")
+	check(cmd(state, "b", "vote_tunnel", {"offer": way.id}).ok and str(state.phase) == "tunnels", "unready: the party waits on whoever took their vote back")
+	check(cmd(state, "a", "vote_tunnel", {"offer": way.id}).ok and str(state.phase) == "chamber" and str(state.chamber.kind) == "merchant", "unready: and goes on once they choose again")
+	## The stall.
+	check(cmd(state, "a", "leave").ok and DeepDescent.can_unready(state, "a") == "stall", "unready: a stall left early can be gone back to")
+	check(cmd(state, "a", "unready").ok and not bool(DeepDescent.player(state, "a").ready), "unready: Keep shopping puts them back at the counter")
+	check(cmd(state, "b", "leave").ok and DeepDescent.at_stall(state), "unready: the stall stays open for them")
+	check(DeepDescent.can_unready(state, "b") == "stall" and DeepDescent.can_unready(state, "a").is_empty(), "unready: only whoever has left can go back")
+	check(cmd(state, "a", "leave").ok and str(state.phase) == "tunnels", "unready: and packs up once everyone has left it")
+	check(DeepDescent.can_unready(state, "b").is_empty() and not cmd(state, "b", "unready").ok, "unready: a stall the party has left is gone")
+	## The rock.
+	state = base.duplicate(true)
+	way = state.offers[0]
+	way.kind = "vein"
+	for who in ["a", "b"]:
+		cmd(state, who, "vote_tunnel", {"offer": way.id})
+	if str(state.phase) == "chamber" and str(state.chamber.kind) in DeepDescent.ROCK_ROOMS:
+		check(cmd(state, "a", "stop_mining").ok and DeepDescent.can_unready(state, "a") == "vein", "unready: a pick put down early can be picked up again")
+		check(cmd(state, "a", "unready").ok and bool(DeepDescent.player(state, "a").mining), "unready: and swings again")
+		check(cmd(state, "b", "stop_mining").ok and str(state.phase) == "chamber", "unready: the rock waits for them")
+		check(cmd(state, "a", "stop_mining").ok and str(state.phase) == "tunnels", "unready: and is done with once they put it down again")
+	else:
+		check(false, "unready: a vein room opens to test the pick on")
+	## An altar walked on from, with nothing made and with something made.
+	var altar: Dictionary = state.duplicate(true)
+	altar.phase = "chamber"
+	altar.chamber = {"kind": "altar", "depth": int(altar.depth), "settled": false, "altar": {"b": {"made": {}}}}
+	DeepDescent.player(altar, "a").altar_done = "left"
+	DeepDescent.player(altar, "b").altar_done = "left"
+	check(cmd(altar, "a", "unready").ok and str(DeepDescent.player(altar, "a").altar_done).is_empty(), "unready: back to an altar walked away from")
+	check(cmd(altar, "b", "unready").ok and str(DeepDescent.player(altar, "b").altar_done) == "made", "unready: back to an altar after making something keeps it made")
+	## A card walked away from, and a card's work.
+	var card: Dictionary = base.duplicate(true)
+	var odd: Dictionary = card.offers[0]
+	odd.kind = "oddity"
+	for who in ["a", "b"]:
+		cmd(card, who, "vote_tunnel", {"offer": odd.id})
+	if str(card.phase) == "chamber" and str(card.chamber.get("kind", "")) == "oddity":
+		var walk: String = ""
+		for choice in DeepDescent.room_choices(card, "a"):
+			if str(choice.get("action", {}).get("kind", "none")) == "none" and str(choice.get("needs", "")).is_empty():
+				walk = str(choice.id)
+		if not walk.is_empty():
+			check(cmd(card, "a", "oddity", {"choice": walk, "payload": {}}).ok and DeepDescent.can_unready(card, "a") == "oddity", "unready: a card walked away from can be gone back to")
+			check(cmd(card, "a", "unready").ok and str(DeepDescent.player(card, "a").oddity_choice).is_empty() and not card.chamber.results.has("a"), "unready: and its choice is open again")
+			check(str(card.phase) == "chamber", "unready: the card stays up for them")
+	## A landing's answer.
+	var landing: Dictionary = state.duplicate(true)
+	landing.phase = "landing"
+	landing.landing = {"depth": int(landing.depth), "warden_next": false, "cleared": false, "respites": {}}
+	for unit in landing.players:
+		unit.respite = "rest"
+		unit.ore = 999
+	check(DeepDescent.at_crossroads(landing) and cmd(landing, "a", "choose", {"choice": "lift"}).ok and DeepDescent.lift_asked_by(landing) == "a", "unready: the cage asked for at a landing")
+	check(DeepDescent.can_unready(landing, "a") == "landing" and cmd(landing, "a", "unready").ok, "unready: an answer up or down can be taken back")
+	check(str(DeepDescent.player(landing, "a").choice).is_empty() and DeepDescent.lift_asked_by(landing).is_empty() and not landing.landing.has("lift_by"), "unready: and the cage is asked of nobody now")
+	check(cmd(landing, "b", "choose", {"choice": "descend"}).ok and str(landing.phase) == "landing", "unready: the landing waits for the one who took it back")
+	## The fallen, and a lapidary alone.
+	DeepDescent.player(landing, "b").downed = true
+	check(not cmd(landing, "b", "unready").ok and DeepDescent.can_unready(landing, "b").is_empty(), "unready: the fallen have nothing to take back")
+	var solo_config: Dictionary = config(172, true)
+	solo_config.players = [solo_config.players[0]]
+	var solo: Dictionary = DeepDescent.new_run(solo_config)
+	_to_tunnels(solo)
+	check(DeepDescent.can_unready(solo, "a").is_empty(), "unready: alone there is no wait to take back")
+	## A run picked up again starts every vote afresh.
+	var resumed: Dictionary = base.duplicate(true)
+	DeepDescent.player(resumed, "a").vote = str(resumed.offers[0].id)
+	DeepDescent.forget_votes(resumed)
+	check(resumed.players.all(func(p: Dictionary) -> bool: return str(p.get("vote", "")).is_empty()), "forget_votes: a checkpoint's votes are not carried into the run picked up again")

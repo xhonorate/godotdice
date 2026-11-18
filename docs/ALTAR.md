@@ -30,7 +30,7 @@ A gem's color here is its skill's own; a Zoning inclusion doesn't change it.
 | Procession | Barrage, Aegis, Renewal, Dread, Gilded Armor, Lodestone, Crescendo (any five) | kite | By the top of the straight: damage, Block, healing, Poison and Pyrite, each a share of it. Flawless: a straight of five plays all of it twice. |
 | Black Opal | Pinfire, Doublet, Matrix, Echo, Prelude (Pinfire took Fire Opal's place in October 2026) | cabochon | At the start of each fight absorbs a random read gem from the bag (destroyed); when it fires, every absorbed skill fires too, if the dice suit it. Reset when the run ends. Flawless: gains 1 carat for the run for each gem it absorbs. |
 | Quintessence | Crush, Sap, Bastion, Shatter, Jackpot | pentagon | On five of a kind: 5 damage, 5 Block, 5 healing, 5 Pyrite, then +5 carats to itself for the fight. Flawless: +5 to every other gem too. |
-| Gemini | Cleave, Guard, Venom, Tithe, Cascade | hourglass | For each pair in the hand (four or five alike and a full house are two; phantom dice count), the gems either side fire. Never an opal. Flawless: neighbours sharing a color fire one more time. |
+| Gemini | Cleave, Guard, Venom, Tithe, Cascade | hourglass | For each pair in the hand (four or five alike and a full house are two; phantom dice count), one gem beside it fires: before, then after, in turn. Never an opal or another Transcendent. Flawless: neighbours sharing a color fire one more time. |
 | Certainty | Strike, Riposte, Siphon, Miasma, Prism | keystone | Every gem after it fires this turn whatever the dice show (opals still need Resonance). Flawless: the gems it forces read the highest die for every number they ask for. |
 
 To make the recipes span five colors, two pairs of existing gems traded triggers: Bastion ↔ Lifeline (three of a kind / full house) and Mortar ↔ Miasma (even dice / any hand). Miasma now counts the even dice among the 1–5 highest it reads, by Cut, so its Cut still matters; at Perfect it plays exactly as before.
@@ -42,6 +42,8 @@ Carat, Cut and Clarity are each the average of the five, raised by a random 20�
 ## Keeping Transcendents secret
 
 Rarity `TRANSCENDENT`, roll weight 0, value 16. No pool holds one (`DeepForge.skill_pool`, `opal_pool`), so no vein, hoard, well, merchant, commission or random opal can produce one. The Vault doesn't list or count a Transcendent until the player has made one (`DeepProfile.knows`, `profile.transcended`); then it gets a Transcendent filter and sits after every color.
+
+**Out of every copy's reach (owner, November 17, 2026).** A Transcendent counts as an opal for the gems that copy or replay: no Seam, Matrix or Rainbow Seam replays one, no Echo copies one, no Doublet wears one and no Gemini fires one (`DeepStone.out_of_reach`, `DeepBattle.repeatable`). The rail and the loadout mark it the way they mark an opal (`DeepBattle.opal_blocks`). A Birthstone still reaches it.
 
 ## Calls made while building, worth revisiting
 

@@ -167,6 +167,22 @@ func _test_sockets() -> void:
 	while tidied.size() < ardor_total:
 		tidied.append(null)
 	check(DeepProfile.tidy(ardor) and ardor.characters.ARDOR.rail == tidied, "a stone in a shut socket moves into an open one: %s" % str(ardor.characters.ARDOR.rail))
+	## One opal a loadout (owner, November 17, 2026): a second is refused wherever it would go,
+	## one may take the first's place, and an old save with two keeps the first.
+	var opals: Dictionary = DeepProfile.new_profile("Opals")
+	opals.characters.ARDOR.sockets = 6
+	DeepProfile.keep(opals, stone("ECHO", 3, 2, 3, "echo_o"))
+	DeepProfile.keep(opals, stone("DOUBLET", 3, 2, 3, "doublet_o"))
+	DeepProfile.keep(opals, stone("MATRIX", 3, 2, 3, "matrix_o"))
+	opals.characters.ARDOR.rail = [null, null, null, null, null, null]
+	check(DeepProfile.set_rail(opals, "ARDOR", 3, "ECHO") == "", "an opal goes in a Rainbow socket")
+	var second: String = DeepProfile.set_rail(opals, "ARDOR", 4, "DOUBLET")
+	check(second.contains("only one opal") and opals.characters.ARDOR.rail[4] == null, "a second opal is refused, saying why: %s" % second)
+	check(DeepProfile.opal_refusal(opals, "ARDOR", -1, "DOUBLET") != "" and DeepProfile.opal_refusal(opals, "ARDOR", -1, "ECHO") == "", "the picker reads the same refusal, and the opal already set is free to move")
+	check(DeepProfile.set_rail(opals, "ARDOR", 3, "DOUBLET") == "" and opals.characters.ARDOR.rail[3] == "DOUBLET", "a second opal may take the first's place")
+	check(DeepProfile.set_rail(opals, "ARDOR", 5, "ECHO") != "" and DeepProfile.set_rail(opals, "ARDOR", 4, "DOUBLET") == "" and opals.characters.ARDOR.rail[3] == null, "the opal set moves socket, but none joins it")
+	opals.characters.ARDOR.rail = [null, null, null, "ECHO", "DOUBLET", "MATRIX"]
+	check(DeepProfile.tidy(opals) and opals.characters.ARDOR.rail == [null, null, null, "ECHO", null, null], "an old save with three opals keeps the first: %s" % str(opals.characters.ARDOR.rail))
 
 # --- the way down -----------------------------------------------------------------------------
 
@@ -852,8 +868,8 @@ func _test_contracts() -> void:
 	## Stones made to a grade: Rough, Fine, Precious, Exquisite, Peerless.
 	check(str(DeepStone.grade(graded("STRIKE", 3, 1, clear, "r")).tier) == "ROUGH", "a light, plain stone is Rough")
 	check(str(DeepStone.grade(graded("STRIKE", 6, 4, clear, "f")).tier) == "FINE", "a Perfect cut lifts it to Fine")
-	check(str(DeepStone.grade(graded("STRIKE", 12, 4, flawless, "p")).tier) == "PRECIOUS", "twelve Flawless carats are Precious")
-	check(str(DeepStone.grade(graded("STRIKE", 18, 4, flawless, "e")).tier) == "EXQUISITE", "eighteen are Exquisite")
+	check(str(DeepStone.grade(graded("STRIKE", 12, 0, flawless, "p")).tier) == "PRECIOUS", "twelve Flawless carats of a Poor cut are Precious")
+	check(str(DeepStone.grade(graded("STRIKE", 18, 2, flawless, "e")).tier) == "EXQUISITE", "eighteen of a Good cut are Exquisite")
 	check(str(DeepStone.grade(graded("STRIKE", 24, 4, flawless, "x")).tier) == "PEERLESS", "and twenty-four Peerless")
 	## What may go in.
 	var raw: Dictionary = graded("STRIKE", 3, 1, clear, "raw")
@@ -945,7 +961,7 @@ func _test_contracts() -> void:
 	heavy.gold = 999
 	var light_precious: Array = []
 	for i in range(5):
-		light_precious.append(graded("STRIKE", 12, 4, flawless, "h%d" % i))
+		light_precious.append(graded("STRIKE", 12, 0, flawless, "h%d" % i))
 	for s in light_precious:
 		heavy.tray.append(s)
 	var capped: Dictionary = DeepEconomy.contract_preview(heavy, refs_of(light_precious))
@@ -956,7 +972,7 @@ func _test_contracts() -> void:
 	best.gold = 999
 	var exquisite: Array = []
 	for i in range(5):
-		exquisite.append(graded("STRIKE", 18, 4, flawless, "x%d" % i, "GEODE"))
+		exquisite.append(graded("STRIKE", 18, 2, flawless, "x%d" % i, "GEODE"))
 	for s in exquisite:
 		best.tray.append(s)
 	var peerless: Dictionary = DeepEconomy.sign_contract(best, refs_of(exquisite))

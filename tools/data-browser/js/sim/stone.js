@@ -33,6 +33,10 @@ export const isFlawless = (stone) => Boolean(C.clarityEntry(I(stone.clarity)).fl
 export const inclusionSlots = (clarity) => Number(C.clarityEntry(clarity).inclusions || 0);
 export const color = (stone) => String(skillOf(stone).color || 'WHITE');
 export const isOpal = (stone) => color(stone) === C.OPAL;
+export const isTranscendent = (stone) => String(skillOf(stone).rarity || '') === 'TRANSCENDENT';
+// What a gem that copies or replays never touches: an opal, or a Transcendent, which counts as
+// one here (owner, November 17, 2026; sim/stone.gd out_of_reach).
+export const outOfReach = (stone) => isOpal(stone) || isTranscendent(stone);
 
 // Every color the stone counts as: its skill's, any color a Zoning adds, and the socket's
 // own color for an Alexandrite. An opal answers to none of the six unless something says so.
@@ -129,6 +133,8 @@ export function gradeBreakdown(stone) {
 	let inclusionPts = 0;
 	for (const key of countedInclusions(stone)) inclusionPts += INCLUSION_SCORE[C.inclusion(key).rarity || 'COMMON'] ?? 2;
 	inclusionPts = Math.min(15, inclusionPts);
+	// A Flawless stone earns the inclusions' 15 in full (sim/stone.gd grade_breakdown).
+	if (isFlawless(stone)) inclusionPts = 15;
 	const skillPts = (C.rarityScore(skillOf(stone).rarity || 'COMMON') / 28) * 8;
 	return { carat_pts: caratPts, cut_pts: cutPts, clarity_pts: clarityPts, inclusion_pts: inclusionPts, skill_pts: skillPts, total: caratPts + cutPts + clarityPts + inclusionPts + skillPts };
 }

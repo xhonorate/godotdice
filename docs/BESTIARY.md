@@ -731,3 +731,32 @@ which Riposte would answer.
   floats off the health bar once ("−12 Jagged", `_jagged_paid`).
 - New animations: Low Ceiling (the hook drags the roof down), Hall of Mirrors (was Splinter's
   flick), Jam (the treads catch, smoke), High Water (the wheel turned back, water over the gate).
+
+## 15. The tuning calls (November 17, 2026)
+
+The balance runs (docs/BALANCE.md) flagged the creatures that end the most runs and the ones that
+cost nothing. The owner marked every call on the review page
+(https://claude.ai/artifact/XatLhfzHmBf1socNM5DiYU, db `tune1`); what was approved is built.
+Content numbers, one new move and one new option.
+
+- **The Mirror Regent.** Reflection throws back half the damage it took since its last action
+  (`pct` of `taken_since`, 50), was all of it. It was beaten by 69% of the first stones that
+  reached it, where every other Warden of the first five mines is beaten by 93 to 99%; played as
+  a what-if, 90%. Its Hall of Mirrors is as the owner kept it on November 16.
+- **The Kaleidoscope.** Glare 5 → 11. The fight cost 11% of a health bar; the Glazier, eight
+  floors above it, costs 20%.
+- **Salamander.** Ember 5 → 4 Burn: one Ember is 10 points before the mine's weight, was 15.
+- **Slag Hound.** Its faces are Maul, Howl, Bite, Howl, Maul, Bite (were four Mauls and two
+  Howls). Bite is a new move, 4 damage that block can stop; its rig has a snap for it
+  (view/creatures/rigs/furnace.gd). Maul 4 → 3 was played too and changed nothing: at depth the
+  bonus is most of the blow.
+- **Mycel Weaver.** Fangs is 2 hits of 1 (was 2 of 2). The owner kept the rule under it: a
+  creature's Poison is weighed by its mine when it ticks, so what Fangs lays is weighed twice.
+- **Thieves take a share, with a floor.** A Magpie's and a Glint Magpie's Snatch takes 10% of the
+  richest player's pyrite, at least 10; a Gilded Magpie's 20%, at least 30. `steal_gold` reads a
+  new option, `least` (sim/battle.gd), said by `DeepCreatures.effect_words` and by the browser's
+  rules.js; the action die writes the share with its % (`number` in view/battle/creature_look.gd).
+- **Health.** Glint Magpie 16 → 24, Will-o'-Wisp 12 → 18, so each lives to act twice.
+
+Left as they were by the owner's mark: the Assayer (the wall is the bot's unspent purse) and the
+Collapsar.

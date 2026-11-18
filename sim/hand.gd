@@ -3,7 +3,11 @@ extends RefCounted
 ## What a hand of rolls contains, worked out once and read by every trigger and term.
 ##
 ## Wild dice join the largest set (ties go to the higher value) and fill the gaps in the
-## longest straight. Blank dice are not there, nor dice a Warden has numbed (`numb`). A Twin face counts twice for sets. The
+## longest straight. Blank dice are not there, nor dice a Warden has numbed (`numb`). A Twin face
+## counts as two dice wherever dice are counted: in sets, and in every count of dice showing
+## something (odd, even, low, crowns, held, rerolled, the dice in the hand, and the trigger
+## counts DeepPatterns takes with `weigh`). Straights, scales and distinct values count values,
+## so a Twin is one there. A Graining's `twinned` held die counts twice in sets only. The
 ## analysis is a plain dictionary so the rules, the forecast and the tests all read the
 ## same fields.
 ##
@@ -34,6 +38,7 @@ extends RefCounted
 ##   sizes         {die id: how many faces a plain die of its shape has}
 ##   one_ids       the dice whose face shows a 1 (a wild is not one of them)
 ##   phantom_ids   the dice a gem conjured this turn (counted in `phantoms` as well)
+##   twin_ids      the dice on a Twin face, each counted as two (see `weigh`)
 ##   scale         {length, dice, values, total}: the longest climb across the dice from the
 ##                 smallest die to the largest, each showing more than the one before (Arpeggio)
 
@@ -69,6 +74,7 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 	var one_ids: Array = []
 	var notes: Array = []
 	var numbed: int = 0
+	var twin_ids: Array = []
 	for index in range(hand.size()):
 		var roll: Dictionary = hand[index]
 		var kind: String = str(roll.get("kind", "plain"))
@@ -89,13 +95,17 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 			numbed += 1
 			continue
 		max_total += top
+		## A Twin face is two dice to every count of dice (`weigh`).
+		var weight: int = 2 if kind == "twin" else 1
+		if kind == "twin":
+			twin_ids.append(id)
 		if bool(roll.get("phantom", false)):
 			phantoms += 1
 			phantom_ids.append(id)
 		if DeepDice.held_for_patterns(roll):
-			held += 1
+			held += weight
 		if int(roll.get("rerolls", 0)) > 0:
-			rerolled += 1
+			rerolled += weight
 		if kind == "wild":
 			## Any value at all: its top for the high end, and low for a gem that wants low dice.
 			wilds.append(id)
@@ -123,14 +133,14 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 		## Past 100 on a raised or exploded die, which is fine: it is high.
 		high_pct = maxi(high_pct, int(value * 100 / faces))
 		if value % 2 == 1:
-			odd += 1
+			odd += weight
 		else:
-			even += 1
+			even += weight
 		if value * 2 <= faces:
-			low_dice += 1
+			low_dice += weight
 			low_ids.append(id)
 		if value >= top:
-			crowns += 1
+			crowns += weight
 			crown_ids.append(id)
 			crown_total += value
 			crown_values[value] = true
@@ -193,7 +203,8 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 			even_values += 1
 	return {"values": values, "wilds": wilds, "wild_tops": wild_tops, "wild_total": wild_total, "rank": rank, "total": total, "max_total": maxi(1, max_total),
 		"high": maxi(high, wild_top), "low": low if low > 0 else wild_top, "high_pct": high_pct,
-		"held": held, "rerolled": rerolled, "phantoms": phantoms, "phantom_ids": phantom_ids, "dice_count": hand.size() - numbed,
+		"held": held, "rerolled": rerolled, "phantoms": phantoms, "phantom_ids": phantom_ids, "dice_count": hand.size() - numbed + twin_ids.size(),
+		"twin_ids": twin_ids,
 		"groups": groups, "plain_groups": plain_groups, "best_set": groups[0] if groups.size() > 0 else {"value": 0, "count": 0, "dice": []},
 		"pairs": pairs, "straight": _straight(counts.keys(), wilds, ids_by_value, hand.size(), wild_top),
 		"odd": odd + wilds.size(), "even": even + wilds.size(), "distinct": counts.size() + wilds.size(),
@@ -215,19 +226,32 @@ static func _scale(notes: Array) -> Dictionary:
 	var length: Array = []
 	var total: Array = []
 	var before: Array = []
+	## The climb ending on each die steps up from the best climb ending on a lower value, the
+	## first such die on a tie. That best is kept a value at a time (`tops`: value -> index), so a
+	## hand is read in dice x distinct values rather than dice x dice: a Refract on a Gemini
+	## leaves thousands of phantoms, and the pairwise read took most of a second a gem
+	## (November 17, 2026). It picks exactly the dice the pairwise read picked; the browser
+	## sim (scaleOf) still reads it pairwise.
+	var tops: Dictionary = {}
 	for i in range(order.size()):
+		var value: int = int(order[i].value)
 		length.append(1)
-		total.append(int(order[i].value))
+		total.append(value)
 		before.append(-1)
-		for j in range(i):
-			if int(order[j].value) >= int(order[i].value):
+		var from: int = -1
+		for w in tops:
+			if int(w) >= value:
 				continue
-			var longer: int = int(length[j]) + 1
-			var more: int = int(total[j]) + int(order[i].value)
-			if longer > int(length[i]) or (longer == int(length[i]) and more > int(total[i])):
-				length[i] = longer
-				total[i] = more
-				before[i] = j
+			var j: int = int(tops[w])
+			if from < 0 or int(length[j]) > int(length[from]) or (int(length[j]) == int(length[from]) and (int(total[j]) > int(total[from]) or (int(total[j]) == int(total[from]) and j < from))):
+				from = j
+		if from >= 0:
+			length[i] = int(length[from]) + 1
+			total[i] = int(total[from]) + value
+			before[i] = from
+		var held: int = int(tops.get(value, -1))
+		if held < 0 or int(length[i]) > int(length[held]) or (int(length[i]) == int(length[held]) and int(total[i]) > int(total[held])):
+			tops[value] = i
 	var best: int = -1
 	for i in range(order.size()):
 		if best < 0 or int(length[i]) > int(length[best]) or (int(length[i]) == int(length[best]) and int(total[i]) > int(total[best])):
@@ -240,6 +264,16 @@ static func _scale(notes: Array) -> Dictionary:
 		values.push_front(int(order[at].value))
 		at = int(before[at])
 	return {"length": dice.size(), "dice": dice, "values": values, "total": int(total[best]) if best >= 0 else 0}
+
+static func weigh(analysis: Dictionary, ids: Array) -> int:
+	## How many dice these are to a gem counting them: a Twin face is two.
+	var twins: Array = analysis.get("twin_ids", [])
+	if twins.is_empty():
+		return ids.size()
+	var weight: int = 0
+	for id in ids:
+		weight += 2 if twins.has(id) else 1
+	return weight
 
 static func size_steps(analysis: Dictionary, ids: Array) -> int:
 	## How many sizes over a d4 these dice are, added up: a d6 is one, a d8 two, a d10 three.

@@ -264,7 +264,8 @@ func attacks() -> void:
 	f.foe.statuses.poison = 9
 	f.state.enemies[1].statuses.ward = 1
 	event = cast(f, "DETONATE", [5, 5, 3, 2, 2], true)
-	check(int(f.foe.statuses.poison) == 0 and int(f.foe.hp) == 946, "Detonate consumes all nine Poison for one scaled hit")
+	## Four a stack, grown by the stone's carat steps (Flawless's x1.5 is a sixth of a step), not the whole curve.
+	check(int(f.foe.statuses.poison) == 0 and int(f.foe.hp) == 1000 - 9 * DeepRules.sat_floor(4.0 * (1.0 + DeepRules.carat_steps(1.5))), "Detonate consumes all nine Poison for one hit, four a stack (%d)" % (1000 - int(f.foe.hp)))
 	check(int(f.state.enemies[1].statuses.ward) == 0 and int(f.state.enemies[1].statuses.get("poison", 0)) == 0, "Ward intercepts poison spread")
 	f = setup()
 	f.player.target = f.state.enemies[1].id
@@ -370,9 +371,10 @@ func fortune() -> void:
 	cast(f, "STAKE", [1, 2, 3, 4, 5])
 	check(DeepRules.pyrite(f.player) == 95 and is_equal_approx(float(f.player.amplify), 1.5), "an ordinary Stake spends an exact five for 50%")
 	cast(f, "GILDED_ARMOR", [1, 2, 3, 4, 5])
-	## Its share of the 95 Pyrite is read off the pack at a Perfect cut, then the Stake's 1.87.
+	## Its share of the 95 Pyrite is read off the pack at a Perfect cut. It is a multiplier
+	## (steps since November 17, 2026), so the Stake's x1.5 lifts it by a sixth, not by half.
 	var gilded: int = 95 * int(DeepContent.skill("GILDED_ARMOR").effects[0].amount.args[1].ladder[4]) / 100
-	check(int(f.player.block) == int(floor(float(gilded) * 1.5)), "Gilded Armor uses remaining available Pyrite and preceding amplification: %d x 1.5 (got %d)" % [gilded, int(f.player.block)])
+	check(int(f.player.block) == int(floor(float(gilded) * (1.0 + DeepRules.carat_steps(1.5)))), "Gilded Armor uses remaining available Pyrite and a share of the preceding amplification: %d x 1.17 (got %d)" % [gilded, int(f.player.block)])
 	## Gilded Armor reads a straight now that it wears the trigger Windfall used to ask for.
 	## On its own fixture, because a gem that stays dark spends the amplification above.
 	check(cast(setup(), "GILDED_ARMOR").kind == "gem_fizzle", "Gilded Armor needs a straight")

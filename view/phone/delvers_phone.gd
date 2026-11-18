@@ -284,12 +284,13 @@ static func _sockets(home: Control, content: VBoxContainer, character_key: Strin
 		var in_rail: bool = false
 		for index in range(rail_cap):
 			in_rail = in_rail or home.rail_skill(record, index) == chosen_key
-		var fits: bool = home._bench_socket < 0 or DeepProfile.rail_refusal(home.profile, character_key, home._bench_socket, chosen_key).is_empty()
+		var fits: bool = DelversPage.pick_refusal(home, character_key, chosen_key).is_empty()
 		var tile := StoneCard.tile(grid, stone, DeepUi.pt(44))
 		tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		tile.modulate = Color(1, 1, 1, 1.0 if fits else 0.3)
 		if in_rail:
 			home.tile_mark(tile, "check", DeepUi.GOOD, "Already set")
+		DelversPage.mark_opal(home, tile, character_key, chosen_key)
 		var shown_stone: Dictionary = stone
 		## Held, the picture's card says what it does and how it weighs against the stone in the
 		## socket it would go in; its Details is the close look, with "Set in socket N".
@@ -350,11 +351,9 @@ static func _socket_tile(home: Control, parent: Node, index: int, socket_color: 
 			buy.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 			buy.custom_minimum_size.y = DeepUi.pt(DeepUi.FINGER_LEAST)
 			buy.disabled = int(home.profile.get("gold", 0)) < price
-			buy.tooltip_text = "Open this socket for good: it is filled from the vault before every run, in every mine." + DelversPage._heavy_note(index)
+			buy.tooltip_text = "Open this socket for good: it is filled from the vault before every run, in every mine."
 			DeepUi.voice(buy, "buy")
-			var heavy: String = DelversPage.heavy_tag(index)
-			if not heavy.is_empty():
-				DeepUi.label(box, heavy, 11, DeepUi.BAD, HORIZONTAL_ALIGNMENT_CENTER)
+			## A locked socket says nothing of luck: only stones in open sockets count.
 		else:
 			DeepUi.label(box, "open %d first" % (DeepProfile.open_sockets(home.profile, character_key) + 1), 11, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 		return

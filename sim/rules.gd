@@ -72,7 +72,9 @@ extends RefCounted
 ##   double_resonance(every gem after it this turn rings twice as loud)  keep_phantoms(this turn's
 ##     phantoms stay in the hand into the next)
 ##   An effect may carry `hp_cost`: health its owner pays as the gem fires, never the last point
-##   (the gem stays dark instead), soaked by no block, like a price never swollen by weight.
+##   (the gem stays dark instead), soaked by no block, like a price never swollen by weight. An
+##   inclusion's `hp_cost` (Bruise) is not asked first: it can take the last point and down its
+##   owner (DeepBattle._bleed), and the blow it paid for does not land.
 ##   An effect may carry `of_status`: its amount is then that percent of the status its owner holds
 ##   when it lands, so a gem can read what the effects before it have just done. An effect may
 ##   carry `of_target`: its amount is then that percent of what each target has as it lands
@@ -106,7 +108,7 @@ extends RefCounted
 ##     repeat_next(the next gem to resolve, the Birthstone included, fires that many times more)
 ##     void_copy(a Void copy of the last gem that fired, never an opal, joins the rail for the rest of the fight)
 ##     absorbed(a Black Opal: every skill it has absorbed this run fires from its socket)
-##   Transcendent: fire_neighbours(the gems either side of it fire, that many times each)
+##   Transcendent: fire_neighbours(that many goes for the gems beside it, before then after in turn)
 ##     force_after(every gem after it fires this turn whatever the dice show, that many times)
 ##   An effect may carry `share`: an expression giving a percentage of its amount, worked out
 ##     after carat rather than before so a small share of a small number is never rounded to
@@ -121,8 +123,9 @@ extends RefCounted
 ##     festering(heals halved)  scorched(block gained halved)  burn(hurts at the end of the turn like
 ##       poison, but block soaks it)  strength(amount: a point more on every blow it deals, for the fight)
 ##     die_lock(pick: high or random: that die comes up as it is now and cannot be rerolled next turn)
-##     steal_gold(amount, or pct: taken from each player's pyrite and held; hurt deals each the
-##       amount taken from them)  empower_next(amount: percent more on its next attack)
+##     steal_gold(amount, or pct: taken from each player's pyrite and held; least: the fewest it
+##       takes while the purse holds that much; hurt deals each the amount taken from them)
+##     empower_next(amount: percent more on its next attack)
 ##     rally(every creature deals amount more this turn)  grow_die(shape, cap: another die)
 ##     swell(amount: its burst grows)  hold_gem(pick: hardest, best or usable: a gem is taken
 ##       off a rail until it dies)  bury_socket(pick: heaviest)  exhibit(it fires every gem it holds)
@@ -236,7 +239,7 @@ const EACH_AFTER_GIFTS: Array = ["block", "spikes", "poison"]
 const EFFECT_OPTIONS: Array = ["chain_on_kill", "missing_hp_bonus", "from_result", "remove_all", "revive_block", "scope", "all_faces", "refund_mult", "poison_splash", "pot_mode",
 	"piercing", "split_party", "pick", "creature", "pct", "permanent", "shape", "cap", "turns", "cancel_pct", "guard_pct", "store", "release",
 	"hurt", "add", "flat", "stones", "of_status", "gift", "overflow", "resonance_cap", "shows", "every_gem", "elite", "best_of", "shrink", "both_ends",
-	"of", "pattern", "keep_all",
+	"of", "pattern", "keep_all", "least",
 	## A creature's action dice (docs/CREATURE_DICE.md): `per_reroll` multiplies the amount by the
 	## rerolls its target used this turn, `poison_through` poisons for what got past block,
 	## `until` "next_action" takes a status off again as its next action opens, `back`
@@ -372,7 +375,7 @@ static func term(name: String, node: Dictionary, c: Dictionary) -> int:
 			## The even dice among the ones the trigger read: a Miasma counts only the evens in the
 			## handful of highest dice its Cut lets it see.
 			var evens: Array = DeepHand.matching(a, func(v: int) -> bool: return v % 2 == 0)
-			return trig.get("dice", []).filter(func(id: Variant) -> bool: return evens.has(id)).size()
+			return DeepHand.weigh(a, trig.get("dice", []).filter(func(id: Variant) -> bool: return evens.has(id)))
 		"pairs":
 			## Every pair the hand holds whose value clears the trigger's rung. Four or five alike
 			## are two pairs, so is a full house; a gem forced to fire matched no rung at all.
@@ -404,7 +407,7 @@ static func term(name: String, node: Dictionary, c: Dictionary) -> int:
 			var matched: int = 0
 			for group in a.get("groups", []):
 				if int(group.get("count", 0)) >= 2:
-					matched += group.get("dice", []).size()
+					matched += DeepHand.weigh(a, group.get("dice", []))
 			return matched
 		"trophies": return int(unit.get("run_counts", {}).get("birthstone:trophies", 0))
 		"envenom": return int(unit.get("statuses", {}).get("envenom", 0))
@@ -417,13 +420,13 @@ static func term(name: String, node: Dictionary, c: Dictionary) -> int:
 		"dice": return int(a.get("dice_count", 0))
 		"count_value":
 			var wanted: int = int(node.get("value", 0))
-			return DeepHand.matching(a, func(v: int) -> bool: return v == wanted).size()
+			return DeepHand.weigh(a, DeepHand.matching(a, func(v: int) -> bool: return v == wanted))
 		"count_at_most":
 			var ceiling: int = int(node.get("value", 0))
-			return DeepHand.matching(a, func(v: int) -> bool: return v <= ceiling).size()
+			return DeepHand.weigh(a, DeepHand.matching(a, func(v: int) -> bool: return v <= ceiling))
 		"count_at_least":
 			var floor_value: int = int(node.get("value", 0))
-			return DeepHand.matching(a, func(v: int) -> bool: return v >= floor_value).size()
+			return DeepHand.weigh(a, DeepHand.matching(a, func(v: int) -> bool: return v >= floor_value))
 		"run_high": return int(a.get("straight", {}).get("high", 0))
 		"run_length": return int(a.get("straight", {}).get("length", 0))
 		"set_value": return int(a.get("best_set", {}).get("value", 0))

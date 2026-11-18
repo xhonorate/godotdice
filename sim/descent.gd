@@ -1539,13 +1539,20 @@ static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
 			## A Gambler's Bust can leave the fight's ore in the red; the pit never charges more than it paid.
 			## Lean Seams pays less for every fight and drops fewer stones.
 			var lean: int = mod_count(state, "LEAN_SEAMS")
-			var ore: int = maxi(0, int(DeepContent.constant("ore_per_fight", 20)) + int(DeepContent.hazard_param("LEAN_SEAMS", "pyrite", -5)) * lean + int(state.depth) + int(fighter.get("gold", 0)))
+			var base_pay: int = int(DeepContent.constant("ore_per_fight", 20)) + int(DeepContent.hazard_param("LEAN_SEAMS", "pyrite", -5)) * lean + int(state.depth)
+			var ore: int = maxi(0, base_pay + int(fighter.get("gold", 0)))
+			## The fight's own pay, without the pyrite the player's gems and dice made in it: the
+			## spoils' pyrite card is a share of this alone (owner, November 17, 2026).
+			base_pay = maxi(0, base_pay)
 			if kind == "elite":
 				ore *= 2
+				base_pay *= 2
 			if kind == "warden":
 				ore *= 3
+				base_pay *= 3
 			if has_mod(state, "MIDAS"):
 				ore *= 2
+				base_pay *= 2
 			## What the pit paid, before what the fight itself spent or took (a Wager, a Bust, a
 			## Snatch): that is what flies to the purse, which showed the spending leave as it happened.
 			var earned: int = ore
@@ -1581,7 +1588,7 @@ static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
 				reward.stones.append(_find_stone(state, unit, streams, int(DeepContent.constant("elite_stone_luck", 3)), "placer"))
 			## The spoils: a pick of three for everyone still standing (the fallen are carried).
 			if kind != "warden" and not bool(unit.get("downed", false)):
-				reward.spoils = _offer_spoils(state, unit, streams, kind == "elite", stone_card, earned, int(fighter.get("quality_bonus", 0)), reward.stones.size())
+				reward.spoils = _offer_spoils(state, unit, streams, kind == "elite", stone_card, earned, int(fighter.get("quality_bonus", 0)), reward.stones.size(), base_pay)
 			settle.rewards[unit.id] = reward
 		else:
 			# Unbanked fight earnings are lost; bank-funded spending is still paid.
@@ -1656,7 +1663,8 @@ static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
 ##     is for the rail that reads low: it is drawn `spoils_low_weight` (3) times as often when
 ##     a set gem's trigger reads the low end of the hand (`_rail_reads_low`), and still now
 ##     and then for anyone, so a low build can be begun on it.
-##   pyrite: `spoils_pyrite_pct` of what the fight paid, on top of it.
+##   pyrite: `spoils_pyrite_pct` of the fight's base pay (`ore_per_fight` + depth, by the fight's
+##     kind and Midas; never the pyrite the player's gems and dice made in it), on top of it.
 ##
 ## The offer is `state.spoils[player id]` = {cards, elite, paid, dropped}. A vote down a tunnel
 ## with the offer still open skips it, and so does the party moving on (`_drop_spoils`).
@@ -1669,7 +1677,7 @@ const SPOILS_LOW_WORK: Array = ["soften", "blunt", "downsize"]
 ## A trigger that reads the low end of the hand, by kind, or an `always` read "low".
 const LOW_TRIGGER_KINDS: Array = ["at_most", "below", "low_count", "total_pct_at_most", "total_at_most", "crowns_at_most", "all_odd"]
 
-static func _offer_spoils(state: Dictionary, unit: Dictionary, streams: Dictionary, elite: bool, stone_card: bool, paid: int, quality: int, dropped: int) -> Dictionary:
+static func _offer_spoils(state: Dictionary, unit: Dictionary, streams: Dictionary, elite: bool, stone_card: bool, paid: int, quality: int, dropped: int, base: int = -1) -> Dictionary:
 	var rng: RandomNumberGenerator = streams.stones
 	var pity: int = int(DeepContent.constant("spoils_pity", 2))
 	var cards: Array = []
@@ -1687,7 +1695,8 @@ static func _offer_spoils(state: Dictionary, unit: Dictionary, streams: Dictiona
 		var card: Dictionary = _spoils_work(unit, work, rng)
 		if not card.is_empty():
 			cards.append(card)
-	var extra: int = int(ceil(float(maxi(0, paid)) * float(DeepContent.constant("spoils_pyrite_pct", 150)) / 100.0 / 5.0)) * 5
+	## A share of the fight's base pay (`base`), never of the pyrite gems and dice made in it.
+	var extra: int = int(ceil(float(maxi(0, paid if base < 0 else base)) * float(DeepContent.constant("spoils_pyrite_pct", 150)) / 100.0 / 5.0)) * 5
 	cards.append({"kind": "ore", "ore": maxi(5, extra)})
 	var offer: Dictionary = {"cards": cards, "elite": elite, "paid": paid, "dropped": dropped}
 	if not state.has("spoils"):
@@ -2377,7 +2386,7 @@ static func _twin(state: Dictionary, unit: Dictionary, choice: String) -> Dictio
 		"toss":
 			DeepOddities.remove_stone(unit, str(stone.id))
 		"swap":
-			if DeepStone.is_locked(other):
+			if DeepStone.knot_held(unit, other):
 				return _refuse("a Knot cannot leave its socket")
 			var socket: int = -1
 			for i in range(unit.rail.size()):
@@ -2715,8 +2724,8 @@ static func _open_stall(state: Dictionary, streams: Dictionary) -> void:
 		stock[str(unit.id)] = _stall_goods(state, unit, streams, mine)
 	state.chamber.stock = stock
 	state.chamber.appraisals = {}
-	## How often each player has had the counter restocked here (review card S1): every
-	## Restock costs `restock_step` more than the last.
+	## How often each player has had the counter restocked here (review card S1): each
+	## Restock costs more than the last, by a growing step (`restock_cost`).
 	state.chamber.restocks = {}
 	for unit in state.players:
 		unit.ready = false
@@ -2790,10 +2799,15 @@ static func stall_luck_rng(state: Dictionary, stone_id: String) -> RandomNumberG
 	return rng
 
 static func restock_cost(state: Dictionary, unit_id: String) -> int:
-	## What this player's next Restock costs at this stall (review card S1, round 3): 15, then
-	## 15 more for each one after (15, 30, 45, ...), with no last one.
-	var used: int = maxi(0, int(state.get("chamber", {}).get("restocks", {}).get(unit_id, 0)))
-	return int(DeepContent.constant("restock_base", 15)) + used * int(DeepContent.constant("restock_step", 15))
+	## What this player's next Restock costs at this stall: round(15 + 5x + 5x²) for x
+	## Restocks already bought here (owner, November 17, 2026, was 15 more each time): 15, 25,
+	## 45, 75, 115, ..., with no last one. `restock_base`, `restock_step`, `restock_square`.
+	return restock_price_at(int(state.get("chamber", {}).get("restocks", {}).get(unit_id, 0)))
+
+static func restock_price_at(used: int) -> int:
+	## The price of a Restock after `used` of them at this stall.
+	var x: float = float(maxi(0, used))
+	return int(round(float(DeepContent.constant("restock_base", 15)) + float(DeepContent.constant("restock_step", 5)) * x + float(DeepContent.constant("restock_square", 5)) * x * x))
 
 static func polish_refusal(unit: Dictionary, stone: Dictionary) -> String:
 	## Why this gem cannot be polished at a rest stop (review card B1), or "": only a gem set
@@ -2957,7 +2971,7 @@ static func _sell(state: Dictionary, unit: Dictionary, stone_id: String) -> Dict
 		return _refuse("no such stone")
 	if DeepStone.is_fragile(stone):
 		return _refuse("fragile stones cannot be sold")
-	if DeepStone.is_locked(stone):
+	if DeepStone.knot_held(unit, stone):
 		return _refuse("a Knot cannot leave its socket")
 	## A stone nobody has read still sells: the buyer pays for its size class and nothing
 	## else, which is always the worse end of what it might have been worth.
@@ -3032,7 +3046,7 @@ static func _offer_at_altar(state: Dictionary, unit: Dictionary, stone_ids: Vari
 			return _refuse("one gem cannot fill two sockets")
 		ids.append(id)
 		var stone: Dictionary = DeepOddities.find_stone(unit, id)
-		var refusal: String = DeepAltar.refusal(stone)
+		var refusal: String = DeepAltar.refusal(stone, unit)
 		if not refusal.is_empty():
 			return _refuse(refusal)
 		stones.append(stone)
@@ -3232,7 +3246,7 @@ static func respite_waived(state: Dictionary, unit: Dictionary) -> bool:
 			continue
 		if not bool(stone.get("appraised", false)) and not DeepStone.is_geode(stone):
 			return false
-		if can_wish(stone):
+		if can_wish(stone, unit):
 			return false
 	return true
 
@@ -3275,12 +3289,12 @@ static func rest_amount(unit: Dictionary, state: Dictionary = {}) -> int:
 		share = share * (100 - cut) / 100
 	return clampi(int(unit.get("max_hp", 0)) - int(unit.get("hp", 0)), 0, share)
 
-static func can_wish(stone: Dictionary) -> bool:
+static func can_wish(stone: Dictionary, unit: Dictionary = {}) -> bool:
 	## What the landing's well will take: any stone that is yours to give up. A birthstone is
-	## not — it came down with you and it goes back up with you — a Knot will not leave its
-	## socket, and a fragile stone (a temporary one, a Void, a staked find) was never yours to
+	## not — it came down with you and it goes back up with you — a Knot set in a socket will
+	## not leave it (one loose in the bag goes like any stone; `unit` is whose it is), and a fragile stone (a temporary one, a Void, a staked find) was never yours to
 	## turn into anything that could come home.
-	return not DeepStone.is_birthstone(stone) and not DeepStone.is_locked(stone) and not DeepStone.is_fragile(stone) and not DeepStone.is_geode(stone)
+	return not DeepStone.is_birthstone(stone) and not DeepStone.knot_held(unit, stone) and not DeepStone.is_fragile(stone) and not DeepStone.is_geode(stone)
 
 static func _respite(state: Dictionary, unit: Dictionary, choice: String, stone_id: String, ore: int = 0) -> Dictionary:
 	if not str(unit.get("respite", "")).is_empty():
@@ -3324,7 +3338,7 @@ static func _respite(state: Dictionary, unit: Dictionary, choice: String, stone_
 				said = "%d pyrite goes down into the dark." % spent
 			else:
 				var stone: Dictionary = DeepOddities.find_stone(unit, stone_id)
-				if stone.is_empty() or not can_wish(stone):
+				if stone.is_empty() or not can_wish(stone, unit):
 					return _refuse("choose a stone you can part with")
 				worth = DeepOddities.well_worth(stone, 0.5, 1.5)
 				said = "%s goes down into the water." % (DeepStone.name(stone) if bool(stone.get("appraised", false)) else DeepStone.raw_name(stone))
@@ -3995,7 +4009,113 @@ static func _command(state: Dictionary, player_id: String, cmd: Dictionary) -> D
 			if _close_salvage(state):
 				event.finished = "fallen"
 			return {"ok": true, "event": event}
+		"unready":
+			return _unready(state, unit)
 	return _refuse("unknown command " + kind)
+
+static func _unready(state: Dictionary, unit: Dictionary, dry: bool = false) -> Dictionary:
+	## Done before the rest of the party, and not done after all (the owner, November 17,
+	## 2026): whoever pressed on early (left a stall, chose a way, put the pick down, walked on
+	## from an altar or a card) takes it back while the party still waits on someone, and goes on
+	## where they were. Only the wait is taken back: a stone bought, a respite taken or a card's
+	## work done stays done. A room the whole party had left has already closed, so there is
+	## nothing to take back from it. `dry` only asks whether it could be (see `can_unready`).
+	if bool(unit.get("downed", false)):
+		return _refuse("you are down: the party carries you to the next landing")
+	var what: String = ""
+	match str(state.get("phase", "")):
+		"tunnels":
+			if str(unit.get("vote", "")).is_empty():
+				return _refuse("you have not chosen a way yet")
+			what = "vote"
+			if not dry:
+				unit.vote = ""
+		"landing":
+			if not at_crossroads(state) or str(unit.get("choice", "")).is_empty():
+				return _refuse("you have not chosen up or down yet")
+			what = "landing"
+			if not dry:
+				unit.choice = ""
+				unit.via = ""
+				## Whoever asked for the cage and no longer wants it asks nobody any more.
+				var by: String = lift_asked_by(state)
+				if by.is_empty():
+					state.landing.erase("lift_by")
+				else:
+					state.landing.lift_by = by
+		"chamber":
+			var chamber: Dictionary = state.get("chamber", {})
+			var kind: String = str(chamber.get("kind", ""))
+			if bool(chamber.get("settled", false)) or in_battle(state):
+				return _refuse("there is nothing to go back to")
+			if kind == "merchant":
+				if not bool(unit.get("ready", false)):
+					return _refuse("you are still at the stall")
+				what = "stall"
+				if not dry:
+					unit.ready = false
+			elif kind == "altar":
+				if str(unit.get("altar_done", "")) != "left":
+					return _refuse("you are still at the altar")
+				what = "altar"
+				if not dry:
+					unit.altar_done = "made" if chamber.get("altar", {}).has(str(unit.id)) else ""
+			elif kind in ROCK_ROOMS and chamber.has("vein"):
+				if bool(unit.get("mining", false)):
+					return _refuse("you are still at the rock")
+				what = "vein"
+				if not dry:
+					unit.mining = true
+			elif kind in ["oddity"] + CARD_ROOMS:
+				var chosen: String = str(unit.get("oddity_choice", ""))
+				if chosen.is_empty():
+					return _refuse("you have not chosen yet")
+				## Only walking away is taken back; work the card did is done.
+				var walked: bool = false
+				for candidate in room_choices(state, str(unit.id)):
+					if str(candidate.get("id", "")) == chosen:
+						walked = str(candidate.get("action", {}).get("kind", "none")) == "none"
+				var result: Dictionary = chamber.get("results", {}).get(str(unit.id), {})
+				if not walked or not result.get("made", []).is_empty() or not result.get("lost", []).is_empty():
+					return _refuse("that work is done")
+				what = "oddity"
+				if not dry:
+					unit.oddity_choice = ""
+					chamber.get("results", {}).erase(str(unit.id))
+			else:
+				return _refuse("there is nothing to go back to")
+		_:
+			return _refuse("there is nothing to go back to")
+	if dry:
+		return {"ok": true, "what": what}
+	return {"ok": true, "event": _event(state, "unready", {"unit": unit.id, "what": what})}
+
+static func can_unready(state: Dictionary, unit_id: String) -> String:
+	## What this player pressed on early and could take back now ("vote", "landing", "stall",
+	## "altar", "vein", "oddity"), or "": what the screen asks before it offers "Not yet". Only
+	## in a party, where someone else is still being waited on (alone, pressing on moves the
+	## party at once). The command's own checks, run without changing anything.
+	var unit: Dictionary = player(state, unit_id)
+	if unit.is_empty() or living(state).size() < 2 or str(state.get("phase", "")) == "over":
+		return ""
+	if not unit.get("twin", {}).is_empty():
+		return ""
+	var asked: Dictionary = _unready(state, unit, true)
+	return str(asked.get("what", "")) if bool(asked.get("ok", false)) else ""
+
+static func forget_votes(state: Dictionary) -> void:
+	## A run picked up again from its checkpoint starts every choice afresh: the ways voted for
+	## and the cage or mouth chosen at a landing were the party's before it broke up, not now,
+	## and kept they named a way for someone who had not chosen it yet, or sent the party down
+	## it the moment the host was alone in the run again.
+	for unit in state.get("players", []):
+		unit.vote = ""
+		if str(state.get("phase", "")) == "landing":
+			unit.choice = ""
+			unit.via = ""
+			unit.station = ""
+	if str(state.get("phase", "")) == "landing" and state.get("landing", {}) is Dictionary:
+		state.landing.erase("lift_by")
 
 static func _close_salvage(state: Dictionary) -> bool:
 	## The reckoning is over once everyone still here has read theirs.

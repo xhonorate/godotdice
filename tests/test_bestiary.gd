@@ -594,8 +594,10 @@ func theft_and_flight() -> void:
 	f.player.block = 0
 	land(f.foe, ["Snatch"])
 	var snatch: Array = turn(f)
-	var take: int = amount_of("GILDED_MAGPIE", "Snatch")
-	check(moves_named(snatch, "Snatch").size() == 1 and int(f.foe.stolen_gold) == take and pyrite_of(f.player) == 40 - take, "a Gilded Magpie's Snatch takes %d: %d held" % [take, int(f.foe.stolen_gold)])
+	## A fifth of the richest purse, and never less than 30 while it holds that much (November 17, 2026).
+	var take: int = 30
+	check(amount_of("GILDED_MAGPIE", "Snatch") == 20 and moves_named(snatch, "Snatch").size() == 1 and int(f.foe.stolen_gold) == take and pyrite_of(f.player) == 40 - take,
+		"a Gilded Magpie's Snatch takes a fifth, at least %d: %d held" % [take, int(f.foe.stolen_gold)])
 	check(str(f.foe.dice[0].faces[0].get("move", "")) == "Flee", "the face it landed is Flee now")
 	var gone: Array = turn(f)
 	check(moves_named(gone, "Flee").size() == 1 and bool(f.foe.fled) and int(f.foe.hp) == 0 and str(f.state.outcome) == "victory", "the next time that face lands it is gone, and the room is clear")
@@ -797,12 +799,12 @@ func bursts_and_swelling() -> void:
 	check(ooze_kinds == ["damage"] and spore_kinds == ["poison"], "a Spore Slime's Ooze hits and its Spores poison: %s / %s" % [str(ooze_kinds), str(spore_kinds)])
 	## A Mycel Weaver's Fangs poison for whatever gets past block.
 	var weaver: Dictionary = setup(["MYCEL_WEAVER"])
-	weaver.player.block = 3
+	weaver.player.block = 1
 	land(weaver.foe, ["Fangs"])
 	var fangs: Array = moves_named(turn(weaver), "Fangs")
 	var bites: Array = fangs[0].effects if not fangs.is_empty() else []
 	check(bites.size() == 2 and int(bites[0].hp_loss) == 0 and not bites[0].has("envenomed") and int(bites[1].hp_loss) == 1 and int(bites[1].get("envenomed", {}).get("amount", 0)) == 1,
-		"Fangs of 2 and 2 against 3 block: the first is soaked, the second gets 1 through and poisons for 1: %s" % str(bites))
+		"Fangs of 1 and 1 against 1 block: the first is soaked, the second gets 1 through and poisons for 1: %s" % str(bites))
 	## A Root Horror's Feed heals and grows it; its Thicken makes it stronger.
 	var r: Dictionary = setup(["ROOT_HORROR"])
 	land(r.foe, ["Feed", "Thicken"])
@@ -1199,7 +1201,7 @@ func the_identity_pass() -> void:
 	var mirrored: Array = turn(r)
 	var thrown: Array = moves_named(mirrored, "Reflection").map(func(e: Dictionary) -> int: return int(e.effects[0].raw))
 	var image: Array = moves_named(mirrored, "Mirror Image").map(func(e: Dictionary) -> int: return int(e.effects[0].raw))
-	check(thrown == [30], "Reflection throws back the 30 it took since its last action: %s" % str(thrown))
+	check(thrown == [15], "Reflection throws back half of the 30 it took since its last action: %s" % str(thrown))
 	check(image == [6], "Mirror Image throws the best die back: %s" % str(image))
 	check(moves_named(mirrored, "Hall of Mirrors").size() == 1 and DeepCreatures.trait_value(r.foe, "set_toll", 0) == 1, "Hall of Mirrors holds its toll through the party's turn")
 	land(r.foe, ["Reflection"])

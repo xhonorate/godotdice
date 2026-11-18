@@ -78,7 +78,7 @@ stays the storage. **`gem` and `mirror` are removed.**
 | **Golden**    | +2 pyrite whenever it is rolled or rerolled                       | UNCOMMON    |
 | **Tally**     | +1 to this face, permanently, every time it is landed on          | RARE        |
 | **Sticky**    | the face carries into the next turn instead of being rerolled     | UNCOMMON    |
-| **Twin**      | counts as two dice in every set (pair, triple, …)                 | RARE        |
+| **Twin**      | counts as two dice for every gem that counts dice: sets, dice showing a number or more (Renown), odd/even, low dice, crowns; one value for straights and distinct | RARE        |
 | **Doubled**   | the face's value counts double in every calculation               | RARE        |
 | **Locked**    | once shown, the die cannot be rerolled for the rest of the fight  | detrimental |
 | **Blank**     | no value, no pattern, nothing                                     | detrimental |

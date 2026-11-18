@@ -959,13 +959,19 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 	## plate rather than on the socket (the owner, November 5).
 	var fired: int = int(opts.get("context", {}).get("run_fires", 0))
 	if fired > 0 and Plates.is_growth(item):
-		DeepUi.stat(does, "spark", "Fired %s this run: it grows with every firing." % DeepUi.plural(fired, "time"), DeepUi.GOOD, 13)
+		DeepUi.stat(does, "spark", "Fired %s this run: it grows as it fires." % DeepUi.plural(fired, "time"), DeepUi.GOOD, 13)
 	## A Black Opal says what it has taken in so far this run, in the order it took them.
 	if int(skill.get("absorbs", 0)) > 0 and not reference:
 		var taken: Array = item.get("absorbed", [])
 		var said: String = "Nothing absorbed yet this run." if taken.is_empty() else "Absorbed this run: %s." % ", ".join(taken.map(func(k: Variant) -> String: return str(DeepContent.skill(str(k)).get("name", k))))
 		DeepUi.stat(does, "opal_setting", said, DeepUi.OPAL_TONE, 13)
 	StoneCard.carat_lines(does, item, opts.get("context", {}), 13)
+	## A Transcendent's own count is exact (DeepStone.weight_note): said, so a heavy one is not
+	## read as missing its bonus; a Black Opal's weight rides on the skills it fires.
+	var weight_note: String = DeepStone.weight_note(item, opts.get("context", {}))
+	if not weight_note.is_empty():
+		DeepUi.stat(does, "carat", weight_note, DeepUi.ACCENT if DeepStone.weight_carried(item) else DeepUi.MUTED, 13,
+			"Carat. What weight does for this gem.")
 	if reference:
 		DeepUi.stat(does, "eye", "Written as it comes out of the rock at its plainest: one carat, a Poor cut, nothing inside. The one you find will be its own.", DeepUi.DIM, 12)
 	var carat_mult_mods: Array = mods.filter(func(m: Dictionary) -> bool: return str(m.get("kind", "")) == "carat_mult")
@@ -1241,6 +1247,9 @@ func _animate_reveal(root: VBoxContainer, item: Dictionary) -> void:
 	contrib.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	var lines: Array = [["Carat", float(breakdown.get("carat_pts", 0.0))], ["Cut", float(breakdown.get("cut_pts", 0.0))],
 		["Clarity", float(breakdown.get("clarity_pts", 0.0))], ["Rarity", float(breakdown.get("skill_pts", 0.0))]]
+	## A Flawless stone has no inclusion rows above, but earns their 15 in full: said here.
+	if DeepStone.is_flawless(item):
+		lines.insert(3, ["Flawless", float(breakdown.get("inclusion_pts", 0.0))])
 	const CONTRIB_STEP := 0.15
 	for index in range(lines.size()):
 		var line_row := DeepUi.hbox(contrib, 8)

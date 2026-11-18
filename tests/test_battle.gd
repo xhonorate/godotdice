@@ -8,6 +8,7 @@ var failures: Array = []
 func _init() -> void:
 	_test_setup_and_planning()
 	_test_resolution_flow()
+	_test_self_harm()
 	_test_resonance_and_birthstone()
 	_test_birthstones()
 	_test_passives()
@@ -182,6 +183,51 @@ func _test_resolution_flow() -> void:
 	if state.phase == "planning":
 		check(state.turn == 2 and not a.locked and a.hand.size() == 5, "the next turn rolls a fresh hand and unlocks")
 
+func _test_self_harm() -> void:
+	## A Bruise's price can take the last of its owner's health (owner, Nov 17 2026): alone,
+	## the fight is lost; in a party, they are down and the others fight on.
+	var r: Dictionary = rngs(12)
+	var state: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE", 1, 4, 2, ["BRUISE"]), stone("GUARD")])], ["QUARTZ_GOLEM"], {"depth": 1}, r.dice, r.creatures)
+	var a: Dictionary = DeepBattle.player(state, "a")
+	a.hp = 2
+	a.block = 5
+	hand(a, [3, 3, 5, 5, 5])
+	var foe_before: int = int(state.enemies[0].hp)
+	var events: Array = run_turn(state, r)
+	var strike: Array = fires(events, "a").filter(func(e: Dictionary) -> bool: return str(e.skill) == "STRIKE")
+	check(not strike.is_empty() and bool(strike[0].get("downed", false)) and int(strike[0].hp_cost) == 2, "Bruise's 2 HP takes the last 2, block or no block")
+	check(int(a.hp) == 0 and bool(a.downed), "its owner is down at 0, not left on 1 (%d)" % int(a.hp))
+	check(int(state.enemies[0].hp) == foe_before, "the blow it paid for with the last of them does not land")
+	check(fires(events, "a").size() == 1, "and nothing after it on the rail fires")
+	check(str(state.phase) == "over" and str(state.get("outcome", "")) == "defeat", "alone, that is the fight lost")
+	check(kinds(events).has("battle_over"), "and the fight says so")
+	## A Lifeline still catches them.
+	state = DeepBattle.begin([player("a", [stone("STRIKE", 1, 4, 2, ["BRUISE"])])], ["QUARTZ_GOLEM"], {"depth": 1}, r.dice, r.creatures)
+	a = DeepBattle.player(state, "a")
+	a.hp = 1
+	a.statuses.lifeline = 7
+	hand(a, [3, 3, 5, 5, 5])
+	run_turn(state, r)
+	check(not bool(a.downed) and int(a.hp) > 0, "a Lifeline catches a Bruise's fall")
+	## In a party the others fight on.
+	state = DeepBattle.begin([player("a", [stone("STRIKE", 1, 4, 2, ["BRUISE"])]), player("b", [stone("STRIKE", 1)])], ["QUARTZ_GOLEM"], {"depth": 1}, r.dice, r.creatures)
+	a = DeepBattle.player(state, "a")
+	var b: Dictionary = DeepBattle.player(state, "b")
+	a.hp = 2
+	hand(a, [3, 3, 5, 5, 5])
+	hand(b, [3, 3, 5, 5, 5])
+	events = run_turn(state, r)
+	check(bool(a.downed) and not bool(b.downed), "in a party only its owner goes down")
+	check(not fires(events, "b").is_empty(), "and the next rail still plays")
+	check(str(state.phase) != "over" or str(state.get("outcome", "")) != "defeat", "and the fight is not lost")
+	## A forecast plays the fall on a copy of the fight.
+	var forecast_state: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE", 1, 4, 2, ["BRUISE"])])], ["QUARTZ_GOLEM"], {"depth": 1}, r.dice, r.creatures)
+	var fa: Dictionary = DeepBattle.player(forecast_state, "a")
+	fa.hp = 2
+	hand(fa, [3, 3, 5, 5, 5])
+	DeepBattle.forecast(forecast_state, "a")
+	check(int(fa.hp) == 2 and not bool(fa.downed), "a forecast of the fall leaves the real fight untouched")
+
 func _test_resonance_and_birthstone() -> void:
 	var r: Dictionary = rngs(21)
 	var state: Dictionary = DeepBattle.begin([player("a", [stone("CLEAVE"), stone("STRIKE"), stone("TITHE"), stone("GUARD")])], ["QUARTZ_GOLEM"], {"depth": 1}, r.dice, r.creatures)
@@ -319,7 +365,7 @@ func _test_birthstones() -> void:
 	check(again.size() == 2 and again.all(func(e: Dictionary) -> bool: return int(e.socket) == 1), "Motif's two goes are both the last gem that fired, Mend")
 	check(bool(tier(encores[0], "Motif").active) and bool(tier(encores[1], "Motif").active), "three in a row lights Motif on both passes")
 	check(bool(fires(events4)[2].replay) and int(fires(events4)[3].resonance) == 4, "the replayed gems keep climbing Resonance (%d)" % int(fires(events4)[3].resonance))
-	check(int(tier(encores[0], "Overture").effects[0].raw) == 8 and int(tier(encores[1], "Overture").effects[0].raw) == 16, "Overture hits for 4×2 then 4×4")
+	check(int(tier(encores[0], "Overture").effects[0].raw) == 12 and int(tier(encores[1], "Overture").effects[0].raw) == 24, "Overture hits for 6×2 then 6×4")
 	check(bool(encores[1].replay) and not bool(tier(encores[1], "Encore").active), "the second pass does not ask for a third")
 	var r4b: Dictionary = rngs(7400)
 	var state4b: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE"), stone("MEND")], "CADENCE")], ["QUARTZ_GOLEM"], {"depth": 1}, r4b.dice, r4b.creatures)
@@ -411,7 +457,7 @@ func _test_birthstones() -> void:
 	check(int(florin9.pot) == 0 and DeepRules.pyrite(florin9) == 100, "nothing is staked as the fight opens")
 	deal.call(florin9, [7, 7, 7, 1, 2])
 	var roller: Dictionary = birthstones(run_turn(nine.state, nine.rng))[0]
-	check(bool(tier(roller, "Lucky").get("active", false)) and int(tier(roller, "Lucky").effects[0].amount) == 3, "three crowns at Resonance 1 deal 3")
+	check(bool(tier(roller, "Lucky").get("active", false)) and int(tier(roller, "Lucky").effects[0].amount) == 15, "three crowns at Resonance 1 deal 15: five times Resonance a crown")
 	check(bool(tier(roller, "Heating Up").get("active", false)) and bool(tier(roller, "Hot Streak").get("active", false)) and not bool(tier(roller, "On Fire").get("active", false))
 		and not bool(tier(roller, "Jackpot").get("active", false)) and not bool(tier(roller, "Bust").get("active", false)), "three crowns light Lucky, Heating Up and Hot Streak, and no further")
 	## The next turn has begun: Heating Up's reroll is in it, and Hot Streak's die is in the bowl.
@@ -430,7 +476,7 @@ func _test_birthstones() -> void:
 	check(bool(tier(fire, "On Fire").get("active", false)) and bool(florin10.resonance_doubled), "four crowns: On Fire doubles the next turn's Resonance")
 	deal.call(florin10, [7, 1, 2, 3, 4])
 	var doubled: Dictionary = birthstones(run_turn(ten.state, ten.rng))[0]
-	check(bool(doubled.get("doubled", false)) and int(doubled.resonance) == 2 and int(tier(doubled, "Lucky").effects[0].amount) == 2, "and High Roller reads the whole total twice over (%d)" % int(doubled.resonance))
+	check(bool(doubled.get("doubled", false)) and int(doubled.resonance) == 2 and int(tier(doubled, "Lucky").effects[0].amount) == 10, "and High Roller reads the whole total twice over (%d)" % int(doubled.resonance))
 	check(not bool(florin10.resonance_doubled), "for that one turn")
 	var eleven: Dictionary = gambler.call("a", 100, 81)
 	var florin11: Dictionary = DeepBattle.player(eleven.state, "a")

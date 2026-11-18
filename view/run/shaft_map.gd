@@ -13,6 +13,7 @@ const GemIcons = preload("res://view/gems/gem_icons.gd")
 const WardenPlate = preload("res://view/run/warden_plate.gd")
 const Plates = preload("res://view/ui/plates.gd")
 const Tips = preload("res://view/ui/tips.gd")
+const Biomes = preload("res://view/battle/biomes.gd")
 
 const STEP := 84.0
 const NODE := 16.0
@@ -74,6 +75,10 @@ const DRAG_SLIP: float = 8.0
 var _step: float = STEP
 var _clock: float = 0.0
 var _lamp: Button
+## Zoomed out (the owner, November 17, 2026): every mine as a band down the shaft, the run's
+## way through them lit and the party's lantern where it stands, instead of the stretch.
+var zoomed: bool = false
+var _zoom: Button
 ## Two layers: the rock, the depths, the trail and the ways between chambers are painted on
 ## the still layer only when something changes; the chambers, the glints, the sparks and the
 ## lantern are painted every frame on top. Painting everything every frame cost two
@@ -118,6 +123,15 @@ func _ready() -> void:
 	_lamp.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_lamp.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	_lamp.visible = false
+	## The zoom key, in the header's top right: every mine, or back to this stretch.
+	_zoom = DeepUi.icon_button(self, "map", "All mines", toggle_zoom, 11 if DeepUi.phone else 12, DeepUi.ACCENT)
+	_zoom.name = "Zoom"
+	_zoom.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_MINSIZE, 8)
+	_zoom.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	_zoom.mouse_filter = Control.MOUSE_FILTER_STOP
+	DeepUi.ledger_button(_zoom, DeepUi.SLATE_HI, DeepUi.ACCENT_DIM, 6)
+	Tips.attach(_zoom, func() -> Control: return Plates.words("This stretch" if zoomed else "All mines",
+		"Back to the stretch you are in, and the ways on from here." if zoomed else "Zoom out: every mine down the shaft, the way the party came and where it stands now.", "lantern" if zoomed else "map", DeepUi.ACCENT))
 	_hall_hot = Control.new()
 	_hall_hot.name = "WardenHot"
 	_hall_hot.visible = false
@@ -133,7 +147,11 @@ func _ready() -> void:
 
 func show_run(state: Dictionary) -> void:
 	var first: bool = run.is_empty()
+	if first and zoomed:
+		## A new run opens on its own stretch.
+		zoomed = false
 	run = state
+	_sync_zoom()
 	## Keep the party and the next floor in view; the older trail stays above when scrolled back.
 	var goal: float = float(run.get("depth", 0))
 	if not is_equal_approx(goal, _shown):
@@ -151,11 +169,33 @@ func _mark() -> void:
 	if _back != null:
 		_back.queue_redraw()
 
+func toggle_zoom() -> void:
+	## Out to every mine, or back in to the stretch the party stands in.
+	zoomed = not zoomed
+	_hover = ""
+	_nudge = 0.0
+	DeepAudio.play("ui_open" if zoomed else "ui_close", {"volume": 0.6})
+	_sync_zoom()
+	_sync_lamp()
+	_mark()
+	queue_redraw()
+
+func _sync_zoom() -> void:
+	if _zoom == null:
+		return
+	_zoom.text = "This stretch" if zoomed else "All mines"
+	_zoom.icon = GemIcons.texture("lantern" if zoomed else "map", GemIcons.baked_size(18.0))
+	## On the phone the chart is drawn larger (descent_screen.gd CHART_SCALE): the key is sized
+	## in the chart's own pixels so it is a finger's height once drawn.
+	if DeepUi.phone:
+		_zoom.custom_minimum_size.y = DeepUi.pt(DeepUi.FINGER_LEAST) / maxf(1.0, scale.y)
+	_zoom.visible = not run.is_empty()
+
 func _sync_lamp() -> void:
 	var map: Dictionary = run.get("map", {})
 	var phase: String = str(run.get("phase", ""))
 	var target_depth: int = mini(int(run.get("depth", 0)) + 1, int(map.get("to", 0)))
-	var open: bool = not map.is_empty() and phase in ["tunnels", "landing"] and DeepDescent.needs_light(run)
+	var open: bool = not map.is_empty() and phase in ["tunnels", "landing"] and DeepDescent.needs_light(run) and not zoomed
 	_lamp.visible = open
 	if not open:
 		return
@@ -261,7 +301,40 @@ func _here() -> String:
 	return at
 
 func _offers() -> Array:
-	return run.get("offers", []) if str(run.get("phase", "")) == "tunnels" else []
+	## The ways on that can be taken from the chart: the tunnels offered, or at a landing's
+	## crossroads its ways down (a Warden landing's one way is into its hall). A landing's
+	## mouths are chosen from the chart as they are in the room (the owner, November 17, 2026:
+	## clicking the chart at a landing did nothing).
+	var phase: String = str(run.get("phase", ""))
+	if phase == "tunnels":
+		return run.get("offers", [])
+	if phase != "landing" or not DeepDescent.at_crossroads(run) or DeepDescent.in_boss_hall(run):
+		return []
+	var landing: Dictionary = run.get("landing", {})
+	if bool(landing.get("warden_next", false)) and not bool(landing.get("cleared", false)):
+		return [ {"id": "warden", "kind": "warden", "hidden": false}]
+	var map: Dictionary = _map()
+	if map.is_empty() or int(map.get("from", -1)) != int(run.get("depth", 0)):
+		return []
+	var out: Array = []
+	for id in DeepDescent.row_of(map, int(run.get("depth", 0)) + 1):
+		var node: Dictionary = map.get("nodes", {}).get(str(id), {})
+		if not node.is_empty():
+			out.append({"id": str(id), "kind": str(node.get("kind", "fight")), "hidden": bool(node.get("hidden", false))})
+	return out
+
+func _voted(unit: Dictionary) -> String:
+	## The way a player has picked, as the chart marks it: their vote at the tunnels, or at a
+	## landing the mouth they chose to go down by (the only one, when there is one).
+	if str(run.get("phase", "")) != "landing":
+		return str(unit.get("vote", ""))
+	if str(unit.get("choice", "")) != "descend":
+		return ""
+	var via: String = str(unit.get("via", ""))
+	var offers: Array = _offers()
+	if via.is_empty() and offers.size() == 1:
+		return str(offers[0].id)
+	return via
 
 func _is_offer(id: String) -> bool:
 	for offer in _offers():
@@ -337,10 +410,35 @@ func _spot_at(at: Vector2) -> Dictionary:
 			best_distance = distance
 	return best
 
+func _offer_at(at: Vector2) -> String:
+	## The way on under a click or a tap: the nearest offered chamber whose ring (and a finger's
+	## room round it, wider on the phone) the point is in. Only the offers are looked at, so a
+	## chamber's or the party's hover spot beside one never takes the click from it.
+	if zoomed:
+		return ""
+	var reach: float = (DeepUi.pt(12) / maxf(1.0, scale.x)) if DeepUi.phone else 8.0
+	var best: String = ""
+	var best_distance: float = INF
+	for spot in _live_spots + _static_spots:
+		if str(spot.get("offer", "")).is_empty():
+			continue
+		var distance: float = at.distance_to(spot.at)
+		if distance <= float(spot.radius) + reach and distance < best_distance:
+			best = str(spot.offer)
+			best_distance = distance
+	return best
+
+func _slip() -> float:
+	## How far a press may move and still be a click: a finger wanders further than a mouse.
+	return (DeepUi.pt(10) / maxf(1.0, scale.x)) if DeepUi.phone else DRAG_SLIP
+
 func _get_tooltip(at_position: Vector2) -> String:
 	return str(_spot_at(at_position).get("text", ""))
 
 func _gui_input(event: InputEvent) -> void:
+	if zoomed:
+		## Every mine fits the panel: nothing to scroll, nothing to choose.
+		return
 	if event is InputEventMouseButton and event.pressed and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
 		## The wheel looks back up the trail, or further down the shaft.
 		var way: float = -0.5 if event.button_index == MOUSE_BUTTON_WHEEL_UP else 0.5
@@ -352,15 +450,14 @@ func _gui_input(event: InputEvent) -> void:
 		if _drag_from.x >= 0.0 and (event.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
 			## Dragged up or down (a finger, or the mouse held): the map scrolls with it.
 			var pulled: float = (event.position.y - _drag_from.y) / maxf(1.0, _step)
-			if absf(event.position.y - _drag_from.y) > DRAG_SLIP:
+			if absf(event.position.y - _drag_from.y) > _slip():
 				_dragged = true
 			if _dragged:
 				_nudge = clampf(_drag_nudge - pulled, -_shown, 3.0)
 				_mark()
 			accept_event()
 			return
-		var spot: Dictionary = _spot_at(event.position)
-		var hovered: String = str(spot.get("offer", ""))
+		var hovered: String = _offer_at(event.position)
 		if hovered != _hover:
 			_hover = hovered
 			_mark()
@@ -370,7 +467,7 @@ func _gui_input(event: InputEvent) -> void:
 			_drag_from = event.position
 			_drag_nudge = _nudge
 			_dragged = false
-			if not str(_spot_at(event.position).get("offer", "")).is_empty():
+			if not _offer_at(event.position).is_empty():
 				accept_event()
 			return
 		## The vote is cast on the release, so a drag that began on a mouth is only a drag.
@@ -380,7 +477,7 @@ func _gui_input(event: InputEvent) -> void:
 		if was_drag:
 			accept_event()
 			return
-		var offer: String = str(_spot_at(event.position).get("offer", ""))
+		var offer: String = _offer_at(event.position)
 		if not offer.is_empty():
 			vote.emit(offer)
 			accept_event()
@@ -431,6 +528,9 @@ func _paint_back() -> void:
 	_canvas.draw_style_box(side_plate(1.0, 12, false), Rect2(Vector2.ZERO, size))
 	if run.is_empty():
 		return
+	if zoomed:
+		_paint_mines()
+		return
 	_fit_step()
 	var map: Dictionary = _map()
 	var laid: Dictionary = _layout(map)
@@ -447,6 +547,11 @@ func _draw() -> void:
 	_spots = _live_spots
 	_hall_drawn = {"depth": -1}
 	if run.is_empty():
+		return
+	if zoomed:
+		_head_drawn = {"depth": -1}
+		_draw_mines_live()
+		_draw_header({}, int(run.get("depth", 0)))
 		return
 	_fit_step()
 	var map: Dictionary = _map()
@@ -481,7 +586,7 @@ func _facts(map: Dictionary, positions: Dictionary) -> Dictionary:
 	return {"here": here, "here_at": positions.get(here, start) if not here.is_empty() else start, "visited": visited,
 		"ways": ways, "ahead": _ahead_of(ways), "picked": picked,
 		"lit_way": _ahead_of([picked]) if not picked.is_empty() and nodes.has(picked) else {},
-		"choosing": str(run.get("phase", "")) == "tunnels"}
+		"choosing": not _offers().is_empty() and not _is_offer("warden")}
 
 func _text(points: int) -> int:
 	## A reading size for the chart: the screen's, less what the phone's scale on the chart adds
@@ -493,20 +598,23 @@ func _caps(points: int) -> int:
 
 func _draw_header(map: Dictionary, depth: int) -> void:
 	var font: Font = DeepUi.caps_font()
-	_canvas.draw_string(font, Vector2(18, 28), "THE WAY DOWN", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, DeepUi.ACCENT)
+	var key_w: float = _zoom.size.x + 16.0 if _zoom != null and _zoom.visible else 0.0
+	_canvas.draw_string(font, Vector2(18, 28), "EVERY MINE" if zoomed else "THE WAY DOWN", HORIZONTAL_ALIGNMENT_LEFT, maxf(60.0, size.x - 30.0 - key_w), 14, DeepUi.ACCENT)
 	var mine_name: String = str(DeepContent.mine(str(run.get("mine", ""))).get("name", ""))
 	var small: int = _text(12)
-	_canvas.draw_string(DeepUi.text_face(small), Vector2(18, 46), mine_name, HORIZONTAL_ALIGNMENT_LEFT, size.x - 36, small, DeepUi.MUTED)
-	if map.is_empty():
+	_canvas.draw_string(DeepUi.text_face(small), Vector2(18, 46), ("The whole shaft" if zoomed else mine_name), HORIZONTAL_ALIGNMENT_LEFT, maxf(60.0, size.x - 30.0 - key_w), small, DeepUi.MUTED)
+	if map.is_empty() or zoomed:
 		return
 	var lit: bool = DeepDescent.lit_to(run) >= mini(depth + 1, int(map.to))
 	var words: String = "lit to %d" % DeepDescent.lit_to(run) if lit else "sees to %d" % mini(depth + DeepDescent.lantern_reach(run), int(map.to))
 	var tone: Color = DeepUi.ACCENT if lit else DeepUi.MUTED
 	var width: float = DeepUi.text_face(small).get_string_size(words, HORIZONTAL_ALIGNMENT_LEFT, -1, small).x
 	var flicker: float = 0.85 + 0.15 * sin(_clock * 9.0) * sin(_clock * 4.3)
-	_glyph("lantern", Vector2(size.x - width - 32, 40), 16.0, Color(DeepUi.ACCENT, flicker))
-	_canvas.draw_string(DeepUi.text_face(small), Vector2(size.x - width - 18, 46), words, HORIZONTAL_ALIGNMENT_LEFT, -1, small, tone)
-	_spots.append({"at": Vector2(size.x - width * 0.5 - 24, 40), "radius": 14.0,
+	## Under the zoom key in the top right corner.
+	var lamp_y: float = maxf(46.0, (_zoom.position.y + _zoom.size.y + 14.0) if _zoom != null and _zoom.visible else 46.0)
+	_glyph("lantern", Vector2(size.x - width - 32, lamp_y - 6.0), 16.0, Color(DeepUi.ACCENT, flicker))
+	_canvas.draw_string(DeepUi.text_face(small), Vector2(size.x - width - 18, lamp_y), words, HORIZONTAL_ALIGNMENT_LEFT, -1, small, tone)
+	_spots.append({"at": Vector2(size.x - width * 0.5 - 24, lamp_y - 6.0), "radius": 14.0,
 		"text": "The next floor is lit, including its dark mouths." if lit else "Your lantern shows two floors ahead."})
 	## The Warden this stretch leads to, named from its first floor (review card W2).
 	var ahead: int = _warden_ahead()
@@ -689,7 +797,7 @@ func _plan_chambers(map: Dictionary, positions: Dictionary, facts: Dictionary) -
 	var picked: String = facts.picked
 	var choosing: bool = facts.choosing
 	var seen_to: int = mini(int(map.get("to", 0)), int(run.get("depth", 0)) + DeepDescent.lantern_reach(run))
-	var my_vote: String = str(DeepDescent.player(run, local_id).get("vote", ""))
+	var my_vote: String = _voted(DeepDescent.player(run, local_id))
 	for id in nodes:
 		if id == "landing":
 			continue
@@ -711,7 +819,7 @@ func _plan_chambers(map: Dictionary, positions: Dictionary, facts: Dictionary) -
 			var hot: bool = picked == id
 			out.append({"draw": "offer", "id": id, "at": at, "kind": kind, "tone": DeepUi.CHAMBER_colorS.get(kind, DeepUi.MUTED), "mine": my_vote == id,
 				"hot": hot, "radius": 19.0 if hot else 17.0, "bob": float(id.hash() % 13),
-				"text": "Depth %d: %s. Click to take this tunnel." % [int(node.depth), _kind_words(kind)]})
+				"text": "Depth %d: %s. %s to take this tunnel." % [int(node.depth), _kind_words(kind), "Tap" if DeepUi.phone else "Click"]})
 			continue
 		var entry: Dictionary = {"at": at, "strength": strength}
 		var words: String = ""
@@ -779,8 +887,197 @@ func _stretch_chambers(map: Dictionary, positions: Dictionary, facts: Dictionary
 	## The hall below the landing the stretch starts from, while its Warden stands.
 	if positions.has("hall") and not _hall_beaten(int(map.get("from", 0))):
 		_draw_hall(positions.hall, int(map.get("from", 0)), true)
-		_spots.append({"at": positions.hall, "radius": 15.0, "text": _hall_words(int(map.get("from", 0)))})
+		var hall_spot: Dictionary = {"at": positions.hall, "radius": 15.0, "text": _hall_words(int(map.get("from", 0)))}
+		if _is_offer("warden"):
+			## A Warden's landing has one way down, into the hall: the chart takes it too.
+			hall_spot.offer = "warden"
+			hall_spot.radius = 18.0
+			hall_spot.text += " %s to go down to it." % ("Tap" if DeepUi.phone else "Click")
+			var pulse: float = 1.0 + 0.08 * sin(_clock * 3.0)
+			_canvas.draw_arc(positions.hall, 22.0 * pulse, 0, TAU, 40, Color(DeepUi.CHAMBER_colorS.warden, 0.8 * _fade(positions.hall.y)), 2.0, true)
+			_draw_voters("warden", positions.hall, 18.0)
+		_spots.append(hall_spot)
 	_draw_party(here_at)
+
+# --- every mine (zoomed out) -----------------------------------------------------------------
+
+## The bands' status words, by what the run is to each mine.
+const NUMERALS: Array = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"]
+const MINE_STATUS: Dictionary = {"done": "BEATEN", "here": "HERE", "ahead": "AHEAD", "off": "NOT THIS RUN"}
+
+func _mine_bands() -> Array:
+	## One band per mine, shallowest first, filling the panel under its header:
+	## {key, rect, state ("done", "here", "ahead", "off"), bottom, landings, wardens, beaten,
+	## boss, deepest}. `done` is a mine this run has beaten and pushed on from, `here` the one
+	## it is in, `ahead` the mines it can still push on into, `off` the rest (above where the
+	## run began, or off its way).
+	var done: Dictionary = {}
+	for record in run.get("mines_done", []):
+		if record is Dictionary:
+			done[str(record.get("mine", ""))] = record
+	var here: String = str(run.get("mine", ""))
+	var ahead: Dictionary = {}
+	var next: String = str(DeepContent.mine(here).get("next", ""))
+	while not next.is_empty() and not ahead.has(next) and next != here:
+		ahead[next] = true
+		next = str(DeepContent.mine(next).get("next", ""))
+	var keys: Array = DeepContent.mines_in_order()
+	var top: float = TOP + 2.0
+	var foot: float = size.y - 16.0
+	var band_h: float = (foot - top) / float(maxi(1, keys.size()))
+	var every: int = DeepDescent.landing_every()
+	var out: Array = []
+	for index in range(keys.size()):
+		var key: String = str(keys[index])
+		var state: String = "done" if done.has(key) else ("here" if key == here else ("ahead" if ahead.has(key) else "off"))
+		var entry: Dictionary = {"key": key, "state": state, "rect": Rect2(Vector2(SIDE_BORDER, top + band_h * float(index)), Vector2(size.x - SIDE_BORDER * 2.0, band_h))}
+		var bottom: int = DeepContent.mine_bottom(key)
+		var landings: Array = []
+		var wardens: Array = DeepContent.mine(key).get("warden_depths", []).duplicate()
+		if bottom > 0:
+			wardens.append(bottom)
+			for d in range(every, bottom, every):
+				landings.append(d)
+		var beaten: Array = []
+		var boss: bool = false
+		var deepest: int = 0
+		if state == "here":
+			var schedule: Dictionary = run.get("schedule", {})
+			bottom = DeepDescent.bottom_of(run)
+			if not schedule.get("landings", []).is_empty():
+				landings = schedule.landings.filter(func(d: Variant) -> bool: return int(d) < bottom or bottom <= 0)
+			if not schedule.get("wardens", []).is_empty():
+				wardens = schedule.wardens.duplicate()
+			beaten = run.get("records", {}).get("wardens", [])
+			boss = bool(run.get("records", {}).get("boss", false))
+			deepest = int(run.get("depth", 0))
+		elif state == "done":
+			var record: Dictionary = done[key]
+			beaten = record.get("wardens", [])
+			boss = bool(record.get("boss", false))
+			deepest = int(record.get("deepest", bottom))
+		entry.merge({"bottom": bottom, "landings": landings, "wardens": wardens, "beaten": beaten, "boss": boss, "deepest": deepest})
+		out.append(entry)
+	return out
+
+func _track(entry: Dictionary) -> Dictionary:
+	## Where a band's depth track runs: {from, to, y}, and the x of a depth along it.
+	var rect: Rect2 = entry.rect
+	var from_x: float = float(SIDE_BORDER) + 30.0
+	return {"from": from_x, "to": rect.end.x - 18.0, "y": rect.end.y - minf(16.0, rect.size.y * 0.22)}
+
+func _track_x(entry: Dictionary, track: Dictionary, depth: float) -> float:
+	var bottom: int = int(entry.bottom)
+	## A mine with no bottom is drawn to 48 floors, fading on past them.
+	var span: float = float(bottom) if bottom > 0 else 48.0
+	return lerpf(float(track.from), float(track.to), clampf(depth / span, 0.0, 1.0))
+
+func _paint_mines() -> void:
+	## The still layer, zoomed out: every mine a band of its own rock, the shaft through the
+	## mines this run has walked, each band's depth track with its lifts and crowns, and the
+	## words that say where the run is in it. Everything is written on it, nothing waits on a
+	## hover, so it reads the same under a finger.
+	var bands: Array = _mine_bands()
+	## The shaft down the left edge, the numerals in a column of their own beside it, the names
+	## after the widest numeral.
+	var shaft_x: float = float(SIDE_BORDER) + 8.0
+	var numeral_x: float = shaft_x + 9.0
+	var name_size: int = _text(14)
+	var name_x: float = numeral_x + DeepUi.caps_font().get_string_size("VIII", HORIZONTAL_ALIGNMENT_LEFT, -1, _caps(11)).x + 8.0
+	for entry in bands:
+		var rect: Rect2 = entry.rect
+		var key: String = str(entry.key)
+		var state: String = str(entry.state)
+		var mine: Dictionary = DeepContent.mine(key)
+		var tone: Color = Color(str(mine.get("palette", "c9a26b")))
+		var biome: Dictionary = Biomes.for_depth(key, 1)
+		var walked: bool = state in ["done", "here"]
+		var rock: Color = Color(str(biome.get("rock", "3a3552"))).darkened(0.45 if walked else (0.62 if state == "ahead" else 0.78))
+		_canvas.draw_rect(rect, Color(rock, 0.92))
+		_canvas.draw_line(Vector2(rect.position.x, rect.position.y), Vector2(rect.end.x, rect.position.y), Color(0, 0, 0, 0.55), 2.0)
+		if state == "here":
+			var outline := StyleBoxFlat.new()
+			outline.draw_center = false
+			outline.border_color = DeepUi.ACCENT
+			outline.set_border_width_all(2)
+			outline.set_corner_radius_all(4)
+			_canvas.draw_style_box(outline, rect.grow(-2.0))
+		## The shaft: lit through every mine walked, down to the party in the one it is in;
+		## faint through the mines still ahead.
+		var track: Dictionary = _track(entry)
+		if walked:
+			var low: float = rect.end.y if state == "done" else float(track.y)
+			_canvas.draw_line(Vector2(shaft_x, rect.position.y), Vector2(shaft_x, low), Color(DeepUi.ACCENT, 0.75), 3.0)
+			if state == "here":
+				_canvas.draw_line(Vector2(shaft_x, low), Vector2(float(_track_x(entry, track, float(entry.deepest))), low), Color(DeepUi.ACCENT, 0.5), 2.0)
+		elif state == "ahead":
+			_canvas.draw_line(Vector2(shaft_x, rect.position.y), Vector2(shaft_x, rect.end.y), Color(DeepUi.LINE_HI, 0.35), 2.0)
+		## Its numeral and name, and what the run is to it.
+		var faded: float = 1.0 if walked else (0.75 if state == "ahead" else 0.45)
+		var name_y: float = rect.position.y + minf(22.0, rect.size.y * 0.45)
+		var tier: int = int(mine.get("tier", 0))
+		var numeral: String = "∞" if DeepContent.is_endless(key) else (str(NUMERALS[tier - 1]) if tier >= 1 and tier <= NUMERALS.size() else str(tier))
+		_canvas.draw_string(DeepUi.caps_font(), Vector2(numeral_x, name_y), numeral, HORIZONTAL_ALIGNMENT_LEFT, -1, _caps(11), Color(tone, faded))
+		var status: String = str(MINE_STATUS.get(state, ""))
+		if state == "here":
+			status = "HERE · DEPTH %d" % int(run.get("depth", 0))
+		elif state == "done" and not bool(entry.boss):
+			status = "LEFT"
+		var status_w: float = DeepUi.caps_font().get_string_size(status, HORIZONTAL_ALIGNMENT_LEFT, -1, _caps(10)).x
+		_canvas.draw_string(DeepUi.text_face(name_size), Vector2(name_x, name_y), str(mine.get("name", key)), HORIZONTAL_ALIGNMENT_LEFT, maxf(40.0, rect.end.x - name_x - status_w - 22.0), name_size,
+			Color(DeepUi.PAPER if walked else DeepUi.MUTED, faded))
+		_canvas.draw_string(DeepUi.caps_font(), Vector2(rect.end.x - status_w - 10.0, name_y), status, HORIZONTAL_ALIGNMENT_LEFT, -1, _caps(10),
+			DeepUi.ACCENT if state == "here" else (DeepUi.GOOD if state == "done" else Color(tone, faded)))
+		_static_spots.append({"at": Vector2(name_x + 40.0, name_y - 5.0), "radius": 22.0, "text": _mine_words(entry)})
+		## The depth track: how far down the run has been, its lifts and its crowns.
+		var y: float = float(track.y)
+		_canvas.draw_line(Vector2(float(track.from), y), Vector2(float(track.to), y), Color(0, 0, 0, 0.6), 5.0)
+		_canvas.draw_line(Vector2(float(track.from), y), Vector2(float(track.to), y), Color(DeepUi.LINE_HI, 0.3 * faded), 1.5)
+		if int(entry.deepest) > 0:
+			_canvas.draw_line(Vector2(float(track.from), y), Vector2(_track_x(entry, track, float(entry.deepest)), y), Color(DeepUi.ACCENT, 0.9), 3.0)
+		if int(entry.bottom) <= 0:
+			## No bottom: the track fades on into the dark.
+			for k in range(6):
+				var x: float = lerpf(float(track.to) - 60.0, float(track.to), float(k) / 5.0)
+				_canvas.draw_circle(Vector2(x, y), 1.6, Color(DeepUi.MUTED, faded * (1.0 - float(k) / 6.0)))
+		for d in entry.landings:
+			var lx: float = _track_x(entry, track, float(d))
+			_canvas.draw_line(Vector2(lx, y - 4.0), Vector2(lx, y + 4.0), Color(DeepUi.CHAMBER_colorS.get("landing", DeepUi.GOOD), 0.75 * faded), 1.5)
+		for d in entry.wardens:
+			var depth: int = int(d)
+			var last: bool = int(entry.bottom) > 0 and depth == int(entry.bottom)
+			var won: bool = bool(entry.boss) if last else entry.beaten.any(func(b: Variant) -> bool: return absi(int(b) - depth) <= (0 if state == "here" else 1))
+			var cx: float = _track_x(entry, track, float(depth))
+			var edge: float = 13.0 if last else 10.0
+			_canvas.draw_circle(Vector2(cx, y), edge * 0.62, Color(0.03, 0.03, 0.05, 0.9 * faded))
+			_glyph("crown", Vector2(cx, y), edge, Color(DeepUi.ACCENT if won else DeepUi.CHAMBER_colorS.warden, (1.0 if won else 0.85) * faded))
+			var who: String = "the final boss" if last else "a Warden"
+			_static_spots.append({"at": Vector2(cx, y), "radius": edge * 0.7, "text": "%s, depth %d: %s%s." % [str(mine.get("name", key)), depth, who, " (beaten)" if won else ""]})
+
+func _mine_words(entry: Dictionary) -> String:
+	var name: String = DeepContent.mine_name(str(entry.key))
+	match str(entry.state):
+		"done":
+			return "%s: beaten and left behind on the way down." % name if bool(entry.boss) else "%s: the run came through it." % name
+		"here":
+			return "%s: the party is at depth %d." % [name, int(run.get("depth", 0))]
+		"ahead":
+			return "%s: below this mine. Beat its final boss and push on to reach it." % name
+	return "%s: not on this run's way down." % name
+
+func _draw_mines_live() -> void:
+	## The live layer, zoomed out: the party's lantern where it stands in its mine.
+	for entry in _mine_bands():
+		if str(entry.state) != "here":
+			continue
+		var track: Dictionary = _track(entry)
+		var at := Vector2(_track_x(entry, track, float(run.get("depth", 0))), float(track.y))
+		var pulse: float = 1.0 + 0.1 * sin(_clock * 3.0)
+		var flicker: float = 0.85 + 0.15 * sin(_clock * 9.0) * sin(_clock * 4.3)
+		_glow(at, Vector2(54, 54) * pulse, Color(DeepUi.ACCENT, 0.45 * flicker))
+		_canvas.draw_arc(at, 8.0 * pulse, 0, TAU, 28, Color(DeepUi.ACCENT, 0.95), 2.0, true)
+		_glyph("lantern", at + Vector2(0, -15), 12.0, Color(DeepUi.ACCENT.lightened(0.2), flicker))
+		_spots.append({"at": at, "radius": 12.0, "text": "The party is here: depth %d of %s." % [int(run.get("depth", 0)), DeepContent.mine_name(str(entry.key))]})
 
 func _kind_words(kind: String) -> String:
 	match kind:
@@ -822,7 +1119,7 @@ func _draw_voters(id: String, at: Vector2, radius: float) -> void:
 	## orbs the mouth in the room hangs over its arch.
 	var count: int = 0
 	for other in run.get("players", []):
-		if str(other.get("vote", "")) == id:
+		if _voted(other) == id:
 			var dot: Vector2 = at + Vector2(radius + 8.0, -radius * 0.6 + float(count) * 9.0)
 			_canvas.draw_circle(dot, 3.5, Color(SEATS[int(other.get("seat", 0)) % SEATS.size()], _fade(at.y)))
 			count += 1
@@ -850,7 +1147,7 @@ func _draw_landing(map: Dictionary, positions: Dictionary, reachable: bool) -> v
 	if _is_offer("landing"):
 		## The last step of a stretch: the landing itself is the way on.
 		spot.offer = "landing"
-		spot.text = words + " Click to go down to it."
+		spot.text = words + (" Tap to go down to it." if DeepUi.phone else " Click to go down to it.")
 		var pulse: float = 1.0 + 0.08 * sin(_clock * 3.0)
 		_canvas.draw_arc(at, 24.0 * pulse, 0, TAU, 40, Color(tone, 0.8 * fade), 2.0, true)
 	_spots.append(spot)

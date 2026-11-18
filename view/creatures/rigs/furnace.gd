@@ -148,7 +148,7 @@ const RIGS: Dictionary = {
 		},
 	},
 	## A hound of slag and chain: it pants, wags, sniffs the floor, shakes itself like a wet dog,
-	## scratches, growls with its fangs bared; it mauls, biting and worrying what it bit.
+	## scratches, growls with its fangs bared; it bites, and it mauls, worrying what it bit.
 	"SLAG_HOUND": {
 		"mouth": "Mouth01",
 		"groups": {"neck": {"parts": ["Neck", "Head", "Jaw", "Mouth", "Drool", "Chain"], "at": "Neck01"},
@@ -188,6 +188,9 @@ const RIGS: Dictionary = {
 				["turn", "neck", X, -10.0, 18.0, "attack"], ["turn", "paw_r", X, -55.0, 20.0, "attack"], ["rear", 0.45, "attack"],
 				["fx", 0.29, "swipe", {"about": "paw_r", "axis": X, "start": Vector3(0, 1, 0.3), "radius": 0.6, "sweep": 120.0}],
 				["fx", 0.3, "sparks", {"from": "Mouth01", "color": "#ff9a40", "amount": 18, "speed": 3.0}]],
+			## Snaps its jaws shut on what is in reach: head and neck, no paw behind it, so a block turns it.
+			"Bite": [["turn", "jaw", X, 10.0, -30.0, "snap"], ["turn", "head", X, -12.0, 12.0, "attack"], ["turn", "neck", X, -8.0, 16.0, "attack"],
+				["rear", 0.25, "attack"], ["fx", 0.3, "sparks", {"from": "Mouth01", "color": "#ff9a40", "amount": 10, "speed": 2.2}]],
 			## Sits back and howls at the roof, the slag down its back bristling, smoke and sparks thrown up.
 			"Howl": [["turn", "jaw", X, 0.0, 20.0, "hold"], ["tremble", "head", 0.006, "hold"], ["turn", "head", X, 0.0, -40.0, "hold"], ["turn", "neck", X, 0.0, -15.0, "hold"],
 				["each", "crest", 0.0, 0.5, "hold"], ["turn", "tail", X, 0.0, 12.0, "hold"], ["lean", X, 0.0, -6.0, Vector3(0, 0, -0.8), "hold"],

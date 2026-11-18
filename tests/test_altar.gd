@@ -20,6 +20,7 @@ func _init() -> void:
 	_test_quintessence()
 	_test_gemini()
 	_test_certainty()
+	_test_out_of_reach()
 	_test_trigger_swaps()
 	print("Altar: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
@@ -412,17 +413,37 @@ func _test_gemini() -> void:
 	var state: Dictionary = DeepBattle.begin([player("a", rail.duplicate(true))], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	hand(state.players[0], [3, 3, 5, 5, 1])
 	var events: Array = run_turn(state, r)
-	check(at_socket(events, 0).size() == 3, "two pairs: the gem before Gemini fires twice more")
-	check(at_socket(events, 2).size() == 3, "and the gem after it twice before its own turn")
+	check(at_socket(events, 0).size() == 2, "two pairs: the gem before Gemini fires once more")
+	check(at_socket(events, 2).size() == 2, "and the gem after it once before its own turn")
 	state = DeepBattle.begin([player("a", rail.duplicate(true))], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	hand(state.players[0], [6, 6, 6, 6, 1])
-	check(at_socket(run_turn(state, r), 0).size() == 3, "four of a kind counts as two pairs")
+	events = run_turn(state, r)
+	check(at_socket(events, 0).size() == 2 and at_socket(events, 2).size() == 2, "four of a kind counts as two pairs")
 	state = DeepBattle.begin([player("a", rail.duplicate(true))], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	hand(state.players[0], [6, 6, 6, 2, 2])
-	check(at_socket(run_turn(state, r), 0).size() == 3, "so does a full house")
+	events = run_turn(state, r)
+	check(at_socket(events, 0).size() == 2 and at_socket(events, 2).size() == 2, "so does a full house")
 	state = DeepBattle.begin([player("a", rail.duplicate(true))], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	hand(state.players[0], [6, 6, 4, 3, 1])
-	check(at_socket(run_turn(state, r), 0).size() == 2, "one pair, one more go each")
+	events = run_turn(state, r)
+	check(at_socket(events, 0).size() == 2 and at_socket(events, 2).size() == 1, "one pair, one go: the gem before it")
+	## Ten alike are five pairs, not ten goes: before, after, before, after, before.
+	state = DeepBattle.begin([player("a", rail.duplicate(true))], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	var ten: Array = []
+	for index in range(10):
+		ten.append({"die_id": "t%d" % index, "shape": "D6", "material": "", "value": 4, "face": 0, "kind": "plain", "top": 6,
+			"held": false, "rerolls": 0, "locked": false, "explosions": 0, "phantom": false})
+	state.players[0].hand = ten
+	state.players[0].locked = true
+	DeepBattle.start_resolution(state)
+	state.queue = []
+	var gm_fire: Dictionary = DeepBattle.resolve_gem(state, state.players[0], 1, {}, r.dice)
+	var order: Array = state.queue.map(func(q: Dictionary) -> int: return int(q.get("socket", -1)))
+	check(not gm_fire.is_empty() and order == [0, 2, 0, 2, 0], "ten alike: five goes, alternating before and after: %s" % str(order))
+	## One beside it to fire takes every go.
+	state = DeepBattle.begin([player("a", [gem("GEMINI", 1, 4, 3, [], "gm"), gem("GUARD", 1, 4, 3, [], "g1")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [3, 3, 5, 5, 1])
+	check(at_socket(run_turn(state, r), 1).size() == 3, "a Gemini at the end of the rail gives its one neighbour both pairs")
 	## Flawless: one more again, if the two share a color.
 	var bright: Array = rail.duplicate(true)
 	bright[1].clarity = DeepContent.clarity_index("FLAWLESS")
@@ -449,6 +470,56 @@ func _test_gemini() -> void:
 	hand(state.players[0], [6, 5, 4, 2, 1])
 	events = run_turn(state, r)
 	check(not at_socket(events, 1).is_empty(), "a phantom copying the lowest die gives Gemini its pair")
+	## What weight does for a Transcendent is said where no multiplier or proc line says it.
+	check(DeepStone.weight_note(gem("GEMINI", 24)).contains("exact") and DeepStone.weight_note(gem("CERTAINTY", 24)).contains("exact"), "a heavy Gemini or Certainty says its count is exact")
+	check(DeepStone.weight_note(gem("BLACK_OPAL", 24)).contains("×") and DeepStone.weight_carried(gem("BLACK_OPAL", 24)), "a Black Opal says its weight rides on what it absorbed")
+	check(DeepStone.weight_note(gem("RAINBOW_SEAM", 24)).is_empty() and not DeepStone.proc_lines(gem("RAINBOW_SEAM", 24)).is_empty(), "a Rainbow Seam's weight is its proc line")
+	check(DeepStone.weight_note(gem("PROCESSION", 24)).is_empty() and DeepStone.weight_note(gem("STRIKE", 24)).is_empty(), "and a gem whose numbers swell says nothing more")
+
+func _test_out_of_reach() -> void:
+	## A Transcendent counts as an opal for the gems that copy or replay (owner, November 17,
+	## 2026): no Seam, Matrix or Rainbow Seam replays it, no Echo copies it, no Doublet wears
+	## it, no Gemini fires it, and the rail marks each the way it marks an opal.
+	var r: Dictionary = rngs(8)
+	for key in ["GEMINI", "CERTAINTY", "PROCESSION", "QUINTESSENCE"]:
+		check(DeepStone.out_of_reach(gem(key)), "%s is out of every copy's reach" % key)
+	check(DeepStone.out_of_reach(gem("SEAM_RED")) and not DeepStone.out_of_reach(gem("STRIKE")), "as an opal is, and a plain gem is not")
+	## A Red Seam plays the Strike again, never the Quintessence beside it.
+	var state: Dictionary = DeepBattle.begin([player("a", [gem("STRIKE", 1, 4, 3, [], "s0"), gem("QUINTESSENCE", 1, 4, 3, [], "q1"), gem("SEAM_RED", 1, 4, 3, [], "sr")])],
+		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [5, 5, 5, 5, 5])
+	var events: Array = run_turn(state, r)
+	check(at_socket(events, 0).size() == 2 and at_socket(events, 1).size() == 1, "a Red Seam replays the Strike and leaves the Quintessence (%d, %d)" % [at_socket(events, 0).size(), at_socket(events, 1).size()])
+	## A Rainbow Seam leaves a Procession.
+	state = DeepBattle.begin([player("a", [gem("STRIKE", 1, 4, 3, [], "s0"), gem("PROCESSION", 1, 4, 3, [], "p1"), gem("RAINBOW_SEAM", 1, 4, 3, [], "rs")])],
+		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [1, 2, 3, 4, 5])
+	events = run_turn(state, r)
+	check(at_socket(events, 1).size() == 1 and at_socket(events, 0).size() >= 2, "a Rainbow Seam replays the Strike, never the Procession")
+	## A Doublet passes over a Certainty to the gem behind it.
+	var unit: Dictionary = player("a", [gem("STRIKE", 1, 4, 3, [], "s0"), gem("CERTAINTY", 1, 4, 3, [], "c1"), gem("DOUBLET", 1, 4, 3, [], "d2")])
+	check(DeepBattle.worn_socket(unit, 2) == 0, "a Doublet wears the Strike behind the Certainty, not the Certainty")
+	check(not DeepBattle.repeatable(unit, 1) and DeepBattle.repeatable(unit, 1, false), "nothing that copies reaches the Certainty; a Birthstone still does")
+	## A Gemini never fires a Gemini, so two side by side do not wake each other.
+	state = DeepBattle.begin([player("a", [gem("STRIKE", 1, 4, 3, [], "s0"), gem("GEMINI", 1, 4, 3, [], "g1"), gem("CERTAINTY", 1, 4, 3, [], "c2")])],
+		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [3, 3, 5, 5, 1])
+	events = run_turn(state, r)
+	check(at_socket(events, 0).size() == 3 and at_socket(events, 2).size() <= 1, "a Gemini beside a Certainty gives both pairs to the Strike (%d) and never fires the Certainty" % at_socket(events, 0).size())
+	## An Echo after a Transcendent copies nothing.
+	state = DeepBattle.begin([player("a", [gem("QUINTESSENCE", 1, 4, 3, [], "q0"), gem("ECHO", 1, 4, 3, [], "e1")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [5, 5, 5, 5, 5])
+	var size_before: int = state.players[0].rail.size()
+	run_turn(state, r)
+	check(state.players[0].rail.size() == size_before, "an Echo never copies a Transcendent")
+	## The rail and the loadout say so, as for an opal.
+	var rail: Array = [gem("STRIKE", 1, 4, 3, [], "s0"), gem("GEMINI", 1, 4, 3, [], "g1"), gem("SEAM_RED", 1, 4, 3, [], "sr"), gem("DOUBLET", 1, 4, 3, [], "db")]
+	var blocks: Dictionary = DeepBattle.opal_blocks(rail)
+	check(blocks.has(2) and blocks[2].any(func(m: Dictionary) -> bool: return int(m.at) == 1 and str(m.verb) == "replay"), "a Seam is marked for the Gemini it leaves: %s" % str(blocks))
+	check(blocks.has(3) and blocks[3].any(func(m: Dictionary) -> bool: return int(m.at) == 1 and str(m.verb) == "copy"), "and a Doublet for the Gemini it passes over")
+	check(DeepBattle.opal_block_line(rail[2], blocks[2][0]).contains("Transcendent"), "in words that say why: %s" % DeepBattle.opal_block_line(rail[2], blocks[2][0]))
+	var twin_gemini: Dictionary = DeepBattle.opal_blocks([gem("GEMINI", 1, 4, 3, [], "g0"), gem("GEMINI", 1, 4, 3, [], "g1")])
+	check(twin_gemini.has(0) and twin_gemini.has(1) and DeepBattle.opal_block_line(gem("GEMINI"), twin_gemini[0][0]).contains("Transcendent"), "two Geminis are marked for each other")
 
 func _test_certainty() -> void:
 	var r: Dictionary = rngs(7)

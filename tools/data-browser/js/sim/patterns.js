@@ -221,17 +221,19 @@ export function evaluate(trigger, cutStep, a, context = {}) {
 				const ghosts = a.phantom_ids || [], wilds = a.wilds || [];
 				dice = dice.filter((id) => !wilds.includes(id) && !ghosts.includes(id));
 			}
-			if (dice.length >= Math.max(1, need)) { result.active = true; result.dice = dice; result.count = dice.length; result.value = wanted.length ? Number(wanted[0]) : 0; }
+			// A Twin face is two dice here, as in every count of dice (Hand.weigh).
+			const showing = Hand.weigh(a, dice);
+			if (showing >= Math.max(1, need)) { result.active = true; result.dice = dice; result.count = showing; result.value = wanted.length ? Number(wanted[0]) : 0; }
 			break;
 		}
 		case 'at_most': case 'below': {
 			const judge = (v) => (kind === 'below' ? v < need : v <= need);
 			const dice = kind === 'below' ? Hand.matchingFaces(a, judge) : Hand.matching(a, judge);
-			if (dice.length >= 1) { result.active = true; result.dice = dice; result.count = dice.length; result.value = need; }
+			if (dice.length >= 1) { result.active = true; result.dice = dice; result.count = Hand.weigh(a, dice); result.value = need; }
 			break;
 		}
 		case 'at_least':
-			if (a.high >= need) { result.active = true; result.dice = Hand.matching(a, (v) => v >= need); result.value = a.high; result.count = result.dice.length; }
+			if (a.high >= need) { result.active = true; result.dice = Hand.matching(a, (v) => v >= need); result.value = a.high; result.count = Hand.weigh(a, result.dice); }
 			break;
 		case 'total_pct_at_least':
 			if (a.total * 100 >= a.max_total * need) { result.active = true; result.dice = allDice(a); result.value = a.total; }
@@ -298,18 +300,19 @@ export function evaluate(trigger, cutStep, a, context = {}) {
 		case 'high_count': {
 			const floorValue = I(trigger.value ?? 6);
 			const dice = Hand.matching(a, (v) => v >= floorValue);
-			if (dice.length >= Math.max(1, need)) { result.active = true; result.dice = dice; result.count = dice.length; result.value = floorValue; }
+			const highDice = Hand.weigh(a, dice);
+			if (highDice >= Math.max(1, need)) { result.active = true; result.dice = dice; result.count = highDice; result.value = floorValue; }
 			break;
 		}
 		case 'total_at_most': {
 			// A wild is any value, so a hand that wants a low total reads it as a 1.
 			const quiet = I(a.total) - I(a.wild_total) + (a.wilds || []).length;
-			if (I(a.dice_count) > 0 && quiet <= need) { result.active = true; result.dice = allDice(a); result.value = quiet; result.count = result.dice.length; }
+			if (I(a.dice_count) > 0 && quiet <= need) { result.active = true; result.dice = allDice(a); result.value = quiet; result.count = Hand.weigh(a, result.dice); }
 			break;
 		}
 		case 'total_window': {
 			const most = I(trigger.max ?? -1);
-			if (I(a.dice_count) > 0 && I(a.total) >= need && (most < 0 || I(a.total) <= most)) { result.active = true; result.dice = allDice(a); result.value = I(a.total); result.count = result.dice.length; }
+			if (I(a.dice_count) > 0 && I(a.total) >= need && (most < 0 || I(a.total) <= most)) { result.active = true; result.dice = allDice(a); result.value = I(a.total); result.count = Hand.weigh(a, result.dice); }
 			break;
 		}
 		case 'scale': {
@@ -320,7 +323,8 @@ export function evaluate(trigger, cutStep, a, context = {}) {
 		case 'all_faces': {
 			const faced = (a.crown_ids || []).slice();
 			for (const id of a.one_ids || []) if (!faced.includes(id)) faced.push(id);
-			if (I(a.dice_count) >= Math.max(2, need) && faced.length >= I(a.dice_count)) { result.active = true; result.dice = faced; result.count = faced.length; result.value = faced.length; }
+			const facedCount = Hand.weigh(a, faced);
+			if (I(a.dice_count) >= Math.max(2, need) && facedCount >= I(a.dice_count)) { result.active = true; result.dice = faced; result.count = facedCount; result.value = facedCount; }
 			break;
 		}
 		case 'colors':

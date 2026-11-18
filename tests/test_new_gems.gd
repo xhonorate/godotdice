@@ -107,8 +107,9 @@ func blue() -> void:
 	fire(f, "HARDENING", [1, 2, 3, 4, 5])
 	var first: int = int(f.player.block)
 	fire(f, "HARDENING", [1, 2, 3, 4, 5])
-	check(first == 3 and int(f.player.block) == 3 + 4, "Hardening: 3 Block (4 before November 13, 2026), then a point more for every fire")
-	check(int(f.player.run_counts.get("gem0", 0)) == 2, "its fires are counted on the unit for the run")
+	fire(f, "HARDENING", [1, 2, 3, 4, 5])
+	check(first == 3 and int(f.player.block) == 3 + 3 + 4, "Hardening: 3 Block, then a point more for every two fires (every fire before November 17, 2026)")
+	check(int(f.player.run_counts.get("gem0", 0)) == 3, "its fires are counted on the unit for the run")
 
 	f = setup()
 	f.player.block = 40
@@ -159,7 +160,8 @@ func green() -> void:
 	f = setup()
 	f.player.dealt = 100
 	fire(f, "THIRST", [1, 2, 3, 4, 5], true)
-	check(int(f.foe.hp) == 1000 - 36, "Flawless Thirst: healing past full health is dealt to the target: %d" % (1000 - int(f.foe.hp)))
+	## 24% grown by the stone's carat steps (Flawless's x1.5 is a sixth of a step), not the whole curve.
+	check(int(f.foe.hp) == 1000 - int(floor(24.0 * (1.0 + DeepRules.carat_steps(1.5)))), "Flawless Thirst: healing past full health is dealt to the target: %d" % (1000 - int(f.foe.hp)))
 
 	f = setup()
 	check(fired(fire(f, "HEARTWOOD", [5, 5, 5, 5, 1])) and int(f.player.max_hp) == 1003 and int(f.player.hp) == 1003, "Heartwood: 3 max HP, and healed as much")
@@ -223,7 +225,8 @@ func red() -> void:
 	f = setup()
 	fire(f, "HONE", [1, 2, 3, 4, 5])
 	fire(f, "HONE", [1, 2, 3, 4, 5])
-	check(int(f.foe.hp) == 1000 - 4 - 5, "Hone: 4, then a point more every fire")
+	fire(f, "HONE", [1, 2, 3, 4, 5])
+	check(int(f.foe.hp) == 1000 - 4 - 4 - 5, "Hone: 4, then a point more for every two fires (every fire before November 17, 2026)")
 
 	f = setup()
 	var flurry: Dictionary = fire(f, "FLURRY", [5, 5, 1, 2, 3])
