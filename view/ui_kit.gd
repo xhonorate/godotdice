@@ -102,7 +102,7 @@ const KEYWORD_HINTS: Dictionary = {
  "stun": "Skips the next action per stack. Enemies break out after three consecutive missed actions and resist Stun through the following turn.",
  ## The variant Birthstones' own words (November 2026).
  "troph": "Renown takes a Trophy for every creature its Lance kills. Kept for the rest of the run; each one adds 1 damage to every Lance.",
- "prize": "One-Armed Bandit, by the number matched: 1s heal Resonance, 2s give Resonance Block, 3s poison for Resonance, 4s pay Resonance pyrite, 5s deal 2× Resonance, 7s deal 4× Resonance. Any other number deals Resonance times its points over 3.",
+ "prize": "One-Armed Bandit, by the number matched: 1s heal 8× Resonance, 2s give 8× Resonance Block, 3s poison for 8× Resonance, 4s pay 8× Resonance pyrite, 5s deal 16× Resonance, 7s deal 32× Resonance. Any other number deals Resonance times its points over 3.",
  "happy face": "A die showing its crown, its own top face. Sleight turns it into a Sad Face.",
  "sad face": "A die showing 1. Sleight turns it into a Happy Face.",
  "a scale": "The longest climb across your dice from the smallest die to the largest, each showing more than the one before it.",

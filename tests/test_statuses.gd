@@ -32,9 +32,9 @@ func setup(key: String = "CAVE_TICK", count: int = 1) -> Dictionary:
 		for j in range(5):
 			bowl.append(DeepDice.make("D6", "p%d_d%d" % [i, j]))
 		var unit: Dictionary = DeepBattle.make_player("p%d" % i, "Player", "ARDOR", [], bowl)
-		## Sockets that show no stone: these fights count Resonance by the gems alone (a lit
-		## socket adds a point of its own, which tests/test_battle.gd reads).
-		unit.sockets = unit.sockets.map(func(_socket: Variant) -> String: return "UNLIT")
+		## Rainbow sockets: every gem rings, so these fights count Resonance by the gems alone
+		## (only a lit gem rings since November 18, 2026; tests/test_battle.gd reads that).
+		unit.sockets = unit.sockets.map(func(_socket: Variant) -> String: return "RAINBOW")
 		unit.birthstone = {}
 		unit.passive = {}
 		unit.hp = 1000
@@ -415,9 +415,8 @@ func cleanse_and_content() -> void:
 		check(DeepRules.validate_effect({"kind": kind, "amount": 1}, "test").is_empty(), "%s is authorable in content" % kind)
 
 func cast(f: Dictionary, key: String, flawless: bool = false, values: Array = [5, 5, 5, 2, 2]) -> Dictionary:
-	## Down the mine any gem sits in any socket; one that shows no stone keeps the lit socket's
-	## own point of Resonance out of these counts.
-	f.player.sockets[0] = "UNLIT"
+	## A Rainbow socket: the gem rings plain, so these counts are the gems' own.
+	f.player.sockets[0] = "RAINBOW"
 	f.player.rail[0] = DeepStone.make(key, 5 if flawless else 1, 4, 5 if flawless else 3)
 	for i in range(f.player.hand.size()):
 		f.player.hand[i].value = int(values[i])

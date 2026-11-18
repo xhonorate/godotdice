@@ -272,7 +272,7 @@ const KEYWORDS: Dictionary = {
 	"Drinks": "It drinks a colour: gems of that colour do it no damage, and what they would give their owner (block, healing, Ward) goes to it.",
 	"Break": "Takes a die out of your bowl. Broken for the fight, it is back as it was once the fight ends. Granite can't break.",
 	"Breaks": "Takes a die out of your bowl. Broken for the fight, it is back as it was once the fight ends. Granite can't break.",
-	"Resonance": "Builds as your gems fire and powers your Birthstone.",
+	"Resonance": "Builds as your gems fire from sockets of their color, and powers your Birthstone.",
 	"Acid Armour": "Whoever hits it takes Poison for it.",
 	"Sturdy": "No single hit takes more than a share of its health off it.",
 	"Steadfast": "Stun, Bound and Clouded last half as long on it, and it cannot be stunned two actions in a row.",

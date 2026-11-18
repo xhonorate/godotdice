@@ -1142,6 +1142,21 @@ func fight_step() -> void:
 	var stopped: int = int(tally.get("blocked", 0)) - int(before.blocked)
 	var kind: String = str(event.get("kind", ""))
 	var who: String = str(event.get("unit", ""))
+	## How the rail rang: gem fires lit / unlit / riding, Resonance gained, and the Resonance
+	## the Birthstone read each turn.
+	if not fight.is_empty() and who == PID:
+		if kind == "gem_fire":
+			var at: int = int(event.get("socket", -1))
+			if at >= 0 and at < me.sockets.size() and str(me.sockets[at]) == DeepContent.SOCKET_NONE:
+				fight.ring[2] += 1
+			elif bool(event.get("lit", false)):
+				fight.ring[0] += 1
+			else:
+				fight.ring[1] += 1
+			fight.ring[3] += int(event.get("gain", 0))
+		elif kind == "birthstone":
+			fight.ring[4] += int(me.get("resonance", 0))
+			fight.ring[5] += 1
 	if bool(job.get("trace", false)) and not fight.log.is_empty():
 		if kind == "enemy_move":
 			fight.log.back().did.append("%s: %s -%d (%d blocked)" % [str(foe_entry(b, who).key), str(event.get("move", "")), took, stopped])
@@ -1430,7 +1445,7 @@ func open_fight(b: Dictionary) -> void:
 		kind = "boss"
 	fight = {"d": int(state.depth), "k": kind, "foes": b.enemies.map(func(f: Dictionary) -> String: return str(f.key)), "by": {}, "turn": 0, "turns": 0, "ways": 0,
 		"hp0": int(me.hp), "max": int(me.max_hp), "taken0": int(tally.get("taken", 0)), "blocked0": int(tally.get("blocked", 0)), "damage0": int(tally.get("damage", 0)),
-		"over0": int(tally.get("overkill", 0)), "rerolls0": int(tally.get("rerolls", 0)), "coming": 0, "foe_turns": 0, "dot": 0, "ticks": 0, "venom": {}, "self_hurt": 0, "answered": 0, "birth": 0, "killer": "",
+		"over0": int(tally.get("overkill", 0)), "rerolls0": int(tally.get("rerolls", 0)), "coming": 0, "foe_turns": 0, "dot": 0, "ticks": 0, "venom": {}, "self_hurt": 0, "answered": 0, "birth": 0, "killer": "", "ring": [0, 0, 0, 0, 0, 0],
 		"rail": DeepStone.rail_stones(me).map(func(s: Dictionary) -> String: return str(s.skill)), "log": []}
 	for foe in b.enemies:
 		foe_entry(b, str(foe.id))
@@ -1459,7 +1474,7 @@ func close_fight(b: Dictionary, outcome: String) -> void:
 		"hp0": int(fight.hp0), "hp1": maxi(0, int(me.hp)), "max": int(fight.max), "taken": int(tally.get("taken", 0)) - int(fight.taken0),
 		"blocked": int(tally.get("blocked", 0)) - int(fight.blocked0), "dealt": int(tally.get("damage", 0)) - int(fight.damage0),
 		"over": int(tally.get("overkill", 0)) - int(fight.over0), "rr": int(tally.get("rerolls", 0)) - int(fight.rerolls0),
-		"dot": int(fight.dot), "ticks": int(fight.ticks), "self": int(fight.self_hurt), "back": int(fight.answered), "birth": int(fight.birth), "by": by, "rail": fight.rail}
+		"dot": int(fight.dot), "ticks": int(fight.ticks), "self": int(fight.self_hurt), "back": int(fight.answered), "birth": int(fight.birth), "ring": fight.ring, "by": by, "rail": fight.rail}
 	if bool(job.get("trace", false)):
 		entry.log = fight.log
 	if outcome != "victory":

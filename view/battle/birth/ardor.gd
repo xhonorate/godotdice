@@ -1,16 +1,17 @@
 extends "res://view/battle/birth_act.gd"
 ## Ardor's Rally: a set of matching dice is a rank of the Knight's men.
 ##
-## While the hand is planned, the dice of the set the hand has made stand on a line under the
-## tray, each with a small shield on it: two shields are a Rank, three a File, four a Phalanx,
-## five a Legion, and the line takes a brighter color with every rung, so the rung reached reads
-## off the tray. (Rampart's slabs stand under even dice; Rally's shields stand under a set.)
+## While the hand is planned, the dice of the set the hand has made are joined by a line in the
+## gap under the tray, with a small faceted stud on it under each die of the set: two studs are a
+## Rank, three a File, four a Phalanx, five a Legion, and line and studs take a brighter color
+## with every rung, so the rung reached reads off the tray. Nothing is hung over a die. (Rampart's
+## slabs stand under even dice; Rally's studs stand under a set.)
 ##
 ## Each rung has its moment as it lands. Rank closes a wall of shields over his health ring.
 ## File throws three spears in file from the set's dice into the target. Phalanx flashes the
-## formation: the shields under the dice blaze gold one after another and a gold sigil stands on
-## the creature it stuns. Legion raises a banner over the Birthstone and every die of the set
-## throws at once, a volley a blow.
+## formation: the studs under the dice blaze gold one after another and a gold sigil stands on
+## the creature it stuns. Legion runs a flare of gold along the line and its studs, and then
+## every die of the set throws at once, a volley a blow.
 ##
 ## Both layouts draw the same pieces, the phone's at half the size.
 
@@ -28,7 +29,12 @@ const SPEAR_FLIGHT: float = 0.2
 const FILE_GAP: float = 0.07
 const VOLLEY_GAP: float = 0.04
 const BLAZE_SECONDS: float = 0.8
-const BANNER_SECONDS: float = 1.8
+## Legion's flare: the gold runs the line in FLARE_RUN, holds, and is gone by FLARE_SECONDS;
+## the volley leaves once it has reached the far end.
+const FLARE_RUN: float = 0.32
+const FLARE_SECONDS: float = 0.9
+const VOLLEY_LEAD: float = 0.38
+const GILT_HI := Color("fff0bf")
 
 ## The dice of the set reached, left to right, and the rung (index of RUNGS, -1 for none).
 var _set: Array = []
@@ -36,7 +42,7 @@ var _rung: int = -1
 var _wall_at: int = -1
 var _wall_count: int = 0
 var _blaze_at: int = -1
-var _banner_at: int = -1
+var _flare_at: int = -1
 ## Spears in the air: {from, to, at, tone}.
 var _spears: Array = []
 
@@ -75,7 +81,6 @@ func _draw() -> void:
 	if settled and _set.size() >= 2:
 		_draw_rank(now)
 	_draw_wall(now)
-	_draw_banner(now)
 	_draw_spears(now)
 
 static func _heater(middle: Vector2, wide: float, tall: float) -> PackedVector2Array:
@@ -114,41 +119,100 @@ func _shield(middle: Vector2, edge: float, rim: Color, field: Color, alpha: floa
 	closed.append(outline[0])
 	draw_polyline(closed, Color(DARK, 0.9 * alpha), maxf(1.0, u(2.0, 1.0)), true)
 
+func _stud(middle: Vector2, half: float, fill: Color, glow: float = 0.0) -> void:
+	## One stud on the line: a small faceted rhombus in the rung's color, lit from the top left,
+	## a dark edge round it so it reads on the tray's dark and on a bright die's shadow alike.
+	if half <= 1.0:
+		return
+	var wide: float = half * 1.25
+	var top := middle + Vector2(0.0, -half)
+	var right := middle + Vector2(wide, 0.0)
+	var foot := middle + Vector2(0.0, half)
+	var left := middle + Vector2(-wide, 0.0)
+	if glow > 0.0:
+		draw_circle(middle, half * (2.0 + 1.2 * glow), Color(GILT, 0.22 * glow))
+		draw_circle(middle, half * (1.4 + 0.6 * glow), Color(GILT_HI, 0.35 * glow))
+	var edge: float = maxf(1.5, u(2.5, 1.25))
+	var rim: PackedVector2Array = PackedVector2Array([top + Vector2(0.0, -edge), right + Vector2(edge * 1.2, 0.0), foot + Vector2(0.0, edge), left + Vector2(-edge * 1.2, 0.0)])
+	draw_colored_polygon(rim, Color(DARK, 0.92))
+	## Four facets about a raised middle: the two upper ones catch the light, the lower ones not.
+	var crown: Vector2 = middle + Vector2(-wide * 0.12, -half * 0.12)
+	draw_colored_polygon(PackedVector2Array([top, crown, left]), fill.lightened(0.38))
+	draw_colored_polygon(PackedVector2Array([top, right, crown]), fill.lightened(0.12))
+	draw_colored_polygon(PackedVector2Array([left, crown, foot]), fill.darkened(0.12))
+	draw_colored_polygon(PackedVector2Array([crown, right, foot]), fill.darkened(0.38))
+	draw_line(top.lerp(left, 0.25), top.lerp(crown, 0.7), Color(1.0, 1.0, 1.0, 0.55 + 0.4 * glow), maxf(1.0, u(1.5, 0.75)), true)
+
+func _gap_y(id: String) -> Vector2:
+	## Where the line runs under a die (y) and how tall a stud may be there (half of it), so the
+	## stud stands in the gap under the die and touches neither it nor the dock's foot.
+	var seat: Rect2 = die_rect(id)
+	var face: Rect2 = die_face(id)
+	var room: float = seat.end.y - face.end.y
+	return Vector2(face.end.y + room * 0.55, clampf(room * 0.36, u(3.0, 1.5), u(8.0, 4.0)))
+
+func _lit_at(index: int, count: int, now: int) -> float:
+	## How much a stud of the set burns just now: Phalanx's blaze one after another, or Legion's
+	## flare as it runs the line and holds.
+	var lit_up: float = 0.0
+	if _blaze_at >= 0:
+		var blaze: float = float(now - _blaze_at) / 1000.0
+		if blaze >= BLAZE_SECONDS:
+			_blaze_at = -1
+		else:
+			var since: float = blaze - 0.07 * float(index)
+			lit_up = clampf(1.0 - absf(since - 0.12) / 0.3, 0.0, 1.0) if since >= 0.0 else 0.0
+			if since >= 0.12:
+				lit_up = maxf(lit_up, clampf((BLAZE_SECONDS - blaze) / 0.4, 0.0, 1.0) * 0.6)
+	if _flare_at >= 0:
+		var flare: float = float(now - _flare_at) / 1000.0
+		if flare >= FLARE_SECONDS:
+			_flare_at = -1
+		else:
+			var reach: float = float(index) / float(maxi(1, count - 1))
+			var since: float = flare - FLARE_RUN * reach
+			var lit_flare: float = clampf(since / 0.06, 0.0, 1.0) * clampf((FLARE_SECONDS - flare) / 0.3, 0.0, 1.0)
+			lit_up = maxf(lit_up, lit_flare)
+	return lit_up
+
 func _draw_rank(now: int) -> void:
-	## The set's line under the tray and a shield on it under every die of the set. Under
-	## Phalanx's flash the shields blaze gold one after another.
+	## The set's line in the gap under the tray, and a stud on it under every die of the set.
+	## Under Phalanx's flash the studs blaze gold one after another; under Legion's the gold runs
+	## the line from the first die of the set to the last.
 	var spots: Array = []
-	var edge: float = 0.0
 	var y: float = 0.0
+	var half: float = 999.0
 	for id in _set:
-		var seat: Rect2 = die_rect(str(id))
 		var face: Rect2 = die_face(str(id))
-		if seat.size.x <= 0.0:
+		if face.size.x <= 0.0:
 			return
+		var gap: Vector2 = _gap_y(str(id))
 		spots.append(face.get_center().x)
-		edge = face.size.x * 0.5
-		y = maxf(y, lerpf(face.end.y, seat.end.y, 0.4))
+		y = maxf(y, gap.x)
+		half = minf(half, gap.y)
 	var tone: Color = RUNG_TONES[clampi(_rung, 0, RUNG_TONES.size() - 1)]
 	var thick: float = maxf(1.5, u(3.0, 1.5))
 	var from := Vector2(float(spots[0]), y)
 	var to := Vector2(float(spots[spots.size() - 1]), y)
 	draw_line(from, to, Color(DARK, 0.85), thick + maxf(2.0, u(3.0, 1.5)), true)
 	draw_line(from, to, tone, thick, true)
-	var blaze: float = float(now - _blaze_at) / 1000.0 if _blaze_at >= 0 else -1.0
-	if blaze >= BLAZE_SECONDS:
-		_blaze_at = -1
-		blaze = -1.0
+	if _flare_at >= 0:
+		## Legion: the line burns gold behind a bright head running to the set's far end.
+		var flare: float = float(now - _flare_at) / 1000.0
+		var run: float = clampf(flare / FLARE_RUN, 0.0, 1.0)
+		var fade: float = clampf((FLARE_SECONDS - flare) / 0.3, 0.0, 1.0)
+		var head: Vector2 = from.lerp(to, run)
+		draw_line(from, head, Color(GILT, 0.3 * fade), thick * 7.0, true)
+		draw_line(from, head, Color(GILT, 0.55 * fade), thick * 3.5, true)
+		draw_line(from, head, Color(GILT_HI, fade), thick * 1.6, true)
+		if run < 1.0:
+			draw_circle(head, thick * 5.0, Color(GILT, 0.35))
+			draw_circle(head, thick * 3.0, Color(GILT_HI, 0.75))
+			draw_circle(head, thick * 1.6, Color.WHITE)
 	for index in range(spots.size()):
-		var at := Vector2(float(spots[index]), y)
-		var lit_up: float = 0.0
-		if blaze >= 0.0:
-			var since: float = blaze - 0.07 * float(index)
-			lit_up = clampf(1.0 - absf(since - 0.12) / 0.3, 0.0, 1.0) if since >= 0.0 else 0.0
-			if since >= 0.12:
-				lit_up = maxf(lit_up, clampf((BLAZE_SECONDS - blaze) / 0.4, 0.0, 1.0) * 0.6)
-		if lit_up > 0.0:
-			draw_circle(at, edge * (0.8 + 0.5 * lit_up), Color(GILT, 0.35 * lit_up))
-		_shield(at, edge * (1.0 + 0.35 * lit_up), STEEL.lerp(GILT, lit_up), CRIMSON.lerp(GILT.darkened(0.2), lit_up))
+		var lit_up: float = _lit_at(index, spots.size(), now)
+		var fill: Color = tone.lerp(GILT_HI if _flare_at >= 0 else GILT, lit_up)
+		_stud(Vector2(float(spots[index]), y), half * (1.0 + 0.25 * lit_up), fill, lit_up)
 
 func _draw_wall(now: int) -> void:
 	## Rank's wall: shields sliding in from both sides to close over his health ring, held a
@@ -180,47 +244,6 @@ func _draw_wall(now: int) -> void:
 	if closed >= 1.0 and since < WALL_CLOSE + 0.12:
 		var flash: float = 1.0 - (since - WALL_CLOSE) / 0.12
 		draw_rect(Rect2(Vector2(middle_x - gap * float(count) * 0.5, foot - edge), Vector2(gap * float(count), edge)), Color(1.0, 0.95, 0.9, 0.25 * flash))
-
-func _draw_banner(now: int) -> void:
-	## Legion's banner over the Birthstone: a staff, the red cloth let down from its crossbar
-	## with gilt edges and the stone's own mark on it.
-	if _banner_at < 0:
-		return
-	var since: float = float(now - _banner_at) / 1000.0
-	if since >= BANNER_SECONDS:
-		_banner_at = -1
-		return
-	var stone_at: Rect2 = stone_rect()
-	if stone_at.size.x <= 0.0:
-		return
-	var wide: float = u(56.0, 30.0)
-	var tall: float = u(84.0, 44.0)
-	var foot: float = minf(stone_at.position.y, dock_rect().position.y) - u(6.0, 3.0)
-	var rise: float = clampf(since / 0.2, 0.0, 1.0)
-	rise = 1.0 - (1.0 - rise) * (1.0 - rise)
-	var down: float = clampf((since - 0.15) / 0.22, 0.0, 1.0)
-	down = 1.0 - (1.0 - down) * (1.0 - down)
-	var alpha: float = clampf((BANNER_SECONDS - since) / 0.35, 0.0, 1.0)
-	var pole: float = (tall + u(30.0, 14.0)) * rise
-	var x: float = stone_at.get_center().x
-	var top := Vector2(x - wide * 0.5, foot - pole)
-	var line: float = maxf(1.5, u(3.0, 1.5))
-	draw_line(Vector2(x, foot), Vector2(x, foot - pole - u(8.0, 4.0)), Color(DARK, 0.9 * alpha), line + maxf(2.0, u(3.0, 1.5)), true)
-	draw_line(Vector2(x, foot), Vector2(x, foot - pole - u(8.0, 4.0)), Color(GILT.darkened(0.2), alpha), line, true)
-	draw_circle(Vector2(x, foot - pole - u(8.0, 4.0)), line * 1.5, Color(GILT, alpha))
-	if rise < 1.0:
-		return
-	var hung: float = tall * down
-	var notch: float = wide * 0.3
-	var cloth := PackedVector2Array([top, top + Vector2(wide, 0.0), top + Vector2(wide, hung), top + Vector2(wide * 0.5, maxf(0.0, hung - notch)), top + Vector2(0.0, hung)])
-	if hung > notch:
-		draw_colored_polygon(cloth, Color(CRIMSON, 0.96 * alpha))
-		draw_polyline(cloth + PackedVector2Array([top]), Color(GILT, 0.9 * alpha), maxf(1.0, u(2.0, 1.0)), true)
-	draw_rect(Rect2(top + Vector2(-wide * 0.12, -u(4.0, 2.0)), Vector2(wide * 1.24, u(5.0, 2.5))), Color(GILT.darkened(0.25), alpha))
-	if down >= 1.0:
-		var mark: float = wide * 0.62
-		var mark_at := Rect2(Vector2(x - mark * 0.5, top.y + tall * 0.2), Vector2(mark, mark))
-		draw_glyph("formation" if GemIcons.known("formation") else "shield", mark_at, Color(GILT.lightened(0.2), alpha))
 
 func _draw_spears(now: int) -> void:
 	## A spear on its way: a steel head on a dark shaft, a red streak behind it.
@@ -279,7 +302,7 @@ func _tier(entry: Dictionary, effects: Array, origin: Vector3, tone: Color) -> b
 		"File":
 			return _file(effects, origin, tone)
 		"Phalanx":
-			## The formation flashes: the set's shields blaze, and a sigil on the stunned creature.
+			## The formation flashes: the set's studs blaze, and a sigil on the stunned creature.
 			_blaze_at = now
 			busy(BLAZE_SECONDS + 0.2)
 			sound("harmony", {"volume": 0.4, "pitch": 0.9, "gap": 0.0})
@@ -314,23 +337,34 @@ func _file(effects: Array, origin: Vector3, tone: Color) -> bool:
 	return true
 
 func _legion(effects: Array, origin: Vector3, tone: Color) -> bool:
-	## The banner goes up over the stone and every die of the set throws at once.
-	var blows: Array = effects.filter(func(effect: Dictionary) -> bool: return str(effect.get("kind", "")) == "damage")
-	if blows.is_empty():
-		return false
-	var rest: Array = effects.filter(func(effect: Dictionary) -> bool: return str(effect.get("kind", "")) != "damage")
-	_banner_at = Time.get_ticks_msec()
-	busy(BANNER_SECONDS + 0.2)
+	## Gold runs the line under the set and lights its studs one by one; once it reaches the far
+	## end every die of the set throws at once.
+	_flare_at = Time.get_ticks_msec()
+	busy(FLARE_SECONDS + 0.2)
 	sound("harmony", {"volume": 0.55, "gap": 0.0})
-	var lead: float = 0.3
+	sound("hammer_strike", {"volume": 0.22, "pitch": 1.5, "delay": FLARE_RUN, "gap": 0.0})
+	for index in range(_set.size()):
+		later(FLARE_RUN * float(index) / float(maxi(1, _set.size() - 1)), _spark_stud.bind(index))
+	var blows: Array = effects.filter(func(effect: Dictionary) -> bool: return str(effect.get("kind", "")) == "damage")
+	var rest: Array = effects.filter(func(effect: Dictionary) -> bool: return str(effect.get("kind", "")) != "damage")
 	for index in range(blows.size()):
 		var hit: Dictionary = blows[index]
 		var who: String = str(hit.get("target", target_id()))
-		later(lead + VOLLEY_GAP * float(index), _spear.bind(who, index, GILT))
-		later(lead + VOLLEY_GAP * float(index), land.bind([hit], _near(who), GILT))
+		later(VOLLEY_LEAD + VOLLEY_GAP * float(index), _spear.bind(who, index, GILT))
+		later(VOLLEY_LEAD + VOLLEY_GAP * float(index), land.bind([hit], _near(who), GILT))
 	if not rest.is_empty():
-		later(lead + VOLLEY_GAP * float(blows.size()), land.bind(rest, origin, tone))
+		later(VOLLEY_LEAD + VOLLEY_GAP * float(blows.size()), land.bind(rest, origin, tone))
 	return true
+
+func _spark_stud(index: int) -> void:
+	## Gold thrown off a stud as Legion's flare reaches it.
+	if index >= _set.size():
+		return
+	var id: String = str(_set[index])
+	var face: Rect2 = die_face(id)
+	if face.size.x > 0.0:
+		burst(Vector2(face.get_center().x, _gap_y(id).x), GILT, 10, u(120.0, 60.0), 0.35, u(4.0, 2.0))
+		sound("tally_tick", {"volume": 0.25, "pitch": 1.0 + 0.1 * float(index), "gap": 0.0})
 
 func _spear(who: String, index: int, tone: Color) -> void:
 	if DeepUi.headless():

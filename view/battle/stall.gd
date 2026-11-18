@@ -45,17 +45,25 @@ const TAG_SIZE: int = 15
 const TAG_PIP: float = 12.0
 const TAG_DROP: float = 0.56
 const DIAMOND: Array = [Vector2(0.5, 0.0), Vector2(1.0, 0.5), Vector2(0.5, 1.0), Vector2(0.0, 0.5)]
-## A lucky find and a Void stone (review card S1, round 3) are told apart at a glance: a lucky
-## find shimmers in gold (a halo behind it and glints winking round it, the Flawless line's
-## gold) with a "Lucky find" mark under its tag; a Void stone is drawn as the dark space the
-## dock draws Void in, its facets lit at the rim, with a "Void" mark. `MARK_DROP` is how far
-## under the tag the first mark hangs, `MARK_STEP` the next one's step.
-const MARK_SIZE: int = 13
-const MARK_DROP: float = 0.3
-const MARK_STEP: float = 0.27
+## What the counter says of each stone without a click (owner's review, db `shop1`, November
+## 18, 2026; CounterMarks): a grade row under its tag (`ROW_DROP` under it), and over a stone
+## that stands apart its pills (Void, Flawless or Intricate, Perfect cut, Heavy; at most two),
+## `PILL_RISE` over the goods: side by side on the desktop, stacked `PILL_STEP` apart on the
+## phone. A stone with a pill other than Void shimmers in that pill's tone (a halo behind it
+## and glints winking round it); a Void stone is drawn as the dark space the dock draws Void
+## in, its facets lit at the rim. A lucky find is never named: it shows by what it is.
+const MARK_SIZE: int = 14
+const ROW_DROP: float = 0.16
+const PILL_RISE: Vector3 = Vector3(0, 0.36, 0.1)
+const PILL_STEP: float = 0.25
 const GLINT_SPOTS: Array = [Vector3(0.27, 0.2, 0.28), Vector3(-0.26, 0.06, 0.28), Vector3(0.1, -0.2, 0.34), Vector3(-0.12, 0.31, 0.22)]
-static var _glint_material: StandardMaterial3D = null
-static var _halo_material: StandardMaterial3D = null
+## One glint and one halo material for each tone a stone shimmers in.
+static var _glint_materials: Dictionary = {}
+static var _halo_materials: Dictionary = {}
+## The heaviest a stone comes out of this mine at this depth (Heavy), and the heaviest gem on
+## the buyer's rail (the grade row's arrow); 0 while not told.
+var _cap: int = 0
+var _heaviest: int = 0
 func build(biome: Dictionary, stock: Array, seed_value: int) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
@@ -370,75 +378,102 @@ func show_stock(stock: Array) -> void:
 		## The phone's names stand larger (mine_stage.gd): a little further under the price.
 		tag.position = Vector3(0, -(TAG_DROP + (0.14 if DeepUi.phone else 0.0)), 0.62)
 		holder.add_child(tag)
-		var lucky: bool = bool(item.get("lucky", false))
+		var stone_now: Dictionary = item.get("stone", {}) if str(item.get("kind", "stone")) != "die" else {}
+		var keys: Array = CounterMarks.pills(stone_now, _cap)
 		var glints: Array = []
-		if lucky:
-			shine.light_color = lucky_tone()
-			glints = _shimmer(holder)
-		var marks: Array = _marks(item, holder, tag.position)
+		var glow: Variant = CounterMarks.shimmer_tone(keys)
+		if glow != null:
+			shine.light_color = glow
+			glints = _shimmer(holder, glow)
+		var marks: Array = _pills(keys, holder)
+		var row: Node3D = null
+		if not stone_now.is_empty() and bool(stone_now.get("appraised", false)) and not DeepStone.is_birthstone(stone_now):
+			row = _grade_row(stone_now, tag.position)
+			holder.add_child(row)
+			marks.append(row)
 		_items[id] = {"holder": holder, "spinner": spinner, "shine": shine, "hover": false, "phase": float(index) * 1.3,
-			"price_label": price, "tag": tag, "price": int(item.get("price", 0)), "lucky": lucky, "glints": glints, "marks": marks}
+			"price_label": price, "tag": tag, "price": int(item.get("price", 0)), "glints": glints, "marks": marks, "row": row, "stone": stone_now}
 		if fresh and is_inside_tree():
 			## A Restock's goods come up onto the cloth once the old ones have gone.
 			holder.scale = Vector3.ONE * 0.01
 			var pop := holder.create_tween()
 			pop.tween_property(holder, "scale", Vector3.ONE, 0.45).set_delay(0.3 + 0.08 * float(index)).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
-static func lucky_tone() -> Color:
-	## A lucky find's gold: the Flawless line's (`FlawlessFx.tone`), the game's word for "more
-	## than it should be".
-	return DeepUi.tier_color("PEERLESS")
-
 static func _void_tone(stone: Dictionary) -> Color:
 	## The rim a Void stone is lit at: its own hue, paled (as `VoidMarks.tone_of`).
 	return GemMesh.tint(stone).lerp(Color.WHITE, 0.45)
 
-func _marks(item: Dictionary, holder: Node3D, under: Vector3) -> Array:
-	## The marks under a stone's tag: "Lucky find" in gold, "Void" in the Void's blue. Each is
-	## a word the stage writes on a capsule of its own (`MarkPlate`); on the phone they step
-	## down with a staggered row of tags (`MineStage._stagger_names`, `under_tags`).
-	var words: Array = []
-	if bool(item.get("lucky", false)):
-		words.append(["Lucky find", lucky_tone(), false])
-	if str(item.get("kind", "stone")) != "die" and DeepStone.is_slotless(item.get("stone", {})):
-		words.append(["Void", DeepUi.VOID, true])
+func set_context(cap: int, heaviest: int) -> void:
+	## What the counter's marks are read against (CounterMarks): the heaviest a stone comes out
+	## of this mine at this depth (Heavy), told before the goods are laid out, and the heaviest
+	## gem on the buyer's rail, whose arrow comes and goes as the rail changes.
+	_cap = cap
+	_heaviest = heaviest
+	for id in _items:
+		var row: Variant = _items[id].get("row", null)
+		if row is Node3D and is_instance_valid(row):
+			var plate: Variant = (row as Node3D).get_meta("plate")
+			if plate is CounterMarks.GradePlate and (plate as CounterMarks.GradePlate).set_up(CounterMarks.outweighs(_items[id].get("stone", {}), _heaviest)):
+				(row as Node3D).set_meta("relayout", true)
+
+func _grade_row(stone: Dictionary, under: Vector3) -> Node3D:
+	## The grade row under a stone's tag (card G1, A): the carat as its words, the Cut and the
+	## Clarity drawn by its plate. On the phone it steps down with a staggered row of tags
+	## (`MineStage._stagger_names`, `under_tags`).
+	var spot := _label("%dct" % int(stone.get("carat", 1)), DeepUi.PAPER, MARK_SIZE)
+	var plate := CounterMarks.GradePlate.new(stone, 1.6 if DeepUi.phone else 1.0)
+	plate.set_up(CounterMarks.outweighs(stone, _heaviest))
+	spot.set_meta("plate", plate)
+	spot.set_meta("font", DeepUi.bold_font())
+	spot.set_meta("under_tags", true)
+	spot.position = under - Vector3(0, ROW_DROP + (0.1 if DeepUi.phone else 0.0), 0)
+	return spot
+
+func _pills(keys: Array, holder: Node3D) -> Array:
+	## A stone's pills over it (cards P0-P6): side by side on the desktop (the stage lays a
+	## `pair` out across), stacked on the phone with the first nearest the stone.
 	var out: Array = []
-	var drop: float = MARK_DROP + (0.1 if DeepUi.phone else 0.0)
-	for index in range(words.size()):
-		var said: Array = words[index]
-		var spot := _label(str(said[0]), Color(said[1]).lightened(0.25), MARK_SIZE)
-		spot.set_meta("plate", MarkPlate.new(Color(said[1]), bool(said[2])))
+	for index in range(keys.size()):
+		var key: String = str(keys[index])
+		var spot := _label(str(CounterMarks.WORDS.get(key, key)), CounterMarks.tone(key).lightened(0.25), MARK_SIZE)
+		spot.set_meta("plate", CounterMarks.PillPlate.new(key, 1.6 if DeepUi.phone else 1.0))
 		spot.set_meta("font", DeepUi.bold_font())
-		spot.set_meta("under_tags", true)
-		spot.position = under - Vector3(0, drop + MARK_STEP * float(index) * (1.45 if DeepUi.phone else 1.0), 0)
+		spot.position = PILL_RISE + (Vector3(0, PILL_STEP * float(index), 0) if DeepUi.phone else Vector3.ZERO)
+		if not DeepUi.phone and keys.size() > 1:
+			spot.set_meta("pair", "pills:%d" % holder.get_instance_id())
+			spot.set_meta("pair_index", index)
 		holder.add_child(spot)
 		out.append(spot)
 	return out
 
-func _shimmer(holder: Node3D) -> Array:
-	## A lucky find's gold: a soft halo behind the stone and four glints round it that wink in
-	## turn (`_process`). The halo is the first of what comes back, the glints after it.
-	if _glint_material == null:
-		_glint_material = StandardMaterial3D.new()
-		_glint_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		_glint_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		_glint_material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-		_glint_material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-		_glint_material.billboard_keep_scale = true
-		_glint_material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
-		_glint_material.no_depth_test = true
-		_glint_material.albedo_texture = BattleFx.sparkle_texture()
-		_glint_material.albedo_color = Color(lucky_tone().lightened(0.35), 1.0)
-		_halo_material = _glint_material.duplicate() as StandardMaterial3D
-		_halo_material.no_depth_test = false
-		_halo_material.albedo_texture = DeepUi.glow_texture()
-		_halo_material.albedo_color = Color(lucky_tone(), 0.5)
+func _shimmer(holder: Node3D, tone: Color) -> Array:
+	## A standout stone's shimmer in its pill's tone: a soft halo behind the stone and four
+	## glints round it that wink in turn (`_process`). The halo is the first of what comes
+	## back, the glints after it.
+	var key: String = tone.to_html()
+	if not _glint_materials.has(key):
+		var glint_material := StandardMaterial3D.new()
+		glint_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		glint_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		glint_material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		glint_material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+		glint_material.billboard_keep_scale = true
+		glint_material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+		glint_material.no_depth_test = true
+		glint_material.albedo_texture = BattleFx.sparkle_texture()
+		glint_material.albedo_color = Color(tone.lightened(0.35), 1.0)
+		var halo_material := glint_material.duplicate() as StandardMaterial3D
+		halo_material.no_depth_test = false
+		halo_material.albedo_texture = DeepUi.glow_texture()
+		halo_material.albedo_color = Color(tone, 0.5)
+		_glint_materials[key] = glint_material
+		_halo_materials[key] = halo_material
 	var out: Array = []
 	var halo := MeshInstance3D.new()
 	var disc := QuadMesh.new()
 	disc.size = Vector2.ONE
 	halo.mesh = disc
-	halo.material_override = _halo_material
+	halo.material_override = _halo_materials[key]
 	halo.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	halo.position = Vector3(0, 0.02, -0.12)
 	holder.add_child(halo)
@@ -448,7 +483,7 @@ func _shimmer(holder: Node3D) -> Array:
 		var quad := QuadMesh.new()
 		quad.size = Vector2.ONE
 		glint.mesh = quad
-		glint.material_override = _glint_material
+		glint.material_override = _glint_materials[key]
 		glint.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		glint.position = spot
 		glint.scale = Vector3.ONE * 0.01
@@ -579,8 +614,8 @@ func _process(delta: float) -> void:
 		var scale_goal: float = 1.18 if bool(entry.hover) else 1.0
 		spinner.scale = spinner.scale.lerp(Vector3.ONE * scale_goal, clampf(delta * 10.0, 0.0, 1.0))
 		(entry.shine as OmniLight3D).light_energy = 1.6 if bool(entry.hover) else 0.7
-		if bool(entry.get("lucky", false)):
-			## A lucky find breathes its gold, and its glints wink in turn round it.
+		if not entry.get("glints", []).is_empty():
+			## A standout stone breathes its pill's tone, and its glints wink in turn round it.
 			var breath: float = 0.5 + 0.5 * sin(_clock * 2.1 + float(entry.phase))
 			(entry.shine as OmniLight3D).light_energy = (1.9 if bool(entry.hover) else 1.0) + 0.6 * breath
 			var glints: Array = entry.get("glints", [])
@@ -664,38 +699,3 @@ class TagPlate extends StyleBox:
 		var rim := shape.duplicate()
 		rim.append(shape[0])
 		RenderingServer.canvas_item_add_polyline(to_canvas_item, rim, PackedColorArray([_tone.darkened(0.45)]), 1.0, true)
-
-class MarkPlate extends StyleBox:
-	## A mark under a stall stone's tag (review card S1, round 3): a capsule filled with its
-	## tone's dark and edged in the tone, a small glyph in its left margin (a lucky find's
-	## four-pointed glint, a Void's ring).
-	var _plate: StyleBoxFlat
-	var _tone: Color
-	var _ring: bool
-
-	func _init(tone: Color, ring: bool) -> void:
-		_tone = tone
-		_ring = ring
-		_plate = StyleBoxFlat.new()
-		_plate.bg_color = Color(tone.darkened(0.8), 0.94)
-		_plate.border_color = Color(tone, 0.95)
-		_plate.set_border_width_all(2)
-		_plate.set_corner_radius_all(40)
-		content_margin_left = 9.0 + TAG_PIP + 5.0
-		content_margin_right = 11.0
-		content_margin_top = 1.0
-		content_margin_bottom = 2.0
-
-	func _draw(to_canvas_item: RID, rect: Rect2) -> void:
-		_plate.draw(to_canvas_item, rect)
-		var middle := Vector2(rect.position.x + 9.0 + TAG_PIP * 0.5, rect.position.y + rect.size.y * 0.5)
-		var reach: float = TAG_PIP * 0.5
-		if _ring:
-			RenderingServer.canvas_item_add_circle(to_canvas_item, middle, reach, _tone.lightened(0.2))
-			RenderingServer.canvas_item_add_circle(to_canvas_item, middle, reach * 0.55, _plate.bg_color)
-			return
-		var star := PackedVector2Array()
-		for point in range(8):
-			var angle: float = TAU * float(point) / 8.0 - PI * 0.5
-			star.append(middle + Vector2(cos(angle), sin(angle)) * (reach * 1.15 if point % 2 == 0 else reach * 0.3))
-		RenderingServer.canvas_item_add_polygon(to_canvas_item, star, PackedColorArray([_tone.lightened(0.35)]))

@@ -109,6 +109,9 @@ static func gem(stone: Dictionary, context: Dictionary, hand: Array, entry: Dict
 		DeepUi.stat(box, "broken_chain", str(line), DeepUi.ACCENT, 12)
 	if not str(opts.get("note", "")).is_empty():
 		DeepUi.stat(box, "cross_out", str(opts.note), DeepUi.BAD, 12)
+	## Set in a socket that does not show its color: it fires, but rings no Resonance there.
+	if bool(opts.get("unlit", false)):
+		DeepUi.stat(box, "resonance", "Unlit here: it rings no Resonance.", DeepUi.MUTED, 12)
 	if not hand.is_empty() and not entry.is_empty():
 		## The trigger's own words are what the sim gives as the reason when the hand simply
 		## does not meet it (DeepPatterns.words), at the rung this stone stands on.

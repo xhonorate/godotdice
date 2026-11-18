@@ -2346,7 +2346,7 @@ static func socket_refusal(unit: Dictionary, stone: Dictionary, index: int) -> S
 	## question to light the sockets a dragged stone would fit.
 	##
 	## Down the mine any stone sits in any socket (October 29, 2026): a socket's colors only
-	## say which stones light it for a point of Resonance (`DeepStone.shows`), and only the
+	## say which stones light it and ring Resonance there (`DeepStone.shows`), and only the
 	## loadout at home keeps a stone out of a socket that does not show it. A Void gem takes
 	## no socket at all: it rides one, any one, beside whatever is set there, and fires right
 	## after it; so the only things that can refuse it are its weight and a Knot holding it

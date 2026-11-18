@@ -20,8 +20,11 @@ policy that chases the character's own Birthstone. "Res" is Resonance when the B
 - **Six sockets** (Florin has seven), each one color, a **two-tone** pair ("Green/Violet": either
   color) or **Rainbow** (every color, opals included). **Revised October 29, 2026:** a socket's colors
   no longer gate what sits in it down the mine. Any gem goes in any socket; a socket that **shows**
-  the gem's color is lit and adds a point of Resonance each time the gem fires, and one that does not
-  holds the gem unlit. The loadout at home still sets a gem only where a socket shows it, so the
+  the gem's color is lit, and one that does not holds the gem unlit. **Revised November 18, 2026:** a
+  gem rings Resonance only when lit: 1, and 1 more for Harmony (the gem before it rang and shares a
+  color). An unlit gem still fires but rings nothing, takes no Harmony and gives none to the gem after
+  it; the lit socket's own extra point is gone. A Void rider sits in no socket and rings as before.
+  The Birthstones were buffed to make up the Resonance this takes (section 9, and docs/BALANCE.md). The loadout at home still sets a gem only where a socket shows it, so the
   first three sockets say what a lapidary can bring. Only a Rainbow shows an opal. Every character
   has a socket that shows Red (a Rainbow counts).
 - The **Birthstone** is last in the rail, always. Its cut and material sit outside the six-color
@@ -55,10 +58,10 @@ _The wall. Locks in early, heals for patience, and turns a lucky triple into a h
 - **HP** 80. **Dice** d6 d6 d6 d8 d8. **Sockets** Red, Blue, Green, Rainbow, Rainbow, Rainbow.
 - **Passive: Second Wind.** Heal, for each unused reroll, the Resonance your rail built — paid as the rail closes, because at the start of it there is no Resonance yet to heal on. Patience is worth what the chain was worth.
 - **Birthstone: Rally.**
-  - Pair (_Rank_): gain Res block.
-  - Triple (_File_): deal 3×Res damage.
+  - Pair (_Rank_): gain 2×Res block (1× until November 18, 2026).
+  - Triple (_File_): deal 4×Res damage (3× until November 18, 2026).
   - Four of a kind (_Phalanx_): cleanse your afflictions and stun the target for a turn.
-  - Five of a kind (_Legion_): deal 5×Res damage, five times.
+  - Five of a kind (_Legion_): deal 7×Res damage, five times (5× until November 18, 2026).
 - **Fire rates.** Natural hand, banking both heals: pair 83%, triple 16%, quad 1%. Chasing with two
   rerolls: pair 99%, triple 65%, quad 22%, quint 3%. Heal or chase is the Knight's decision every turn.
 - **Stone.** Almandine garnet in a shield (kite) cut: opaque, blood-red, an iron sheen, the only
@@ -71,7 +74,7 @@ _The assassin's gamble. Four tiny knives and one enormous die._
 - **HP** 65. **Dice** d4 d4 d4 d4 d12. **Sockets** Red, Red, Red, Violet, White, Rainbow.
 - **Passive: Riposte.** Gain block equal to half your Resonance (at least 1; the whole Resonance until November 13, 2026) for every hit one of your gems lands. Block falls off at the end
   of the turn, so a big Birthstone turn is a wall for that turn only.
-- **Birthstone: Thousand Cuts.** Five different values: deal Res damage once for every point on your
+- **Birthstone: Thousand Cuts.** Five different values: deal 2×Res damage (1× until November 18, 2026) once for every point on your
   highest die (a d12 showing 7 is seven cuts). _Clean Kill_: a crown on that die as well lands
   every cut twice.
 - **Combo.** Curse in an Any socket, then the Birthstone. Etch before it marks every cut, since
@@ -150,12 +153,12 @@ _The seven-socket high roller. Every roll is all or nothing._
   phantom dice and a die a gem turns onto its top face included, adds 1 Resonance; the throws of
   the planning phase bank it before the rail starts.
 - **Birthstone: High Roller.** A _crown_ is a die showing its top face. Every tier the hand reaches pays.
-  - One crown or more (_Lucky_): deal 5× Resonance for each crown showing (1× until November 17, 2026).
+  - One crown or more (_Lucky_): deal 7× Resonance for each crown showing (1× until November 17, 2026, 5× until November 18).
   - Two or more (_Heating Up_): +1 reroll next turn.
   - Three or more (_Hot Streak_): a phantom Gambler's die joins next turn's throw. It is thrown and
     rerolled with the hand and leaves after that turn, unless a Contra Luz keeps the turn's phantoms.
   - Four or more (_On Fire_): next turn High Roller reads double the whole Resonance total.
-  - Five or more (_Jackpot_): deal 7× Resonance seven times, and gain 7× Resonance in pyrite.
+  - Five or more (_Jackpot_): deal 10× Resonance seven times, and gain 10× Resonance in pyrite (7× until November 18, 2026).
   - None (_Bust_): lose Resonance in pyrite, as much as the bank holds, then take Resonance as
     damage. Block soaks it.
 - **The streak.** What one turn earns the next one rides on, and the battle screen wears it:
@@ -236,8 +239,8 @@ _Two faces. You choose which one the enemy sees, every turn._ (alt names: Quip, 
   right-click, a long press, or F with the die picked turns it over on the spot, and the button
   reads "Turn over". Shift+right-click still opens the die.
 - **Birthstone: Motley.**
-  - All five dice odd (_the Cruel Face_): deal 3×Res damage to the target.
-  - All five dice even (_the Kind Face_): gain 3×Res block.
+  - All five dice odd (_the Cruel Face_): deal 4×Res damage to the target (3× until November 18, 2026).
+  - All five dice even (_the Kind Face_): gain 4×Res block (3× until November 18, 2026; Full Motley doubles both, 8×).
   - All five one parity and all distinct, a skip straight like 2-4-6-8-10 or 1-3-5-7-9
     (_Full Motley_): both, doubled, and the target is stunned.
   - **The Changing Face** (October 23, 2026): a face different from last turn's pays double, and
@@ -384,6 +387,18 @@ moved Bloodroot's root to the middle of its drop.
   each rung its own way. Motley and High Roller keep the effects they had (`motley_fx.gd`,
   `streak_fx.gd`). The ladder under a stone draws the new kinds: `DiceIcons.ladder_die` and
   `build_numbers`.
+  - **Owner's review, November 18, 2026:** all 18 stones were filmed in three rounds, and every
+    piece is now approved. The page is https://claude.ai/artifact/SbZSReq6GLrycJ6LrTp8wd, with the
+    marks in db `birthui1` to `birthui3`. What changed:
+    - **Rally:** no flags or banner. Studs sit on the set's line, and Legion is a gold flare along it.
+    - **Rampart:** the Block and kept figure are one pill centered over the ring. The gate drops onto
+      that pill. The masonry course is smaller, and Ram throws a block off it.
+    - **Fan of Knives:** each knife is drawn by hand on the fan and in miniature on the dice.
+    - **Nocturne:** one small moon per go, on an arc at the ring's lower left.
+    - **Arpeggio:** the staff is a five-line staff above the tray, off the dice.
+    - **Mithridate:** a malachite rim light replaces the film over the gems.
+    - **Keep:** a Rampart Keep is no longer reported as "nothing to land" (`_paid_nothing` skips
+      `keep_all`).
 - **Home:** the dossier's Birthstone card shows three stones with Wear, or Unlock and its confirm.
   The rail's Birthstone tile opens a swap card.
 - **Tests:** `tests/test_birthstones.gd` covers the rules, `tests/test_birth_acts.gd` every stone's
@@ -413,8 +428,8 @@ stones only.
 
 *Tower cut, emblem `battlement`, hue 7b3b40 / b5524a.* Even dice raise the Knight's wall, and the wall is the weapon.
 
-- **Parapet**: Two even dice: gain Resonance block, and keep that much block into next turn.
-- **Thornwork**: Three even dice: until your next turn, a creature that hits you takes Resonance damage.
+- **Parapet**: Two even dice: gain twice Resonance block, and keep that much block into next turn (1× until November 18, 2026).
+- **Thornwork**: Three even dice: until your next turn, a creature that hits you takes twice Resonance damage (1× until November 18, 2026).
 - **Ram**: Four even dice: deal Resonance once for every 10 block you hold.
 - **Keep**: All five even: none of your block falls away this turn.
 
@@ -433,14 +448,14 @@ stones only.
 
 - **Omen**: A 1 showing: Curse the target once for each 1.
 - **Jinx** (takes the place of Omen): Three 1s: Curse every creature instead.
-- **Reckoning**: Four 1s: deal Resonance for each Curse on the target.
+- **Reckoning**: Four 1s: deal twice Resonance for each Curse on the target (1× until November 18, 2026; Snake Eyes too).
 - **Snake Eyes** (takes the place of Reckoning): All five 1s: this turn's Curses count double, and Reckoning lands twice.
 
 #### Vesper · Fan of Knives (2,500 gold)
 
 *Fan cut, emblem `knife_fan`, hue 2f3040 / 5a6ad0.* Matching dice are knives, thrown one after another.
 
-- **Fan**: A pair or better: throw a knife for every die that matches another. Each deals Resonance to a random creature, and a knife that kills is thrown again.
+- **Fan**: A pair or better: throw a knife for every die that matches another. Each deals twice Resonance to a random creature, and a knife that kills is thrown again (1× until November 18, 2026; Flourish too).
 - **Flourish** (takes the place of Fan): Four of a kind: first, every knife gains damage equal to your highest die and hits every creature.
 
 #### Cadence · Nocturne (1,000 gold)
@@ -465,7 +480,7 @@ stones only.
 
 *Pill cut, emblem `coated_blade`, hue 2f8a5b / 14523a.* Runs of dice coat the Apothecary's own blades.
 
-- **Coat**: Three in a row: gain 1 Envenomed for every 5 Resonance (at least 1) for the fight. Every hit of yours that gets past block applies that much poison. (A flat 1 until November 17, 2026.)
+- **Coat**: Three in a row: gain 1 Envenomed for every 3 Resonance (at least 1) for the fight (every 5 until November 18, 2026). Every hit of yours that gets past block applies that much poison. (A flat 1 until November 17, 2026.)
 - **Double Dose**: A straight of four: gain 1 more Envenomed for every 2 Resonance (at least 1; every 5 until November 17, 2026).
 - **Mithridate**: A straight of five: stab the target once for each Envenomed you carry. Each stab deals Resonance.
 
@@ -475,7 +490,7 @@ stones only.
 
 - **Tap**: Every 1 you roll (not a wild or a phantom): lose 1 health and gain 1 poison per 1 rolled this fight. Gain 1 max health for the run per new 1. Wild faces and phantom dice are not 1s you rolled (the trigger's `rolled`), and a replay counts no die twice (`fight_counted`, `fresh_ones`).
 - **Take Root**: Three of a kind: gain Resonance max health for this fight, then deal damage equal to the health you are missing.
-- **Transfusion**: Four of a kind: heal Resonance, and deal the health restored to every creature.
+- **Transfusion**: Four of a kind: heal twice Resonance, and deal the health restored to every creature (1× until November 18, 2026).
 - **Heartsblood**: Five of a kind: deal damage equal to your max health to a random creature, once per pip on the face. (Five 1s strike once, five 6s six times; before November 16, 2026 it was once for every point in the set.)
 - Deep start: opens with 175% of the skipped mines' floors as max health (`head_start`; 350% until November 17, 2026).
 
@@ -483,15 +498,15 @@ stones only.
 
 *Cameo cut, emblem `two_masks`, hue c9607c / 1e1a22.* A die on its crown is a Happy Face and a die on a 1 a Sad Face, and a bigger die pulls a bigger one.
 
-- **Comedy**: A Happy Face: each one strikes for Resonance, once for every size its die is over a d4.
-- **Tragedy**: A Sad Face: each one gives Resonance block, counted the same way.
+- **Comedy**: A Happy Face: each one strikes for twice Resonance, once for every size its die is over a d4 (1× until November 18, 2026).
+- **Tragedy**: A Sad Face: each one gives twice Resonance block, counted the same way (1× until November 18, 2026).
 - **Standing Ovation**: Every die a Face: your dice grow a size for the rest of the fight.
 
 #### Puck · Patchwork (2,500 gold)
 
 *Lozenge cut, emblem `patches`, hue c85a9a / 4aa0c0.* The dice go to the gems. The Birthstone counts the colors they fire.
 
-- **Scraps**: Three colors fired: deal Resonance for every color that fired.
+- **Scraps**: Three colors fired: deal twice Resonance for every color that fired (1× until November 18, 2026).
 - **Quilt**: Four colors: each color that fired also gives its gift, worth Resonance. Red damage, Blue block, Green healing, Violet poison, Gold pyrite. White gives 1 Charged for each color.
 - **Whole Cloth**: All six: throw all your dice again. Every gem reads the new hand and may fire once more.
 
@@ -501,13 +516,13 @@ stones only.
 
 - **Two of a kind**: A pair: its Prize.
 - **Three of a kind**: Three or four of a kind: its Prize, three times.
-- **Jackpot**: Five of a kind: its Prize seven times, and 7× Resonance pyrite.
-- The Prizes (five times what they were before November 17, 2026): 1s heal 5× Resonance, 2s give 5× Resonance block, 3s poison for 5× Resonance, 4s pay 5× Resonance pyrite, 5s deal 10× Resonance, 7s deal 20× Resonance.
+- **Jackpot**: Five of a kind: its Prize seven times, and 10× Resonance pyrite (7× until November 18, 2026).
+- The Prizes (five times what they were before November 17, 2026, raised again November 18): 1s heal 8× Resonance, 2s give 8× Resonance block, 3s poison for 8× Resonance, 4s pay 8× Resonance pyrite, 5s deal 16× Resonance, 7s deal 32× Resonance.
 
 #### Florin · Blackjack (2,500 gold)
 
 *Card cut, emblem `ace_card`, hue 4a3418 / e0a030.* Bring the hand's total to 21 without going over.
 
-- **Stand**: A total of 17 to 20: deal 5× Resonance for every point over 16 (1× until November 17, 2026).
-- **Twenty-One**: Exactly 21: deal 35× Resonance three times, and gain 21 pyrite (7× until November 17, 2026).
+- **Stand**: A total of 17 to 20: deal 7× Resonance for every point over 16 (1× until November 17, 2026, 5× until November 18).
+- **Twenty-One**: Exactly 21: deal 7× Resonance 21 times, and gain 21 pyrite (until November 18, 2026 it was three blows, of 7× Resonance until November 17 and 35× after; the owner wanted 21 in it, and 7× twenty-one times played level with 21× three times).
 - **Bust** (a penalty): 22 or more: take Resonance damage.

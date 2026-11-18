@@ -135,6 +135,23 @@ The gems, as output a turn carat for carat against the middle gem of their rarit
 
 Still standing out after the round: Florin, Siphon and Fortify, Encore, the Assayer, the Rift's Drill, the Collapsar, and the Glass Veins' mirrors (Echo Sprite, Prism Golem).
 
+## The lit-socket rule (November 18, 2026)
+
+The owner's rule: a gem rings Resonance only from a socket that shows its color (1, and 1 more for Harmony). In any other socket it fires but rings nothing, takes no Harmony and gives none to the gem after it; the lit socket's own extra point is gone. A Void rider sits in no socket and rings as before.
+
+Played on the same 5,040 jobs (40 seeds, the calibrated kits; `build/balance/delve/res_*`, compared job by job with `build/balance/resonance/res_cmp.mjs`):
+
+| | Today | The rule alone | The rule and the Birthstone buffs |
+| --- | --- | --- | --- |
+| Progress | 68.3 | 66.6 (-1.7 ±0.3) | 68.3 (±0.0 ±0.2) |
+| Boss beaten | 25% | 20% | 25% |
+| Resonance a turn | 34.9 | 28.0 | 27.0 |
+| The Quarry, boss beaten | 60% | 44% | 51% |
+
+Almost all of the loss is the lit socket's +1: muting unlit gems while keeping it cost only 0.4 points, because the bot nearly always sets a gem in a socket of its own color (about a tenth of its fires were unlit). Every Birthstone reads Resonance linearly, so the buffs are whole multipliers (no flat additions, on the owner's word): plain Resonance to twice Resonance on Rank, Parapet, Thornwork, Thousand Cuts and Clean Kill, Reckoning and Snake Eyes, the Fan and Flourish knives, Transfusion, Comedy, Tragedy and Scraps; File 4×, Legion 7×, the Faces 4× (Full Motley 8×), Lucky 7×, High Roller's Jackpot 10×, the Bandit's prizes 8×/16×/32× and its Jackpot pyrite 10×, Stand 7×; Mithridate's Coat one Envenomed for every 3 Resonance. The owner kept Overture at 6×, Tincture, Take Root and Mithridate's stabs at 1×, and made Twenty-One 7× Resonance 21 times (it was 35× three times; played on 840 Blackjack jobs it is level with 21× three times, -0.1 ±0.6, and with the game before the rule, +1.1 ±1.2); these were marked after the runs above, so that table is a little ahead of what was built. The review page is https://claude.ai/artifact/RGzsCWXZRTLEPbAMdRbyUn (db `res1`).
+
+Still open: the Quarry stays harder (its three-gem rails lose about 40% of their Resonance, deeper rails 15 to 20%); gems that read Resonance (Pinfire, the Seams, Crescendo, Hydrophane, Prelude) were not looked at; Ardor's Second Wind heals by Resonance and was left as it is.
+
 ## Checks
 
 `tests/test_delve.gd` holds the bot to finishing a run, to one job always playing the same run, to one vault for a delver's three stones, to every point of health lost being put down to something, and to a played-out hand leaving its fight untouched. `tools/run_checks.py` runs it with the other suites.

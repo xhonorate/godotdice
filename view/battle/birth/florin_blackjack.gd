@@ -9,7 +9,7 @@ extends "res://view/battle/birth_act.gd"
 ##
 ## When the stone fires: Stand slides a stack of chips from the count to the target for every
 ## point over 16, the blow landing with the last; Twenty-One flips the count over like a card
-## to 21, three heavy hits land off it with a snap each and 21 coins go to the purse; a Bust
+## to 21, its 21 hits land off it with a snap each and 21 coins go to the purse; a Bust
 ## cracks the count red and the hit comes back on him, a red flash over his ring.
 ##
 ## Both layouts draw the same track over the tray; the phone's stands clear of the line of
@@ -318,8 +318,8 @@ func _stand(entry: Dictionary, rung: Dictionary, effects: Array, origin: Vector3
 	return true
 
 func _twenty_one(effects: Array, origin: Vector3, tone: Color) -> bool:
-	## The count turns over like a card to 21; three heavy hits leave it with a snap each, and
-	## 21 coins go to the purse.
+	## The count turns over like a card to 21; its 21 hits leave it with a snap each (quicker the
+	## more there are), and 21 coins go to the purse.
 	var blows: Array = effects.filter(func(effect: Dictionary) -> bool: return str(effect.get("kind", "")) == "damage")
 	var purse: Array = effects.filter(func(effect: Dictionary) -> bool: return str(effect.get("kind", "")) == "gold")
 	_card_spot = _count_spot()
@@ -327,9 +327,10 @@ func _twenty_one(effects: Array, origin: Vector3, tone: Color) -> bool:
 	busy(CARD_SECONDS + 0.2)
 	sound("reel_lever", {"volume": 0.5, "pitch": 1.4})
 	var at: float = 0.3
+	var step: float = 0.26 if blows.size() <= 3 else maxf(0.07, 1.8 / float(blows.size()))
 	for blow in blows:
 		later(at, _snap.bind(blow))
-		at += 0.26
+		at += step
 	if not purse.is_empty():
 		later(at, _coins.bind(purse))
 		at += 0.15

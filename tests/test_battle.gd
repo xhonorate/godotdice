@@ -57,15 +57,15 @@ func hand(unit: Dictionary, numbers: Array) -> void:
 	unit.hand = out
 
 func player(id: String, rail: Array, character: String = "ARDOR") -> Dictionary:
-	## The sockets show none of the stones set in them: these fights count Resonance by the
-	## gems alone. A lit socket adds a point of its own (October 29), which `_test_lit_sockets`
-	## reads with the characters' real sockets.
+	## Every socket a Rainbow, so every gem rings: these fights count Resonance by the gems
+	## alone. Only a gem in a socket that shows it rings (November 18, 2026), which
+	## `_test_lit_sockets` reads with the characters' real sockets.
 	var unit: Dictionary = DeepBattle.make_player(id, id.capitalize(), character, rail, dice(DeepContent.character(character).dice, id))
 	unit.sockets = unit.sockets.map(func(_socket: Variant) -> String: return UNLIT)
 	return unit
 
-## A socket color no stone has, so nothing set in it is lit.
-const UNLIT: String = "UNLIT"
+## A socket that shows every stone, so everything set in it rings.
+const UNLIT: String = "RAINBOW"
 
 func lit_player(id: String, rail: Array, character: String = "ARDOR") -> Dictionary:
 	## The same, with the character's real sockets, for what they light.
@@ -244,7 +244,7 @@ func _test_resonance_and_birthstone() -> void:
 	check(seen.find("birthstone") > seen.rfind("gem_fire") and seen.find("birthstone") < seen.find("rail_end"), "the Birthstone resolves after the last gem and before the rail closes: %s" % str(seen))
 	var rally: Dictionary = birthstones(events)[0]
 	check(rally.name == "Rally" and bool(rally.fired) and int(rally.resonance) == 5, "Rally reads the Resonance the rail delivered (%d)" % int(rally.resonance))
-	check(bool(tier(rally, "Rank").active) and int(tier(rally, "Rank").effects[0].amount) == 5 and str(tier(rally, "Rank").effects[0].kind) == "block", "a pair: Rank grants Resonance block")
+	check(bool(tier(rally, "Rank").active) and int(tier(rally, "Rank").effects[0].amount) == 10 and str(tier(rally, "Rank").effects[0].kind) == "block", "a pair: Rank grants twice Resonance block")
 	check(not bool(tier(rally, "File").active) and not bool(tier(rally, "Legion").active), "two pairs are not a triple")
 	## A fizzle in the middle costs that gem its turn and nothing else: the count stands.
 	var r2: Dictionary = rngs(22)
@@ -267,15 +267,15 @@ func _test_birthstones() -> void:
 	hand(DeepBattle.player(state, "a"), [5, 5, 5, 5, 5])
 	var rally: Dictionary = birthstones(run_turn(state, r))[0]
 	check(rally.tiers.filter(func(x: Dictionary) -> bool: return bool(x.active)).size() == 4, "five of a kind fires Rank, File, Phalanx and Legion")
-	check(int(rally.resonance) == 1 and int(tier(rally, "File").effects[0].raw) == 3 and tier(rally, "Legion").effects.size() == 5, "File deals 3×Res once, Legion 5×Res five times")
+	check(int(rally.resonance) == 1 and int(tier(rally, "File").effects[0].raw) == 4 and tier(rally, "Legion").effects.size() == 5 and int(tier(rally, "Legion").effects[0].raw) == 7, "File deals 4×Res once, Legion 7×Res five times")
 	check(tier(rally, "Phalanx").effects.filter(func(e: Dictionary) -> bool: return str(e.kind) == "stun").size() == 1, "Phalanx stuns")
 	## Each lit tier is counted out on its own: what Resonance multiplies, Resonance, the figure.
 	var rank_count: Dictionary = tier(rally, "Rank").get("count", {})
 	var file_count: Dictionary = tier(rally, "File").get("count", {})
-	check(str(rank_count.get("kind", "")) == "block" and int(rank_count.get("coef", 0)) == 1 and int(rank_count.get("res", -1)) == 1 and int(rank_count.get("amount", 0)) == 1,
-		"Rank counts Resonance straight into its guard (%s)" % str(rank_count))
-	check(str(file_count.get("kind", "")) == "damage" and int(file_count.get("coef", 0)) == 3 and int(file_count.get("res", -1)) == 1 and int(file_count.get("amount", 0)) == 3,
-		"File counts its own three times Resonance (%s)" % str(file_count))
+	check(str(rank_count.get("kind", "")) == "block" and int(rank_count.get("coef", 0)) == 2 and int(rank_count.get("res", -1)) == 1 and int(rank_count.get("amount", 0)) == 2,
+		"Rank counts twice Resonance into its guard (%s)" % str(rank_count))
+	check(str(file_count.get("kind", "")) == "damage" and int(file_count.get("coef", 0)) == 4 and int(file_count.get("res", -1)) == 1 and int(file_count.get("amount", 0)) == 4,
+		"File counts its own four times Resonance (%s)" % str(file_count))
 	check(int(tier(rally, "Legion").count.get("repeat", 0)) == 5 and not tier(rally, "Phalanx").count.has("amount") and str(tier(rally, "Phalanx").count.get("name", "")) == "Phalanx",
 		"Legion lands five times; Phalanx has no figure, only its name called out")
 	var counted: float = DeepBattle.BASE_DURATION.birthstone
@@ -319,7 +319,7 @@ func _test_birthstones() -> void:
 	hand(DeepBattle.player(state3b, "a"), [1, 2, 3, 4, 11])
 	var cuts: Dictionary = birthstones(run_turn(state3b, r3b))[0]
 	var hits: Array = effects_of(cuts, "damage")
-	check(bool(cuts.fired) and hits.size() == 11 and int(hits[0].amount) == 1, "an 11 on the d12 is eleven hits of Resonance (%d hits)" % hits.size())
+	check(bool(cuts.fired) and hits.size() == 11 and int(hits[0].amount) == 2, "an 11 on the d12 is eleven hits of twice Resonance (%d hits)" % hits.size())
 	check(int(hits[hits.size() - 1].get("riposte", 0)) == 1, "Riposte: every hit raises block worth half the Resonance, and at least 1")
 	## Half, rounded down: a Rogue at Resonance 9 parries 4 a hit (November 13, 2026).
 	var rogue: Dictionary = DeepBattle.player(state3b, "a")
@@ -328,8 +328,8 @@ func _test_birthstones() -> void:
 	check(int(parried.get("riposte", 0)) == 4, "Riposte at Resonance 9 is 4 block a hit: %s" % str(parried.get("riposte", 0)))
 	var cuts_count: Dictionary = tier(cuts, "Thousand Cuts").count
 	var d12: String = str(DeepBattle.player(state3b, "a").hand[4].die_id)
-	check(int(cuts_count.get("repeat", 0)) == 11 and str(cuts_count.get("repeat_die", "")) == d12 and int(cuts_count.get("coef", 0)) == 1,
-		"Thousand Cuts counts Resonance once and takes how many times from the d12 (%s)" % str(cuts_count))
+	check(int(cuts_count.get("repeat", 0)) == 11 and str(cuts_count.get("repeat_die", "")) == d12 and int(cuts_count.get("coef", 0)) == 2,
+		"Thousand Cuts counts twice Resonance once and takes how many times from the d12 (%s)" % str(cuts_count))
 	var large_rng: Dictionary = rngs(73100)
 	var large_state: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE")], "VESPER")], ["QUARTZ_GOLEM"], {"depth": 1}, large_rng.dice, large_rng.creatures)
 	var large_player: Dictionary = DeepBattle.player(large_state, "a")
@@ -397,7 +397,7 @@ func _test_birthstones() -> void:
 	hand(DeepBattle.player(state7, "a"), [1, 3, 5, 7, 9])
 	var motley: Dictionary = birthstones(run_turn(state7, r7))[0]
 	check(bool(tier(motley, "Full Motley").active) and not bool(tier(motley, "The Cruel Face").active) and bool(tier(motley, "The Cruel Face").get("eclipsed", false)), "Full Motley eclipses the Cruel Face")
-	check(effects_of(motley, "damage").size() == 1 and int(effects_of(motley, "damage")[0].raw) == 6 and int(effects_of(motley, "block")[0].amount) == 6, "both faces, doubled")
+	check(effects_of(motley, "damage").size() == 1 and int(effects_of(motley, "damage")[0].raw) == 8 and int(effects_of(motley, "block")[0].amount) == 8, "both faces, doubled")
 	var r8: Dictionary = rngs(78)
 	var state8: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE")], "PUCK")], ["QUARTZ_GOLEM"], {"depth": 1}, r8.dice, r8.creatures)
 	hand(DeepBattle.player(state8, "a"), [2, 4, 4, 6, 2])
@@ -413,34 +413,36 @@ func _test_birthstones() -> void:
 	var harlequin: Dictionary = DeepBattle.player(state9, "a")
 	hand(harlequin, [1, 3, 3, 5, 7])
 	var first: Dictionary = birthstones(run_turn(state9, r9))[0]
-	check(str(first.face) == "odd" and int(first.change) == 0 and int(effects_of(first, "damage")[0].raw) == 3, "the first face pays its plain three times Resonance")
+	check(str(first.face) == "odd" and int(first.change) == 0 and int(effects_of(first, "damage")[0].raw) == 4, "the first face pays its plain four times Resonance")
 	check(DeepBattle.next_face_pays(harlequin) == 2 and str(harlequin.last_face) == "odd", "and the other face is worth double next turn")
 	hand(harlequin, [2, 4, 4, 6, 8])
 	var second: Dictionary = birthstones(run_turn(state9, r9))[0]
-	check(str(second.face) == "even" and int(second.change) == 1 and int(effects_of(second, "block")[0].amount) == 6, "the Kind Face after the Cruel one pays double")
+	check(str(second.face) == "even" and int(second.change) == 1 and int(effects_of(second, "block")[0].amount) == 8, "the Kind Face after the Cruel one pays double")
 	var changed: Dictionary = tier(second, "The Kind Face").count
-	check(int(changed.get("change", 0)) == 2 and int(changed.get("coef", 0)) == 6 and int(changed.get("amount", 0)) == 6, "and is counted out doubled (%s)" % str(changed))
+	check(int(changed.get("change", 0)) == 2 and int(changed.get("coef", 0)) == 8 and int(changed.get("amount", 0)) == 8, "and is counted out doubled (%s)" % str(changed))
 	hand(harlequin, [1, 3, 5, 5, 9])
 	var third: Dictionary = birthstones(run_turn(state9, r9))[0]
-	check(int(third.change) == 2 and int(effects_of(third, "damage")[0].raw) == 9, "and the Cruel Face after that pays triple")
+	check(int(third.change) == 2 and int(effects_of(third, "damage")[0].raw) == 12, "and the Cruel Face after that pays triple")
 	hand(harlequin, [1, 1, 3, 5, 7])
 	var fourth: Dictionary = birthstones(run_turn(state9, r9))[0]
-	check(int(fourth.change) == 0 and int(effects_of(fourth, "damage")[0].raw) == 3, "the same face twice running starts over")
+	check(int(fourth.change) == 0 and int(effects_of(fourth, "damage")[0].raw) == 4, "the same face twice running starts over")
 	hand(harlequin, [2, 4, 6, 8, 10])
 	var fifth: Dictionary = birthstones(run_turn(state9, r9))[0]
-	check(bool(tier(fifth, "Full Motley").active) and int(fifth.change) == 1 and int(effects_of(fifth, "damage")[0].raw) == 12 and int(effects_of(fifth, "block")[0].amount) == 12, "a Full Motley on a changed face is doubled too")
+	check(bool(tier(fifth, "Full Motley").active) and int(fifth.change) == 1 and int(effects_of(fifth, "damage")[0].raw) == 16 and int(effects_of(fifth, "block")[0].amount) == 16, "a Full Motley on a changed face is doubled too")
 	hand(harlequin, [1, 2, 3, 4, 5])
 	var none: Dictionary = birthstones(run_turn(state9, r9))[0]
 	check(not bool(none.fired) and str(none.face) == "" and DeepBattle.next_face_pays(harlequin) == 1, "a mixed hand shows no face, and the run is over")
 	hand(harlequin, [1, 3, 5, 7, 9])
 	var afresh: Dictionary = birthstones(run_turn(state9, r9))[0]
-	check(int(afresh.change) == 0 and int(effects_of(afresh, "damage")[0].raw) == 6, "so the next face pays plain again")
+	check(int(afresh.change) == 0 and int(effects_of(afresh, "damage")[0].raw) == 8, "so the next face pays plain again")
 	## Florin: Lucky deals Resonance a crown; two crowns earn a reroll next turn, three a bonus
 	## Gambler's die, four double Resonance next turn, five the Jackpot; none is a Bust.
 	## A golem stout enough to outlast the whole rail, so every tier is reached and reported.
 	var gambler := func(id: String, bank: int, seed_value: int) -> Dictionary:
 		var streams: Dictionary = rngs(seed_value)
 		var unit: Dictionary = DeepBattle.make_player(id, "Florin", "FLORIN", [stone("STRIKE")], dice(DeepContent.character("FLORIN").dice, id))
+		## His sockets are Gold: a Red Strike in one would ring nothing (November 18, 2026).
+		unit.sockets = unit.sockets.map(func(_socket: Variant) -> String: return UNLIT)
 		unit.ore = bank
 		var fight: Dictionary = DeepBattle.begin([unit], ["QUARTZ_GOLEM"], {"depth": 1}, streams.dice, streams.creatures)
 		for foe in fight.enemies:
@@ -457,7 +459,7 @@ func _test_birthstones() -> void:
 	check(int(florin9.pot) == 0 and DeepRules.pyrite(florin9) == 100, "nothing is staked as the fight opens")
 	deal.call(florin9, [7, 7, 7, 1, 2])
 	var roller: Dictionary = birthstones(run_turn(nine.state, nine.rng))[0]
-	check(bool(tier(roller, "Lucky").get("active", false)) and int(tier(roller, "Lucky").effects[0].amount) == 15, "three crowns at Resonance 1 deal 15: five times Resonance a crown")
+	check(bool(tier(roller, "Lucky").get("active", false)) and int(tier(roller, "Lucky").effects[0].amount) == 21, "three crowns at Resonance 1 deal 21: seven times Resonance a crown")
 	check(bool(tier(roller, "Heating Up").get("active", false)) and bool(tier(roller, "Hot Streak").get("active", false)) and not bool(tier(roller, "On Fire").get("active", false))
 		and not bool(tier(roller, "Jackpot").get("active", false)) and not bool(tier(roller, "Bust").get("active", false)), "three crowns light Lucky, Heating Up and Hot Streak, and no further")
 	## The next turn has begun: Heating Up's reroll is in it, and Hot Streak's die is in the bowl.
@@ -476,15 +478,15 @@ func _test_birthstones() -> void:
 	check(bool(tier(fire, "On Fire").get("active", false)) and bool(florin10.resonance_doubled), "four crowns: On Fire doubles the next turn's Resonance")
 	deal.call(florin10, [7, 1, 2, 3, 4])
 	var doubled: Dictionary = birthstones(run_turn(ten.state, ten.rng))[0]
-	check(bool(doubled.get("doubled", false)) and int(doubled.resonance) == 2 and int(tier(doubled, "Lucky").effects[0].amount) == 10, "and High Roller reads the whole total twice over (%d)" % int(doubled.resonance))
+	check(bool(doubled.get("doubled", false)) and int(doubled.resonance) == 2 and int(tier(doubled, "Lucky").effects[0].amount) == 14, "and High Roller reads the whole total twice over (%d)" % int(doubled.resonance))
 	check(not bool(florin10.resonance_doubled), "for that one turn")
 	var eleven: Dictionary = gambler.call("a", 100, 81)
 	var florin11: Dictionary = DeepBattle.player(eleven.state, "a")
 	deal.call(florin11, [7, 7, 7, 7, 7])
 	var jackpot: Dictionary = birthstones(run_turn(eleven.state, eleven.rng))[0]
 	var jackpot_hits: Array = tier(jackpot, "Jackpot").get("effects", []).filter(func(e: Dictionary) -> bool: return str(e.get("kind", "")) == "damage")
-	check(bool(tier(jackpot, "Jackpot").get("active", false)) and jackpot_hits.size() == 7 and jackpot_hits.all(func(e: Dictionary) -> bool: return int(e.amount) == 7), "five crowns: the Jackpot deals 7x Resonance seven times (%d hits)" % jackpot_hits.size())
-	check(int(florin11.gold) == 7, "and pays 7x Resonance in pyrite (%d)" % int(florin11.gold))
+	check(bool(tier(jackpot, "Jackpot").get("active", false)) and jackpot_hits.size() == 7 and jackpot_hits.all(func(e: Dictionary) -> bool: return int(e.amount) == 10), "five crowns: the Jackpot deals 10x Resonance seven times (%d hits)" % jackpot_hits.size())
+	check(int(florin11.gold) == 10, "and pays 10x Resonance in pyrite (%d)" % int(florin11.gold))
 	check(bool(tier(jackpot, "Lucky").get("active", false)) and bool(tier(jackpot, "On Fire").get("active", false)), "every tier it passed on the way pays too")
 	var twelve: Dictionary = gambler.call("a", 100, 82)
 	var florin12: Dictionary = DeepBattle.player(twelve.state, "a")
@@ -798,25 +800,26 @@ func _test_opals_together(r: Dictionary) -> void:
 	check(not blocks.has(0) and not blocks.has(3), "a Seam with nothing before it and a Prelude are not marked")
 
 func _test_lit_sockets(r: Dictionary) -> void:
-	## A socket that shows its gem's color is lit, and adds a point of Resonance when the gem
-	## fires; a Rainbow socket shows everything, opals included, and nothing else shows an opal.
+	## A gem rings only from a socket that shows its color (November 18, 2026): there it rings
+	## its point (and Harmony's); anywhere else it rings nothing. A Rainbow socket shows
+	## everything, opals included, and nothing else shows an opal.
 	## Ardor's sockets: Red, Blue, Green, then three Rainbows.
 	var state: Dictionary = DeepBattle.begin([lit_player("a", [stone("STRIKE", 4, 4, 3, [], "s1")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	hand(state.players[0], [4, 4, 5, 5, 5])
 	var events: Array = run_turn(state, r)
-	check(bool(at_socket(events, 0)[0].get("lit", false)) and int(at_socket(events, 0)[0].gain) == 2, "a Red gem in the Red socket is lit: its own point of Resonance and one for the socket")
+	check(bool(at_socket(events, 0)[0].get("lit", false)) and bool(at_socket(events, 0)[0].get("rang", false)) and int(at_socket(events, 0)[0].gain) == 1, "a Red gem in the Red socket is lit and rings its point (the socket adds none of its own)")
 	state = DeepBattle.begin([lit_player("a", [null, stone("STRIKE", 4, 4, 3, [], "s1")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	hand(state.players[0], [4, 4, 5, 5, 5])
 	events = run_turn(state, r)
-	check(not bool(at_socket(events, 1)[0].get("lit", false)) and int(at_socket(events, 1)[0].gain) == 1, "the same gem in the Blue socket is unlit: its own point only")
+	check(not bool(at_socket(events, 1)[0].get("lit", false)) and not bool(at_socket(events, 1)[0].get("rang", true)) and int(at_socket(events, 1)[0].gain) == 0 and int(at_socket(events, 1)[0].resonance) == 0, "the same gem in the Blue socket is unlit and rings nothing")
 	state = DeepBattle.begin([lit_player("a", [stone("STRIKE", 4, 4, 3, [], "s1"), null, null, stone("FIRE_OPAL", 1, 4, 3, [], "f1")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	hand(state.players[0], [4, 4, 5, 5, 5])
 	events = run_turn(state, r)
-	check(bool(at_socket(events, 3)[0].get("lit", false)) and int(at_socket(events, 3)[0].gain) == 2, "an opal in a Rainbow socket is lit")
+	check(bool(at_socket(events, 3)[0].get("lit", false)) and int(at_socket(events, 3)[0].gain) == 1, "an opal in a Rainbow socket is lit and rings")
 	state = DeepBattle.begin([lit_player("a", [stone("STRIKE", 4, 4, 3, [], "s1"), stone("FIRE_OPAL", 1, 4, 3, [], "f1")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	hand(state.players[0], [4, 4, 5, 5, 5])
 	events = run_turn(state, r)
-	check(not bool(at_socket(events, 1)[0].get("lit", false)) and int(at_socket(events, 1)[0].gain) == 1, "and in the Blue socket it is not")
+	check(not bool(at_socket(events, 1)[0].get("lit", false)) and int(at_socket(events, 1)[0].gain) == 0, "and in the Blue socket it is not, and rings nothing")
 	## A two-tone socket shows either color; a rider sits in no socket and is never lit.
 	var puck: Dictionary = DeepBattle.begin([lit_player("a", [stone("STRIKE", 4, 4, 3, [], "s1"), stone("VENOM", 4, 4, 3, [], "v1")], "PUCK")], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	hand(puck.players[0], [4, 4, 5, 5, 5])
@@ -830,6 +833,18 @@ func _test_lit_sockets(r: Dictionary) -> void:
 	hand(state.players[0], [4, 4, 5, 5, 5])
 	events = run_turn(state, r)
 	check(str(state.players[0].sockets[1]) == DeepContent.SOCKET_NONE and not bool(at_socket(events, 1)[0].get("lit", false)), "a rider fires in no socket, and no socket lights for it")
+	check(bool(at_socket(events, 1)[0].get("rang", false)) and int(at_socket(events, 1)[0].gain) >= 1, "but it sits in no wrong socket either, so it rings")
+	## An unlit gem gives no Harmony to the gem after it: a Red Strike lit in the Red socket,
+	## a Red Cleave in the Blue one and a Red Crush in the Green one (both unlit), then a Red
+	## Flurry lit in the first Rainbow.
+	state = DeepBattle.begin([lit_player("a", [stone("STRIKE", 4, 4, 3, [], "s1"), stone("CLEAVE", 4, 4, 3, [], "c1"), stone("CRUSH", 4, 4, 3, [], "k1"), stone("FLURRY", 4, 4, 3, [], "f1")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [4, 4, 5, 5, 5])
+	events = run_turn(state, r)
+	var red_red: Array = at_socket(events, 2)
+	var after_dark: Array = at_socket(events, 3)
+	check(not red_red.is_empty() and not bool(red_red[0].get("harmony", true)) and int(red_red[0].gain) == 0, "a Red gem after a Red one, both unlit: no Harmony, nothing rung")
+	check(not after_dark.is_empty() and bool(after_dark[0].get("rang", false)) and not bool(after_dark[0].get("harmony", true)) and int(after_dark[0].gain) == 1,
+		"a lit Red gem after an unlit Red one takes no Harmony from it")
 
 func _test_creatures_and_statuses() -> void:
 	var r: Dictionary = rngs(41)

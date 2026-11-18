@@ -5446,12 +5446,18 @@
               "kind": "pair",
               "amount": 1
             },
-            "text": "A pair: gain Resonance block.",
+            "text": "A pair: gain twice Resonance block.",
             "effects": [
               {
                 "kind": "block",
                 "amount": {
-                  "term": "resonance"
+                  "op": "*",
+                  "args": [
+                    2,
+                    {
+                      "term": "resonance"
+                    }
+                  ]
                 }
               }
             ]
@@ -5462,14 +5468,14 @@
               "kind": "triple",
               "amount": 1
             },
-            "text": "Three of a kind: deal three times Resonance.",
+            "text": "Three of a kind: deal four times Resonance.",
             "effects": [
               {
                 "kind": "damage",
                 "amount": {
                   "op": "*",
                   "args": [
-                    3,
+                    4,
                     {
                       "term": "resonance"
                     }
@@ -5503,14 +5509,14 @@
               "kind": "quint",
               "amount": 1
             },
-            "text": "Five of a kind: deal five times Resonance, five times.",
+            "text": "Five of a kind: deal seven times Resonance, five times.",
             "effects": [
               {
                 "kind": "damage",
                 "amount": {
                   "op": "*",
                   "args": [
-                    5,
+                    7,
                     {
                       "term": "resonance"
                     }
@@ -5539,18 +5545,30 @@
                 "kind": "even",
                 "amount": 2
               },
-              "text": "Two even dice: gain Resonance block, and keep that much block into next turn.",
+              "text": "Two even dice: gain twice Resonance block, and keep that much block into next turn.",
               "effects": [
                 {
                   "kind": "block",
                   "amount": {
-                    "term": "resonance"
+                    "op": "*",
+                    "args": [
+                      2,
+                      {
+                        "term": "resonance"
+                      }
+                    ]
                   }
                 },
                 {
                   "kind": "retain",
                   "amount": {
-                    "term": "resonance"
+                    "op": "*",
+                    "args": [
+                      2,
+                      {
+                        "term": "resonance"
+                      }
+                    ]
                   },
                   "scale": "none"
                 }
@@ -5562,13 +5580,19 @@
                 "kind": "even",
                 "amount": 3
               },
-              "text": "Three even dice: until your next turn, a creature that hits you takes Resonance damage.",
+              "text": "Three even dice: until your next turn, a creature that hits you takes twice Resonance damage.",
               "effects": [
                 {
                   "kind": "spikes",
                   "target": "self",
                   "amount": {
-                    "term": "resonance"
+                    "op": "*",
+                    "args": [
+                      2,
+                      {
+                        "term": "resonance"
+                      }
+                    ]
                   },
                   "until": "next_turn",
                   "scale": "none"
@@ -5778,12 +5802,18 @@
               "kind": "distinct",
               "amount": 5
             },
-            "text": "Five different values: deal Resonance once for every point on your highest die.",
+            "text": "Five different values: deal twice Resonance once for every point on your highest die.",
             "effects": [
               {
                 "kind": "damage",
                 "amount": {
-                  "term": "resonance"
+                  "op": "*",
+                  "args": [
+                    2,
+                    {
+                      "term": "resonance"
+                    }
+                  ]
                 },
                 "repeat": {
                   "term": "high"
@@ -5803,7 +5833,13 @@
               {
                 "kind": "damage",
                 "amount": {
-                  "term": "resonance"
+                  "op": "*",
+                  "args": [
+                    2,
+                    {
+                      "term": "resonance"
+                    }
+                  ]
                 },
                 "repeat": {
                   "term": "high"
@@ -5866,12 +5902,18 @@
                 "values": [1],
                 "amount": 4
               },
-              "text": "Four 1s: deal Resonance for each Curse on the target.",
+              "text": "Four 1s: deal twice Resonance for each Curse on the target.",
               "effects": [
                 {
                   "kind": "damage",
                   "amount": {
-                    "term": "resonance"
+                    "op": "*",
+                    "args": [
+                      2,
+                      {
+                        "term": "resonance"
+                      }
+                    ]
                   },
                   "repeat": {
                     "term": "target_curse"
@@ -5899,7 +5941,13 @@
                 {
                   "kind": "damage",
                   "amount": {
-                    "term": "resonance"
+                    "op": "*",
+                    "args": [
+                      2,
+                      {
+                        "term": "resonance"
+                      }
+                    ]
                   },
                   "repeat": {
                     "op": "*",
@@ -5931,13 +5979,19 @@
                 "kind": "pair",
                 "amount": 1
               },
-              "text": "A pair or better: throw a knife for every die that matches another. Each deals Resonance to a random creature, and a knife that kills is thrown again.",
+              "text": "A pair or better: throw a knife for every die that matches another. Each deals twice Resonance to a random creature, and a knife that kills is thrown again.",
               "effects": [
                 {
                   "kind": "damage",
                   "target": "enemy_random",
                   "amount": {
-                    "term": "resonance"
+                    "op": "*",
+                    "args": [
+                      2,
+                      {
+                        "term": "resonance"
+                      }
+                    ]
                   },
                   "repeat": {
                     "term": "matched"
@@ -5962,7 +6016,13 @@
                     "op": "+",
                     "args": [
                       {
-                        "term": "resonance"
+                        "op": "*",
+                        "args": [
+                          2,
+                          {
+                            "term": "resonance"
+                          }
+                        ]
                       },
                       {
                         "term": "high"
@@ -6298,7 +6358,7 @@
                 "kind": "straight",
                 "amount": 3
               },
-              "text": "Three in a row: gain 1 Envenomed for every 5 Resonance (at least 1) for the fight. Every hit of yours that gets past block applies that much poison.",
+              "text": "Three in a row: gain 1 Envenomed for every 3 Resonance (at least 1) for the fight. Every hit of yours that gets past block applies that much poison.",
               "effects": [
                 {
                   "kind": "envenom",
@@ -6313,7 +6373,7 @@
                           {
                             "term": "resonance"
                           },
-                          5
+                          3
                         ]
                       }
                     ]
@@ -6463,12 +6523,18 @@
                 "kind": "quad",
                 "amount": 1
               },
-              "text": "Four of a kind: heal Resonance, and deal the health restored to every creature.",
+              "text": "Four of a kind: heal twice Resonance, and deal the health restored to every creature.",
               "effects": [
                 {
                   "kind": "heal",
                   "amount": {
-                    "term": "resonance"
+                    "op": "*",
+                    "args": [
+                      2,
+                      {
+                        "term": "resonance"
+                      }
+                    ]
                   }
                 },
                 {
@@ -6541,14 +6607,14 @@
               "kind": "odd",
               "amount": 5
             },
-            "text": "All five dice odd: deal three times Resonance.",
+            "text": "All five dice odd: deal four times Resonance.",
             "effects": [
               {
                 "kind": "damage",
                 "amount": {
                   "op": "*",
                   "args": [
-                    3,
+                    4,
                     {
                       "term": "resonance"
                     }
@@ -6563,14 +6629,14 @@
               "kind": "even",
               "amount": 5
             },
-            "text": "All five dice even: gain three times Resonance block.",
+            "text": "All five dice even: gain four times Resonance block.",
             "effects": [
               {
                 "kind": "block",
                 "amount": {
                   "op": "*",
                   "args": [
-                    3,
+                    4,
                     {
                       "term": "resonance"
                     }
@@ -6593,7 +6659,7 @@
                 "amount": {
                   "op": "*",
                   "args": [
-                    6,
+                    8,
                     {
                       "term": "resonance"
                     }
@@ -6605,7 +6671,7 @@
                 "amount": {
                   "op": "*",
                   "args": [
-                    6,
+                    8,
                     {
                       "term": "resonance"
                     }
@@ -6640,12 +6706,18 @@
                 "kind": "crowns",
                 "amount": 1
               },
-              "text": "A Happy Face: each one strikes for Resonance, once for every size its die is over a d4.",
+              "text": "A Happy Face: each one strikes for twice Resonance, once for every size its die is over a d4.",
               "effects": [
                 {
                   "kind": "damage",
                   "amount": {
-                    "term": "resonance"
+                    "op": "*",
+                    "args": [
+                      2,
+                      {
+                        "term": "resonance"
+                      }
+                    ]
                   },
                   "repeat": {
                     "term": "crown_steps"
@@ -6660,13 +6732,14 @@
                 "values": [1],
                 "amount": 1
               },
-              "text": "A Sad Face: each one gives Resonance block, counted the same way.",
+              "text": "A Sad Face: each one gives twice Resonance block, counted the same way.",
               "effects": [
                 {
                   "kind": "block",
                   "amount": {
                     "op": "*",
                     "args": [
+                      2,
                       {
                         "term": "resonance"
                       },
@@ -6712,12 +6785,18 @@
                 "kind": "colors",
                 "amount": 3
               },
-              "text": "Three colors fired: deal Resonance for every color that fired.",
+              "text": "Three colors fired: deal twice Resonance for every color that fired.",
               "effects": [
                 {
                   "kind": "damage",
                   "amount": {
-                    "term": "resonance"
+                    "op": "*",
+                    "args": [
+                      2,
+                      {
+                        "term": "resonance"
+                      }
+                    ]
                   },
                   "repeat": {
                     "term": "count"
@@ -6811,14 +6890,14 @@
               "kind": "crowns",
               "amount": 1
             },
-            "text": "Deal 5× Resonance for each crown showing.",
+            "text": "Deal 7× Resonance for each crown showing.",
             "effects": [
               {
                 "kind": "damage",
                 "amount": {
                   "op": "*",
                   "args": [
-                    5,
+                    7,
                     {
                       "term": "resonance"
                     },
@@ -6883,14 +6962,14 @@
               "kind": "crowns",
               "amount": 5
             },
-            "text": "Deal 7× Resonance seven times. Gain 7× Resonance pyrite.",
+            "text": "Deal 10× Resonance seven times. Gain 10× Resonance pyrite.",
             "effects": [
               {
                 "kind": "damage",
                 "amount": {
                   "op": "*",
                   "args": [
-                    7,
+                    10,
                     {
                       "term": "resonance"
                     }
@@ -6904,7 +6983,7 @@
                 "amount": {
                   "op": "*",
                   "args": [
-                    7,
+                    10,
                     {
                       "term": "resonance"
                     }
@@ -6952,38 +7031,38 @@
           "hue2": "c41e3a",
           "text": "Matching dice pay, and the number they match on names the prize.",
           "keywords": {
-            "prize": "By the number matched. 1s heal 5× Resonance. 2s give 5× Resonance block. 3s poison for 5× Resonance. 4s pay 5× Resonance pyrite. 5s deal 10× Resonance. 7s deal 20× Resonance."
+            "prize": "By the number matched. 1s heal 8× Resonance. 2s give 8× Resonance block. 3s poison for 8× Resonance. 4s pay 8× Resonance pyrite. 5s deal 16× Resonance. 7s deal 32× Resonance."
           },
           "prizes": {
             "1": {
               "kind": "heal",
               "target": "self",
-              "mult": 5
+              "mult": 8
             },
             "2": {
               "kind": "block",
               "target": "self",
-              "mult": 5
+              "mult": 8
             },
             "3": {
               "kind": "poison",
               "target": "enemy",
-              "mult": 5
+              "mult": 8
             },
             "4": {
               "kind": "gold",
               "target": "self",
-              "mult": 5
+              "mult": 8
             },
             "5": {
               "kind": "damage",
               "target": "enemy",
-              "mult": 10
+              "mult": 16
             },
             "7": {
               "kind": "damage",
               "target": "enemy",
-              "mult": 20
+              "mult": 32
             },
             "other": {
               "kind": "damage",
@@ -7032,7 +7111,7 @@
                 "kind": "set",
                 "amount": 5
               },
-              "text": "Five of a kind: its Prize seven times, and 7× Resonance pyrite.",
+              "text": "Five of a kind: its Prize seven times, and 10× Resonance pyrite.",
               "effects": [
                 {
                   "kind": "prize",
@@ -7046,7 +7125,7 @@
                   "amount": {
                     "op": "*",
                     "args": [
-                      7,
+                      10,
                       {
                         "term": "resonance"
                       }
@@ -7075,14 +7154,14 @@
                 "amount": 17,
                 "max": 20
               },
-              "text": "A total of 17 to 20: deal 5× Resonance for every point over 16.",
+              "text": "A total of 17 to 20: deal 7× Resonance for every point over 16.",
               "effects": [
                 {
                   "kind": "damage",
                   "amount": {
                     "op": "*",
                     "args": [
-                      5,
+                      7,
                       {
                         "term": "resonance"
                       },
@@ -7107,20 +7186,20 @@
                 "amount": 21,
                 "max": 21
               },
-              "text": "Exactly 21: deal 35× Resonance three times, and gain 21 pyrite.",
+              "text": "Exactly 21: deal 7× Resonance 21 times, and gain 21 pyrite.",
               "effects": [
                 {
                   "kind": "damage",
                   "amount": {
                     "op": "*",
                     "args": [
-                      35,
+                      7,
                       {
                         "term": "resonance"
                       }
                     ]
                   },
-                  "repeat": 3
+                  "repeat": 21
                 },
                 {
                   "kind": "gold",

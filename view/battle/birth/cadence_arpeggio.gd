@@ -1,19 +1,22 @@
 extends "res://view/battle/birth_act.gd"
-## Cadence's Arpeggio: the scale, written across the tray as a staff.
+## Cadence's Arpeggio: the scale, written over the tray as a staff.
 ##
-## Every die wears a note at its shoulder, standing higher the more the die shows, so the hand
-## reads like a line of music. The scale (the longest climb from her smallest die to her largest,
-## each showing more than the one before) is the line drawn through its notes, violet at the low
-## end and green at the top; a die out of the scale keeps its note grey and off the line. Two
-## notes are a faint line still waiting for a third. All five close the staff with a double bar:
-## Perfect. It is drawn again after every throw, so the scale is read and not counted.
+## A short staff of five faint lines stands over the dock above the dice, clear of them and of
+## the line of words that floats there (the owner, November 18: the notes at the dice's
+## shoulders read strangely). Every die has a note on it straight over the die, standing higher
+## the more the die shows, so the hand reads like a line of music. The scale (the longest climb
+## from her smallest die to her largest, each showing more than the one before) is the line
+## drawn through its notes, violet at the low end and green at the top; a die out of the scale
+## keeps its note grey and off the line. Two notes are a faint line still waiting for a third.
+## All five close the staff with a double bar: Perfect. It is drawn again after every throw, so
+## the scale is read and not counted.
 ##
 ## When the stone fires the notes are played in order: each rings a step up the music's scale,
-## its number flies from its die into the Resonance count, the count climbs, and then its blow
+## its number flies from its note into the Resonance count, the count climbs, and then its blow
 ## leaves the count as a ring of light across the creatures, wider as the Resonance grows.
 ## Perfect Scale plays the staff again, faster and an octave up, off the double bar.
 ##
-## The phone draws the same staff at its dice's own spacing.
+## The phone draws the same staff at its dice's own spacing, in points, over its tray.
 
 const NOTE_GAP: float = 0.2
 const AGAIN_GAP: float = 0.12
@@ -85,40 +88,121 @@ func _sync_act() -> void:
 	_perfect = _plays and _in_scale.size() >= _whole
 
 func _look_key() -> String:
-	return "%s|%s|%s|%s|%s" % [str(_shown), str(_in_scale), str(_plays), str(_perfect), str(settled)]
+	## The staff moves with the dock's top edge and the ledger's foot.
+	return "%s|%s|%s|%s|%s|%s" % [str(_shown), str(_in_scale), str(_plays), str(_perfect), str(settled), str(_staff())]
 
 # --- the staff -----------------------------------------------------------------------------------
 
+func _gap() -> float:
+	## The space between two lines of the staff.
+	return float(_lay().get("gap", _head()))
+
+func _head() -> float:
+	## How tall a note's head is: a space of the staff at its fullest. It keeps this size where
+	## the staff's lines are drawn closer, so a note never shrinks past reading.
+	return u(10.0, 4.5)
+
+func _staff() -> Rect2:
+	## The staff's five lines, top line to bottom line.
+	return _lay().get("staff", Rect2())
+
+func _lay() -> Dictionary:
+	## The staff as wide as the tray, standing over the dock with half a head's room under its
+	## bottom line. On the phone it stands where the line of words over the dice leaves it room
+	## whether or not the line is up (it comes as the turn resolves, and the staff would jump),
+	## and keeps under the creature's ledger when the ledger stands over the tray: its lines
+	## drawn closer then and the stems of its highest notes shorter, the heads kept their size.
+	var tray: Rect2 = tray_rect()
+	if tray.size.x <= 0.0:
+		return {}
+	var foot: float = tray.position.y - DeepUi.pt(26.0) if DeepUi.phone else over_tray()
+	var head: float = _head()
+	var bottom: float = foot - head * 0.5 - u(3.0, 1.5)
+	var gap: float = head
+	var ceiling: float = -INF
+	var ledger: Rect2 = _ledger_rect()
+	if ledger.size.x > 0.0 and ledger.end.x > tray.position.x and ledger.position.x < tray.end.x and ledger.end.y < foot:
+		ceiling = ledger.end.y + u(6.0, 2.5)
+		## Room over the top line for a stem near half its length.
+		gap = clampf((bottom - ceiling - head / 0.31 * 0.45) / 4.0, u(6.0, 2.75), head)
+	var top: float = bottom - gap * 4.0
+	return {"gap": gap, "ceiling": ceiling, "staff": Rect2(tray.position.x + u(4.0, 2.0), top, tray.size.x - u(8.0, 4.0), bottom - top)}
+
+func _ledger_rect() -> Rect2:
+	## The creature's ledger at the top right, while it is up.
+	var panel: Variant = screen.get("_enemy_panel") if screen != null else null
+	if panel == null or not panel is Control or not is_instance_valid(panel) or not (panel as Control).is_visible_in_tree():
+		return Rect2()
+	return _rect_of(panel)
+
 func _spot(die_id: String) -> Vector2:
-	## Where a die's note head sits: at the die's left shoulder, between it and the die before,
-	## a step higher for every number showing that is lower than its own.
+	## Where a die's note head sits: on the staff straight over its die, its height by its rank
+	## among the numbers showing (the lowest on the bottom line, the highest on the top one,
+	## the rest on the lines and spaces between, spread evenly).
 	var seat: Rect2 = die_rect(die_id)
-	if seat.size.x <= 0.0 or not _shown.has(die_id):
+	var staff: Rect2 = _staff()
+	if seat.size.x <= 0.0 or staff.size.x <= 0.0 or not _shown.has(die_id):
 		return Vector2.INF
-	var rank: int = clampi(_ranks.find(int(_shown[die_id])), 0, 5)
-	return Vector2(seat.position.x + seat.size.x * 0.13, seat.position.y + u(35.0, 17.5) - u(6.0, 3.0) * float(rank))
+	var rank: int = maxi(0, _ranks.find(int(_shown[die_id])))
+	var steps: int = _ranks.size() - 1
+	## In half spaces up from the bottom line: eight of them to the top line.
+	var half: int = 4 if steps <= 0 else int(round(float(rank) * 8.0 / float(steps)))
+	return Vector2(seat.get_center().x, staff.end.y - _gap() * 0.5 * float(clampi(half, 0, 8)))
+
+func _draw_staff(staff: Rect2) -> void:
+	## Five faint lines, edged dark so they read over the room's light.
+	for line in range(5):
+		var y: float = staff.position.y + _gap() * float(line)
+		draw_line(Vector2(staff.position.x, y), Vector2(staff.end.x, y), Color(INK, 0.5), u(4.0, 2.0), true)
+		draw_line(Vector2(staff.position.x, y), Vector2(staff.end.x, y), Color(DeepUi.PAPER, 0.5), u(1.5, 0.75), true)
+	## A thin bar opening the staff.
+	draw_line(Vector2(staff.position.x, staff.position.y), Vector2(staff.position.x, staff.end.y), Color(INK, 0.5), u(4.0, 2.0), true)
+	draw_line(Vector2(staff.position.x, staff.position.y), Vector2(staff.position.x, staff.end.y), Color(DeepUi.PAPER, 0.5), u(1.5, 0.75), true)
 
 func _hue(step: int, steps: int) -> Color:
 	## Fluorite's two colors along the scale: violet at its foot, green at its top.
 	return tint.lightened(0.45).lerp(tint2.lightened(0.4), float(step) / float(maxi(1, steps - 1)))
 
-func _draw_note(head: Vector2, edge: float, tone: Color) -> void:
-	## One note, its head on `head`: the kit's mark, or a head and a stem where it has none.
-	if GemIcons.known("note"):
-		var box := Rect2(head - Vector2(0.36, 0.79) * edge, Vector2(edge, edge))
-		draw_glyph("note", Rect2(box.position + Vector2(0.0, u(2.0, 1.0)), box.size).grow(u(1.5, 0.75)), Color(INK, 0.85 * tone.a))
-		draw_glyph("note", box, tone)
-		return
-	var thick: float = maxf(1.5, edge * 0.11)
-	draw_circle(head, edge * 0.24, Color(INK, 0.85 * tone.a))
-	draw_circle(head, edge * 0.19, tone)
-	draw_line(head + Vector2(edge * 0.16, 0.0), head + Vector2(edge * 0.16, -edge * 0.72), tone, thick, true)
+func _draw_note(head: Vector2, tall: float, tone: Color, ceiling: float) -> void:
+	## One note, drawn as the kit's `note` mark is (a head tilted, a stem up and its flag), its
+	## head `tall` high on `head`. Its stem stops short of `ceiling` (the ledger's foot on the
+	## phone), never under half its length.
+	var edge: float = tall / 0.31
+	var stem: float = clampf(head.y - ceiling, edge * 0.4, edge * 0.73)
+	## The head, an oval tilted up to the right.
+	var oval := PackedVector2Array()
+	for step in range(18):
+		var angle: float = TAU * float(step) / 18.0
+		oval.append(head + Vector2(cos(angle) * 0.21 * edge, sin(angle) * 0.155 * edge).rotated(-0.35))
+	var stem_box := Rect2(head.x + 0.11 * edge, head.y - stem, 0.13 * edge, stem)
+	## The flag from the stem's top, falling back toward the head and curling right.
+	var far := Vector2(stem_box.end.x, stem_box.position.y)
+	var flag := PackedVector2Array()
+	var share: float = stem / (0.73 * edge)
+	for point in [[0.0, 0.0], [0.10, 0.18], [0.30, 0.30], [0.30, 0.56], [0.18, 0.40], [0.0, 0.34]]:
+		flag.append(far + Vector2(float(point[0]) * edge, float(point[1]) * edge * share))
+	var ink := Color(INK, 0.85 * tone.a)
+	var rim: float = u(3.0, 1.5)
+	draw_colored_polygon(oval, ink)
+	draw_polyline(oval + PackedVector2Array([oval[0]]), ink, rim, true)
+	draw_rect(stem_box.grow(rim * 0.5), ink)
+	draw_polyline(flag + PackedVector2Array([flag[0]]), ink, rim, true)
+	draw_colored_polygon(flag, ink)
+	draw_colored_polygon(oval, tone)
+	draw_rect(stem_box, tone)
+	draw_colored_polygon(flag, tone)
 
 func _draw() -> void:
 	if unit.is_empty() or bool(unit.get("downed", false)) or not settled or _shown.is_empty():
 		return
 	var now: int = Time.get_ticks_msec()
-	var edge: float = u(24.0, 12.0)
+	var laid: Dictionary = _lay()
+	var staff: Rect2 = laid.get("staff", Rect2())
+	if staff.size.x <= 0.0:
+		return
+	var ceiling: float = float(laid.get("ceiling", -INF))
+	_draw_staff(staff)
+	var tall: float = _head()
 	var count: int = _in_scale.size()
 	## The dice out of the scale: their notes grey, where their numbers put them, off the line.
 	for id in _shown:
@@ -126,7 +210,7 @@ func _draw() -> void:
 			continue
 		var off: Vector2 = _spot(str(id))
 		if off != Vector2.INF:
-			_draw_note(off, edge * 0.86, Color(DeepUi.DIM.lightened(0.12), 0.8))
+			_draw_note(off, tall * 0.86, Color(DeepUi.DIM.lightened(0.12), 0.8), ceiling)
 	var heads: Array = []
 	for id in _in_scale:
 		heads.append(_spot(str(id)))
@@ -140,7 +224,7 @@ func _draw() -> void:
 		draw_line(heads[index - 1], heads[index], tone, thick, true)
 	## A fifth note closes the staff with a double bar.
 	if _perfect:
-		_draw_bar(heads[count - 1], thick, now)
+		_draw_bar(heads, thick, now)
 	for index in range(count):
 		var tone: Color = _hue(index, count) if _plays else Color(tint.lightened(0.35), 0.8)
 		var swell: float = 1.0
@@ -150,30 +234,35 @@ func _draw() -> void:
 			if since < 1.0:
 				swell = 1.0 + 0.6 * (1.0 - since)
 				tone = tone.lerp(Color.WHITE, 0.8 * (1.0 - since))
-				draw_circle(heads[index], edge * 0.6 * (0.6 + since), Color(tone, 0.35 * (1.0 - since)))
-		_draw_note(heads[index], edge * swell, tone)
+				draw_circle(heads[index], tall * 2.0 * (0.6 + since), Color(tone, 0.35 * (1.0 - since)))
+		_draw_note(heads[index], tall * swell, tone, ceiling)
 
 func _bar_x() -> float:
-	## The double bar stands at the far edge of the last die's seat.
-	var seat: Rect2 = die_rect(str(_in_scale[_in_scale.size() - 1])) if not _in_scale.is_empty() else Rect2()
-	return seat.end.x - u(5.0, 2.5)
+	## The double bar closes the staff at its right end.
+	return _staff().end.x
 
-func _draw_bar(last: Vector2, thick: float, now: int) -> void:
-	var seat: Rect2 = die_rect(str(_in_scale[_in_scale.size() - 1]))
-	if seat.size.x <= 0.0:
+func _draw_bar(heads: Array, thick: float, now: int) -> void:
+	var staff: Rect2 = _staff()
+	if staff.size.x <= 0.0:
 		return
 	var tone: Color = tint2.lightened(0.45)
 	var flash: float = clampf(1.0 - float(now - _bar_at) / float(BAR_MS), 0.0, 1.0) if _bar_at >= 0 else 0.0
 	tone = tone.lerp(Color.WHITE, 0.8 * flash)
 	var x: float = _bar_x()
-	var top: float = seat.position.y + u(3.0, 1.5)
-	var foot: float = seat.position.y + u(41.0, 20.5)
+	var top: float = staff.position.y
+	var foot: float = staff.end.y
 	var heavy: float = u(5.0, 2.5)
 	var light: float = u(2.0, 1.0)
 	var inner: float = x - heavy - u(4.0, 2.0)
-	## The line runs on from the last note to the bar.
-	draw_line(last, Vector2(inner, last.y), Color(INK, 0.7), thick + u(3.0, 1.5), true)
-	draw_line(last, Vector2(inner, last.y), tone, thick, true)
+	## The line runs on from the top note to the bar, where no other note stands in its way.
+	var last: Vector2 = heads[heads.size() - 1]
+	var clear: bool = true
+	for head in heads:
+		if (head as Vector2).x > last.x + 1.0:
+			clear = false
+	if clear and last.x < inner:
+		draw_line(last, Vector2(inner, last.y), Color(INK, 0.7), thick + u(3.0, 1.5), true)
+		draw_line(last, Vector2(inner, last.y), tone, thick, true)
 	draw_rect(Rect2(inner - light - 1.0, top - 1.0, x - inner + light + 2.0, foot - top + 2.0), Color(INK, 0.7))
 	draw_rect(Rect2(inner - light, top, light, foot - top), tone)
 	draw_rect(Rect2(x - heavy, top, heavy, foot - top), tone)
@@ -224,8 +313,9 @@ func _strike_bar() -> void:
 	_bar_at = Time.get_ticks_msec()
 	busy(float(BAR_MS) / 1000.0 + 0.1)
 	sound("harmony", {"volume": 0.7, "pitch": 1.2})
-	if not _in_scale.is_empty() and die_rect(str(_in_scale[_in_scale.size() - 1])).size.x > 0.0:
-		burst(Vector2(_bar_x(), die_rect(str(_in_scale[_in_scale.size() - 1])).position.y + u(22.0, 11.0)), tint2.lightened(0.5), 14, 130.0, 0.5, 4.0)
+	var staff: Rect2 = _staff()
+	if staff.size.x > 0.0:
+		burst(Vector2(_bar_x() - u(5.0, 2.5), staff.get_center().y), tint2.lightened(0.5), 14, 130.0, 0.5, 4.0)
 
 func _play(note: Dictionary, index: int, steps: int, again: bool, origin: Vector3) -> void:
 	## One note: it rings, and its number leaves its die for the Resonance count.

@@ -85,7 +85,7 @@ static func colors(stone: Dictionary, socket: String = "") -> Array:
 static func shows(stone: Dictionary, socket: String) -> bool:
 	## Whether this socket shows one of the stone's colors: a Rainbow shows every stone, an
 	## opal is shown by nothing else, and a two-tone socket shows either of its colors. This
-	## is what lights a socket in a fight and adds its point of Resonance, and the only
+	## is what lights a socket in a fight, so the gem rings Resonance there, and the only
 	## thing the loadout at home asks before setting a stone. Down the mine any stone sits
 	## in any socket (DeepDescent.socket_refusal), lit or not.
 	return shown_by(colors(stone, socket), socket)

@@ -53,7 +53,7 @@ export function colors(stone, socket = '') {
 
 // Whether a socket shows one of these colors: a Rainbow shows every stone, an opal is shown by
 // nothing else, a two-tone socket shows either of its colors, a rider's no-socket none
-// (sim/stone.gd shown_by). A lit socket adds a point of Resonance when its gem fires.
+// (sim/stone.gd shown_by). A gem rings Resonance only from a socket that shows it.
 export function shownBy(stoneColors, socket) {
 	if (C.isRainbow(socket)) return true;
 	for (const shown of C.socketColors(socket)) if (stoneColors.includes(shown)) return true;

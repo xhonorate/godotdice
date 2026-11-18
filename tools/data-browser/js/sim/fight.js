@@ -517,11 +517,16 @@ export function resolveGem(state, unit, socket, opts, rng) {
 	// A Bruise's price can take the last of it: its owner is down and the blow does not land
 	// (sim/battle.gd _bleed). A balance run's player never goes down: they stand at 1.
 	const fell = bleed(state, unit, hpCost);
+	// A gem rings only from a socket that shows its color (November 18, 2026): its Resonance and
+	// a point more for Harmony. In any other socket it rings for nothing, takes no Harmony and
+	// gives none on. A rider sits in no socket, so it rings (sim/battle.gd resolve_gem).
+	const socketKind = String(unit.sockets[socket] ?? C.SOCKET_RAINBOW);
+	const lit = Stone.shownBy(ev.colors, socketKind);
+	const rings = lit || socketKind === C.SOCKET_NONE;
 	let harmony = false;
-	if (unit.previous_fired) for (const color of unit.previous_colors) if (ev.colors.includes(color)) harmony = true;
-	// A lit socket, one that shows the gem's color, adds a point of Resonance of its own.
-	const lit = Stone.shownBy(ev.colors, String(unit.sockets[socket] ?? C.SOCKET_RAINBOW));
-	const gain = satMul(I(ev.resonance_gain) + (harmony ? 1 : 0) + (lit ? 1 : 0), Math.max(1, I(unit.resonance_mult)));
+	if (rings && unit.previous_fired && unit.previous_rang !== false) for (const color of unit.previous_colors) if (ev.colors.includes(color)) harmony = true;
+	unit.previous_rang = rings;
+	const gain = rings ? satMul(I(ev.resonance_gain) + (harmony ? 1 : 0), Math.max(1, I(unit.resonance_mult))) : 0;
 	unit.resonance = satAdd(I(unit.resonance), gain);
 	const results = [];
 	const previousSocket = unit.previous_socket ?? -1;
@@ -593,7 +598,7 @@ export function resolveGem(state, unit, socket, opts, rng) {
 	if (!dry && certain > 1) for (let more = 0; more < certain - 1; more++) state.queue.unshift({ kind: 'gem', unit: unit.id, socket, retrigger: true, force: true });
 	settleMarks(state);
 	state.ledger.fires += 1;
-	return { kind: 'gem_fire', socket, skill: stone.skill, resonance: unit.resonance, gain, harmony, lit, retrigger, cut_step: I(ev.cut_step), carat: I(ev.carat),
+	return { kind: 'gem_fire', socket, skill: stone.skill, resonance: unit.resonance, gain, harmony, lit, rang: rings, retrigger, cut_step: I(ev.cut_step), carat: I(ev.carat),
 		magnitude: ev.magnitude, fires: I(ev.fires), promised: retrigger ? 0 : promised, effects: results, downed: fell };
 }
 

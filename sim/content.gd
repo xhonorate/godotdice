@@ -11,7 +11,7 @@ const color_KEYS: Array = ["RED", "BLUE", "GREEN", "VIOLET", "GOLD", "WHITE"]
 ## A Rainbow socket shows every color, opal included. Sockets are written as one color
 ## ("RED"), two colors with a slash ("GREEN/VIOLET", a two-tone socket showing either), or
 ## "RAINBOW". Down the mine any gem sits in any socket; a socket that shows the gem's color
-## lights and adds a point of Resonance when the gem fires, and the loadout at home only
+## lights, and only a lit gem rings Resonance when it fires; the loadout at home only
 ## sets a gem in a socket that shows it. An older save or pack wrote "ANY" for a Rainbow.
 const SOCKET_RAINBOW: String = "RAINBOW"
 const SOCKET_ANY: String = SOCKET_RAINBOW

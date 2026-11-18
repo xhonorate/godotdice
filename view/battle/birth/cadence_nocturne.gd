@@ -3,9 +3,12 @@ extends "res://view/battle/birth_act.gd"
 ##
 ## The game shows no total of its own, so the hand's total stands over the tray on a track cut
 ## at the stone's rungs (18, 14, 11 and 7 as content has them), a marker on the cell the hand
-## is in and the rung's name beside the number. Every dark gem the hand would wake wears a small
-## moon at its ring's corner before the rail closes: the first of them under Hush, all of them
-## under Nocturne, two moons each under Small Hours, three under Dead of Night.
+## is in and the rung's name beside the number. Every dark gem the hand would wake wears a
+## small moon for every go before the rail closes: one on the first of them under Hush, one on
+## each under Nocturne, two each under Small Hours, three under Dead of Night. They stand apart
+## on a short arc along the ring's lower left edge, inside its own square: moons stacked on
+## each other ran into the gems' names, and a count ("×3") read less well than the moons
+## themselves (the owner, November 18).
 ##
 ## When the stone fires the dock dims to indigo for a beat and the moons glow. The woken gems
 ## then fire as events of their own, the way the screen plays any gem: as each arrives its moon
@@ -35,6 +38,8 @@ var _moons: Dictionary = {}
 var _waking: Dictionary = {}
 ## Moons going out: [{socket, slot, at}].
 var _fading: Array = []
+## How many moons each woken gem wore as the stone fired, by socket: the rest keep their places.
+var _full: Dictionary = {}
 var _stone_fired: bool = false
 var _wash_at: int = -1
 var _bells: int = 0
@@ -44,9 +49,37 @@ func _open() -> void:
 	_track = TotalTrack.new()
 	_track.visible = false
 	## Five cells since Dead of Night: on the phone the track keeps to the tray's right end, clear
-	## of the rung's name as it floats up off the stone.
-	place(_track, "over_tray", 1.0 if DeepUi.phone else 0.5)
+	## of the rung's name as it floats up off the stone, and is kept in place by `_tick`.
+	if DeepUi.phone:
+		add_child(_track)
+	else:
+		place(_track, "over_tray", 0.5)
 	tip(_track, _plate, {"tone": tint.lightened(0.3)})
+
+func _tick(_delta: float) -> void:
+	## The phone's track stands where the line of words over the dice leaves it room whether or
+	## not the line is up, so it does not rise as the turn resolves. Where the creature's ledger
+	## hangs over that spot, it steps left until it clears the ledger.
+	if not DeepUi.phone or _track == null:
+		return
+	var tray: Rect2 = tray_rect()
+	if tray.size.x <= 0.0:
+		return
+	var wide: Vector2 = _track.get_combined_minimum_size().max(_track.size)
+	var at := Vector2(tray.end.x - wide.x, tray.position.y - DeepUi.pt(26.0) - wide.y)
+	var ledger: Rect2 = _ledger_rect()
+	if ledger.size.x > 0.0 and ledger.intersects(Rect2(at, wide).grow(DeepUi.pt(2.0))):
+		at.x = ledger.position.x - DeepUi.pt(4.0) - wide.x
+	at.x = clampf(at.x, DeepUi.safe_left, maxf(DeepUi.safe_left, size.x - DeepUi.safe_right - wide.x))
+	if not _track.position.is_equal_approx(at):
+		_track.position = at
+
+func _ledger_rect() -> Rect2:
+	## The creature's ledger at the top of the room, while it is up.
+	var panel: Variant = screen.get("_enemy_panel") if screen != null else null
+	if panel == null or not panel is Control or not is_instance_valid(panel) or not (panel as Control).is_visible_in_tree():
+		return Rect2()
+	return _rect_of(panel)
 
 # --- the hand's total ----------------------------------------------------------------------------
 
@@ -116,6 +149,7 @@ func _sync_act() -> void:
 	if planning and _stone_fired:
 		_stone_fired = false
 		_waking.clear()
+		_full.clear()
 		_bells = 0
 		_last_woken = -1
 	var up: bool = not unit.get("hand", []).is_empty() and not bool(unit.get("downed", false))
@@ -185,14 +219,30 @@ func _ring_of(socket: int) -> Rect2:
 	var slot: Node = (card as Control).get_node_or_null("Slot")
 	return _rect_of(slot if slot != null else card)
 
-func _moon_box(socket: int, slot: int) -> Rect2:
-	## A moon's square at a ring's top left corner (the Void's riders stand round its right
-	## side); a second moon stands beside the first.
+func _moon_box(socket: int, slot: int = 0, full: int = 1) -> Rect2:
+	## One of a gem's moons, a moon a go: they stand apart on a short arc along its ring's lower
+	## left edge, inside the ring's own square, so they touch neither each other, the name over
+	## the ring, the trigger under it nor the next ring (the raised ranks have the top left
+	## corner, the Void's riders the right side). `full` is how many the gem wore when it was
+	## read, so a moon going out leaves the others where they stood.
 	var ring: Rect2 = _ring_of(socket)
 	if ring.size.x <= 0.0:
 		return Rect2()
-	var edge: float = maxf(ring.size.x * 0.3, u(24.0, 12.0))
-	return Rect2(ring.position + Vector2(-edge * 0.3 + edge * 0.78 * float(slot), -edge * 0.3), Vector2(edge, edge))
+	var edge: float = u(20.0, 11.0)
+	## The moon's disc is drawn 1.1 times its half edge, and its rim on that.
+	var reach: float = edge * 0.55 + u(2.0, 1.0)
+	var far: float = ring.size.x * 0.5 - reach
+	## Apart by a disc and a hair, along the arc.
+	var apart: float = 2.0 * asin(clampf((reach * 2.0 + u(2.0, 1.0)) / (2.0 * far), 0.0, 1.0))
+	var angle: float = deg_to_rad(135.0) + (float(slot) - float(maxi(1, full) - 1) * 0.5) * apart
+	var middle: Vector2 = ring.get_center() + Vector2(cos(angle), sin(angle)) * far
+	return Rect2(middle - Vector2(edge, edge) * 0.5, Vector2(edge, edge))
+
+func _draw_moons(socket: int, times: int, glow: float) -> void:
+	## A moon for every go the gem has still to play.
+	var full: int = maxi(times, int(_full.get(socket, times)))
+	for slot in range(mini(times, 3)):
+		_draw_moon(_moon_box(socket, slot, mini(full, 3)), glow, 1.0)
 
 func _draw_moon(box: Rect2, glow: float, alpha: float, swell: float = 1.0) -> void:
 	if box.size.x <= 0.0 or alpha <= 0.0:
@@ -228,16 +278,16 @@ func _draw() -> void:
 		return
 	var worn: Dictionary = _waking if _stone_fired else _moons
 	for socket in worn:
-		for slot in range(mini(int(worn[socket]), 3)):
-			_draw_moon(_moon_box(int(socket), slot), night if _stone_fired else 0.0, 1.0)
-	## A moon whose gem has just woken swells and goes out.
+		_draw_moons(int(socket), int(worn[socket]), night if _stone_fired else 0.0)
+	## A gem that has just woken: one of its moons swells and goes out, the others keeping
+	## their places for the goes still to come.
 	for index in range(_fading.size() - 1, -1, -1):
 		var going: Dictionary = _fading[index]
 		var gone: float = float(now - int(going.at)) / float(FADE_MS)
 		if gone >= 1.0:
 			_fading.remove_at(index)
 			continue
-		_draw_moon(_moon_box(int(going.socket), int(going.slot)), 1.0 - gone, 1.0 - gone * gone, 1.0 + 0.7 * gone)
+		_draw_moon(_moon_box(int(going.socket), int(going.slot), mini(int(_full.get(int(going.socket), 1)), 3)), 1.0 - gone, 1.0 - gone * gone, 1.0 + 0.7 * gone)
 
 # --- firing --------------------------------------------------------------------------------------
 
@@ -259,6 +309,7 @@ func _fired(played: Dictionary) -> void:
 			if effect is Dictionary and str(effect.get("kind", "")) == "replay_fizzled" and not bool(effect.get("nothing", false)):
 				for socket in effect.get("sockets", []):
 					_waking[int(socket)] = int(_waking.get(int(socket), 0)) + times
+	_full = _waking.duplicate()
 	_wash_at = Time.get_ticks_msec()
 	busy(WASH_SECONDS + 0.2)
 
@@ -314,7 +365,7 @@ func _wake(socket: int, rings: bool) -> void:
 		_bells += 1
 	_last_woken = socket
 	sound("tick_violet", {"pitch": _pitch(_bells - 1, 1 if echo else 0), "volume": 0.5 if echo else 0.8, "gap": 0.0, "vary": 0.0})
-	var box: Rect2 = _moon_box(socket, maxi(0, left))
+	var box: Rect2 = _moon_box(socket, maxi(0, left), mini(int(_full.get(socket, 1)), 3))
 	if box.size.x > 0.0:
 		burst(box.get_center(), MOONLIGHT, 10, 90.0, 0.5, 3.0)
 

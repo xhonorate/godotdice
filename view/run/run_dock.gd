@@ -862,7 +862,7 @@ func _socket(parent: Node, unit: Dictionary, index: int, cap: float = -1.0) -> v
 				var aim: Variant = _spots.get(key, null)
 				return (aim as Control).get_global_rect() if aim is Control and is_instance_valid(aim) else Rect2())
 		RailWarnings.opal_warn(slot, stone, cant, toward, false)
-		Tips.attach(card, func() -> Control: return _refused(Plates.gem(set_stone, _rail_context(unit, index), [], {}, [], _rider_opts(unit, index, set_stone, false, cant)), "stone", str(set_stone.id)), {"tone": DeepUi.color(DeepStone.color(set_stone)), "keep": true})
+		Tips.attach(card, func() -> Control: return _refused(Plates.gem(set_stone, _rail_context(unit, index), [], {}, [], _rider_opts(unit, index, set_stone, false, cant).merged({"unlit": not DeepStone.shows(set_stone, color)}, true)), "stone", str(set_stone.id)), {"tone": DeepUi.color(DeepStone.color(set_stone)), "keep": true})
 		if editable() and not DeepStone.is_locked(stone):
 			data = {"kind": "stone", "stone_id": str(stone.id), "from_socket": index, "appraised": true}
 			card.mouse_default_cursor_shape = Control.CURSOR_DRAG
@@ -884,7 +884,7 @@ func _socket(parent: Node, unit: Dictionary, index: int, cap: float = -1.0) -> v
 	else:
 		## The trigger's row left empty, as the gems' cards have it.
 		BattleScreen.trigger_row(card)
-		Tips.attach(card, func() -> Control: return Plates.words("An empty socket", "Drag any appraised stone onto it. A socket that shows the stone's color lights, and adds a point of Resonance each time the stone fires; any other socket holds it unlit. At home the loadout only sets a stone where it is shown.", DeepContent.socket_name(color)))
+		Tips.attach(card, func() -> Control: return Plates.words("An empty socket", "Drag any appraised stone onto it. A stone rings Resonance only from a socket that shows its color; any other socket holds it unlit, and there it rings for nothing. At home the loadout only sets a stone where it is shown.", DeepContent.socket_name(color)))
 	if riders.size() > (0 if lead.is_empty() else 1):
 		_riders_orbit(fan, unit, index, riders, 0 if lead.is_empty() else 1, cap)
 	var at: int = index

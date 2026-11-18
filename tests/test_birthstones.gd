@@ -5,8 +5,9 @@ extends SceneTree
 var checks: int = 0
 var failures: Array = []
 
-## A socket color no stone has, so nothing set in it is lit and Resonance is the gems' alone.
-const UNLIT: String = "UNLIT"
+## A socket that shows every stone, so every gem rings and Resonance is the gems' alone
+## (only a lit gem rings since November 18, 2026).
+const UNLIT: String = "RAINBOW"
 
 func _init() -> void:
 	_test_content()
@@ -203,8 +204,8 @@ func _test_rampart() -> void:
 	var f: Dictionary = fight("ARDOR", "RAMPART", [2, 4, 1, 3, 5])
 	var e: Dictionary = fired(run_turn(f))
 	check(lit(e) == ["Parapet"], "two even dice raise the Parapet alone (%s)" % str(lit(e)))
-	check(int(hits(tier(e, "Parapet"), "block")[0].amount) == 10 and int(hits(tier(e, "Parapet"), "retain")[0].retain_after) == 10, "Parapet: Resonance block, and as much kept")
-	check(int(f.unit.block) == 10, "the Parapet's block is still standing as the next turn opens (%d)" % int(f.unit.block))
+	check(int(hits(tier(e, "Parapet"), "block")[0].amount) == 20 and int(hits(tier(e, "Parapet"), "retain")[0].retain_after) == 20, "Parapet: twice Resonance block, and as much kept")
+	check(int(f.unit.block) == 20, "the Parapet's block is still standing as the next turn opens (%d)" % int(f.unit.block))
 	## Thornwork: Spikes until his next turn, and gone when it opens.
 	f = fight("ARDOR", "RAMPART", [2, 4, 6, 3, 5])
 	var tick: Dictionary = foe(f)
@@ -215,20 +216,20 @@ func _test_rampart() -> void:
 			DeepCreatures.dress_face(face, bite)
 	e = fired(run_turn(f))
 	var thorn: Dictionary = hits(tier(e, "Thornwork"), "spikes")[0]
-	check(lit(e) == ["Parapet", "Thornwork"] and int(thorn.spikes_after) == 10 and int(thorn.timed) == 10, "three even dice: Thornwork holds up Resonance Spikes")
-	check(int(tick.hp) == 990, "the creature that bit him took Resonance back (%d)" % int(tick.hp))
+	check(lit(e) == ["Parapet", "Thornwork"] and int(thorn.spikes_after) == 20 and int(thorn.timed) == 20, "three even dice: Thornwork holds up twice Resonance in Spikes")
+	check(int(tick.hp) == 980, "the creature that bit him took twice Resonance back (%d)" % int(tick.hp))
 	check(not f.unit.statuses.has("spikes") and not f.unit.has("timed"), "and the Spikes came down as his next turn opened")
 	## Spikes he already had stay: only Thornwork's come off.
 	f = fight("ARDOR", "RAMPART", [2, 4, 6, 3, 5])
 	f.unit.statuses.spikes = 4
 	run_turn(f)
 	check(int(f.unit.statuses.get("spikes", 0)) == 4, "Spikes he had from elsewhere are left alone (%d)" % int(f.unit.statuses.get("spikes", 0)))
-	## Ram: one blow for every 10 block he holds.
-	f = fight("ARDOR", "RAMPART", [2, 4, 6, 2, 5], 30)
+	## Ram: one blow for every 10 block he holds (the Parapet's twice Resonance included).
+	f = fight("ARDOR", "RAMPART", [2, 4, 6, 2, 5], 15)
 	e = fired(run_turn(f))
-	check(lit(e) == ["Parapet", "Thornwork", "Ram"] and hits(tier(e, "Ram")).size() == 3 and int(hits(tier(e, "Ram"))[0].amount) == 30, "four even dice: 30 block is three Rams of Resonance (%d)" % hits(tier(e, "Ram")).size())
+	check(lit(e) == ["Parapet", "Thornwork", "Ram"] and hits(tier(e, "Ram")).size() == 3 and int(hits(tier(e, "Ram"))[0].amount) == 15, "four even dice: 30 block is three Rams of Resonance (%d)" % hits(tier(e, "Ram")).size())
 	check(int(tier(e, "Ram").count.get("repeat", 0)) == 3, "and the count says three")
-	f = fight("ARDOR", "RAMPART", [2, 4, 6, 2, 5], 9)
+	f = fight("ARDOR", "RAMPART", [2, 4, 6, 2, 5], 4)
 	e = fired(run_turn(f))
 	check(hits(tier(e, "Ram")).is_empty(), "under 10 block the Ram has nothing to swing")
 	## Keep: none of it falls away this turn, and the turn after it does again.
@@ -296,8 +297,8 @@ func _test_ill_omen() -> void:
 	check(hits(tier(e, "Jinx"), "curse").size() == 2 and hits(tier(e, "Jinx"), "curse").all(func(h: Dictionary) -> bool: return int(h.curse_after) == 3), "and curses every creature three times")
 	f = fight("VESPER", "ILL_OMEN", [1, 1, 1, 1, 7], 10, ["CAVE_TICK", "RAIL_RAT"])
 	e = fired(run_turn(f))
-	check(lit(e) == ["Jinx", "Reckoning"] and hits(tier(e, "Reckoning")).size() == 4 and hits(tier(e, "Reckoning")).all(func(h: Dictionary) -> bool: return str(h.target) == "e0" and int(h.amount) == 10),
-		"four 1s: Reckoning deals Resonance once for each of the target's four Curses (%d)" % hits(tier(e, "Reckoning")).size())
+	check(lit(e) == ["Jinx", "Reckoning"] and hits(tier(e, "Reckoning")).size() == 4 and hits(tier(e, "Reckoning")).all(func(h: Dictionary) -> bool: return str(h.target) == "e0" and int(h.amount) == 20),
+		"four 1s: Reckoning deals twice Resonance once for each of the target's four Curses (%d)" % hits(tier(e, "Reckoning")).size())
 	f = fight("VESPER", "ILL_OMEN", [1, 1, 1, 1, 1], 10, ["CAVE_TICK", "RAIL_RAT"])
 	e = fired(run_turn(f))
 	check(lit(e) == ["Jinx", "Snake Eyes"] and bool(tier(e, "Reckoning").get("eclipsed", false)), "five 1s: Snake Eyes takes Reckoning's place")
@@ -308,7 +309,7 @@ func _test_ill_omen() -> void:
 func _test_fan_of_knives() -> void:
 	var f: Dictionary = fight("VESPER", "FAN_OF_KNIVES", [3, 3, 1, 2, 9])
 	var e: Dictionary = fired(run_turn(f))
-	check(lit(e) == ["Fan"] and hits(tier(e, "Fan")).size() == 2 and int(hits(tier(e, "Fan"))[0].amount) == 10, "a pair: two knives of Resonance")
+	check(lit(e) == ["Fan"] and hits(tier(e, "Fan")).size() == 2 and int(hits(tier(e, "Fan"))[0].amount) == 20, "a pair: two knives of twice Resonance")
 	f = fight("VESPER", "FAN_OF_KNIVES", [3, 3, 2, 2, 9])
 	check(hits(tier(fired(run_turn(f)), "Fan")).size() == 4, "two pairs: four knives")
 	f = fight("VESPER", "FAN_OF_KNIVES", [1, 2, 3, 4, 9])
@@ -327,8 +328,8 @@ func _test_fan_of_knives() -> void:
 	f = fight("VESPER", "FAN_OF_KNIVES", [3, 3, 3, 3, 9], 10, ["CAVE_TICK", "RAIL_RAT"])
 	e = fired(run_turn(f))
 	var flourish: Array = hits(tier(e, "Flourish"))
-	check(lit(e) == ["Flourish"] and bool(tier(e, "Fan").get("eclipsed", false)) and flourish.size() == 8 and flourish.all(func(h: Dictionary) -> bool: return int(h.amount) == 19),
-		"four of a kind: four knives, each Resonance and her 9, each at both creatures (%d)" % flourish.size())
+	check(lit(e) == ["Flourish"] and bool(tier(e, "Fan").get("eclipsed", false)) and flourish.size() == 8 and flourish.all(func(h: Dictionary) -> bool: return int(h.amount) == 29),
+		"four of a kind: four knives, each twice Resonance and her 9, each at both creatures (%d)" % flourish.size())
 	check(int(hits(tier(e, "Flourish"))[0].get("riposte", 0)) > 0, "every knife is a hit for Riposte")
 
 # --- Cadence --------------------------------------------------------------------------------
@@ -391,12 +392,12 @@ func _test_arpeggio() -> void:
 func _test_mithridate() -> void:
 	var f: Dictionary = fight("RUE", "MITHRIDATE", [1, 2, 3, 1, 1])
 	var e: Dictionary = fired(run_turn(f))
-	var coat: int = maxi(1, int(e.resonance) / 5)
-	check(lit(e) == ["Coat"] and int(f.unit.statuses.get("envenom", 0)) == coat and coat == 2, "three in a row: one Envenomed for every 5 Resonance (%d)" % int(f.unit.statuses.get("envenom", 0)))
+	var coat: int = maxi(1, int(e.resonance) / 3)
+	check(lit(e) == ["Coat"] and int(f.unit.statuses.get("envenom", 0)) == coat and coat == 3, "three in a row: one Envenomed for every 3 Resonance (%d)" % int(f.unit.statuses.get("envenom", 0)))
 	f = fight("RUE", "MITHRIDATE", [1, 2, 3, 4, 1])
 	e = fired(run_turn(f))
 	var dose: int = coat + maxi(1, int(e.resonance) / 2)
-	check(lit(e) == ["Coat", "Double Dose"] and int(f.unit.statuses.get("envenom", 0)) == dose and dose == 7, "four in a row: one more for every 2 Resonance (%d)" % int(f.unit.statuses.get("envenom", 0)))
+	check(lit(e) == ["Coat", "Double Dose"] and int(f.unit.statuses.get("envenom", 0)) == dose and dose == 8, "four in a row: one more for every 2 Resonance (%d)" % int(f.unit.statuses.get("envenom", 0)))
 	f = fight("RUE", "MITHRIDATE", [2, 3, 4, 5, 1])
 	e = fired(run_turn(f))
 	var stabs: Array = hits(tier(e, "Mithridate"))
@@ -431,11 +432,11 @@ func _test_bloodroot() -> void:
 	check(int(f.unit.fight_max_hp) == 10, "the fight will take that max health back")
 	## Transfusion: what the heal restored goes to every creature.
 	f = fight("RUE", "BLOODROOT", [2, 2, 2, 2, 3], 10, ["CAVE_TICK", "RAIL_RAT"])
-	f.unit.hp = 64
+	f.unit.hp = 54
 	e = fired(run_turn(f))
 	var flow: Dictionary = tier(e, "Transfusion")
-	check(lit(e) == ["Take Root", "Transfusion"] and int(hits(flow, "heal")[0].healed) == 10 and hits(flow).size() == 2 and hits(flow).all(func(h: Dictionary) -> bool: return int(h.amount) == 10),
-		"four of a kind: heal Resonance, and deal what it restored to every creature")
+	check(lit(e) == ["Take Root", "Transfusion"] and int(hits(flow, "heal")[0].healed) == 20 and hits(flow).size() == 2 and hits(flow).all(func(h: Dictionary) -> bool: return int(h.amount) == 20),
+		"four of a kind: heal twice Resonance, and deal what it restored to every creature")
 	f = fight("RUE", "BLOODROOT", [3, 3, 3, 3, 2], 10, ["CAVE_TICK", "RAIL_RAT"])
 	f.unit.max_hp = 60
 	f.unit.hp = 60
@@ -469,14 +470,14 @@ func _test_bloodroot() -> void:
 func _test_highs_and_lows() -> void:
 	var f: Dictionary = fight("PUCK", "HIGHS_AND_LOWS", [6, 2, 3, 4, 5])
 	var e: Dictionary = fired(run_turn(f))
-	check(lit(e) == ["Comedy"] and hits(tier(e, "Comedy")).size() == 1 and int(hits(tier(e, "Comedy"))[0].amount) == 10, "a crown on a d6: one strike of Resonance")
+	check(lit(e) == ["Comedy"] and hits(tier(e, "Comedy")).size() == 1 and int(hits(tier(e, "Comedy"))[0].amount) == 20, "a crown on a d6: one strike of twice Resonance")
 	f = fight("PUCK", "HIGHS_AND_LOWS", [6, 1, 8, 3, 10])
 	e = fired(run_turn(f))
 	check(lit(e) == ["Comedy", "Tragedy"] and hits(tier(e, "Comedy")).size() == 6, "crowns on a d6, a d8 and a d10: one, two and three strikes (%d)" % hits(tier(e, "Comedy")).size())
-	check(int(hits(tier(e, "Tragedy"), "block")[0].amount) == 10, "a 1 on a d6: Resonance block, once")
+	check(int(hits(tier(e, "Tragedy"), "block")[0].amount) == 20, "a 1 on a d6: twice Resonance block, once")
 	f = fight("PUCK", "HIGHS_AND_LOWS", [2, 3, 1, 5, 1])
 	e = fired(run_turn(f))
-	check(lit(e) == ["Tragedy"] and int(hits(tier(e, "Tragedy"), "block")[0].amount) == 50, "a 1 on a d8 and one on the d10: five times Resonance block")
+	check(lit(e) == ["Tragedy"] and int(hits(tier(e, "Tragedy"), "block")[0].amount) == 100, "a 1 on a d8 and one on the d10: five times twice Resonance block")
 	## Standing Ovation: every die a Face, and the bowl grows for the fight.
 	f = fight("PUCK", "HIGHS_AND_LOWS", [6, 1, 8, 1, 10])
 	e = fired(run_turn(f))
@@ -538,13 +539,14 @@ func _test_bandit() -> void:
 	var res: int = int(e.resonance)
 	var pair: Dictionary = tier(e, "Two of a kind").effects[0]
 	var triple: Dictionary = tier(e, "Three of a kind").effects[0]
-	check(lit(e) == ["Two of a kind", "Three of a kind"] and pair.paid.size() == 1 and int(pair.paid[0].value) == 2 and str(pair.paid[0].prize) == "block" and int(pair.paid[0].amount) == 5 * res,
+	check(lit(e) == ["Two of a kind", "Three of a kind"] and pair.paid.size() == 1 and int(pair.paid[0].value) == 2 and str(pair.paid[0].prize) == "block" and int(pair.paid[0].amount) == 8 * res,
 		"a pair of 2s: the Block prize, once (%s)" % str(pair.get("paid", [])))
-	check(int(triple.paid[0].value) == 5 and str(triple.paid[0].prize) == "damage" and int(triple.paid[0].amount) == 10 * res and triple.hits.size() == 3, "three 5s: the damage prize, ten times Resonance, three times")
+	check(int(triple.paid[0].value) == 5 and str(triple.paid[0].prize) == "damage" and int(triple.paid[0].amount) == 16 * res and triple.hits.size() == 3, "three 5s: the damage prize, sixteen times Resonance, three times")
 	f = fight("FLORIN", "ONE_ARMED_BANDIT", [1, 1, 3, 4, 7])
+	f.unit.max_hp = 1000
 	f.unit.hp = 10
 	e = fired(run_turn(f))
-	check(lit(e) == ["Two of a kind"] and str(tier(e, "Two of a kind").effects[0].paid[0].prize) == "heal" and int(tier(e, "Two of a kind").effects[0].hits[0].healed) == 5 * int(e.resonance), "a pair of 1s heals five times Resonance")
+	check(lit(e) == ["Two of a kind"] and str(tier(e, "Two of a kind").effects[0].paid[0].prize) == "heal" and int(tier(e, "Two of a kind").effects[0].hits[0].healed) == 8 * int(e.resonance), "a pair of 1s heals eight times Resonance")
 	f = fight("FLORIN", "ONE_ARMED_BANDIT", [3, 3, 4, 4, 7])
 	e = fired(run_turn(f))
 	var both: Array = tier(e, "Two of a kind").effects[0].paid
@@ -553,13 +555,13 @@ func _test_bandit() -> void:
 	e = fired(run_turn(f))
 	check(lit(e) == ["Three of a kind"] and tier(e, "Three of a kind").effects[0].hits.size() == 3, "four of a kind pays as three")
 	f = fight("FLORIN", "ONE_ARMED_BANDIT", [7, 7, 7, 7, 7])
-	## Seven prizes of twenty times Resonance: more health than the fixture's creature has.
+	## Seven prizes of thirty-two times Resonance: more health than the fixture's creature has.
 	foe(f).hp = 100000
 	foe(f).max_hp = 100000
 	e = fired(run_turn(f))
 	var jackpot: Dictionary = tier(e, "Jackpot")
-	check(lit(e) == ["Jackpot"] and jackpot.effects[0].hits.size() == 7 and int(jackpot.effects[0].paid[0].amount) == 20 * int(e.resonance) and int(hits(jackpot, "gold")[0].amount) == 7 * int(e.resonance),
-		"five 7s: the 7s' prize seven times, and seven times Resonance in pyrite")
+	check(lit(e) == ["Jackpot"] and jackpot.effects[0].hits.size() == 7 and int(jackpot.effects[0].paid[0].amount) == 32 * int(e.resonance) and int(hits(jackpot, "gold")[0].amount) == 10 * int(e.resonance),
+		"five 7s: the 7s' prize seven times, and ten times Resonance in pyrite")
 	f = fight("FLORIN", "ONE_ARMED_BANDIT", [6, 6, 1, 2, 3])
 	e = fired(run_turn(f))
 	check(int(tier(e, "Two of a kind").effects[0].paid[0].amount) == 3 * int(e.resonance), "a number with no prize of its own pays damage, a point more for every point over 3")
@@ -569,14 +571,17 @@ func _test_bandit() -> void:
 func _test_blackjack() -> void:
 	var f: Dictionary = fight("FLORIN", "BLACKJACK", [5, 4, 3, 7, 1])
 	var e: Dictionary = fired(run_turn(f))
-	check(lit(e) == ["Stand"] and int(hits(tier(e, "Stand"))[0].amount) == 5 * 4 * int(e.resonance), "a total of 20: five times Resonance for each of the four points over 16")
+	check(lit(e) == ["Stand"] and int(hits(tier(e, "Stand"))[0].amount) == 7 * 4 * int(e.resonance), "a total of 20: seven times Resonance for each of the four points over 16")
 	f = fight("FLORIN", "BLACKJACK", [5, 4, 3, 4, 1])
 	e = fired(run_turn(f))
-	check(lit(e) == ["Stand"] and int(hits(tier(e, "Stand"))[0].amount) == 5 * int(e.resonance), "a total of 17: five times Resonance once")
+	check(lit(e) == ["Stand"] and int(hits(tier(e, "Stand"))[0].amount) == 7 * int(e.resonance), "a total of 17: seven times Resonance once")
 	f = fight("FLORIN", "BLACKJACK", [5, 5, 3, 7, 1])
+	## Twenty-one blows: more health than the fixture's creature has.
+	foe(f).hp = 100000
+	foe(f).max_hp = 100000
 	e = fired(run_turn(f))
 	var blackjack: Dictionary = tier(e, "Twenty-One")
-	check(lit(e) == ["Twenty-One"] and hits(blackjack).size() == 3 and int(hits(blackjack)[0].amount) == 35 * int(e.resonance) and int(hits(blackjack, "gold")[0].amount) == 21, "exactly 21: thirty-five times Resonance three times, and 21 pyrite")
+	check(lit(e) == ["Twenty-One"] and hits(blackjack, "damage").size() == 21 and int(hits(blackjack, "damage")[0].amount) == 7 * int(e.resonance) and int(hits(blackjack, "gold")[0].amount) == 21, "exactly 21: seven times Resonance 21 times, and 21 pyrite (%d hits)" % hits(blackjack, "damage").size())
 	f = fight("FLORIN", "BLACKJACK", [7, 7, 5, 2, 1])
 	var hp: int = int(f.unit.hp)
 	e = fired(run_turn(f))

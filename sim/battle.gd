@@ -1364,15 +1364,22 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 	## A Bruise's price can take the last of it: then its owner is down, and the gem's blow,
 	## paid for with the last of them, does not land (`fell`).
 	var fell: bool = _bleed(unit, hp_cost)
+	## A gem rings only from a socket that shows its color (a Rainbow shows every gem, an opal
+	## is shown by nothing else): its Resonance, and a point more for Harmony. In any other
+	## socket it rings for nothing, takes no Harmony and gives none to the gem after it (the
+	## owner's rule of November 18, 2026; before it a lit socket added a point and an unlit
+	## gem still rang). A rider sits in no socket, so it can sit in no wrong one: it rings.
+	var socket_kind: String = str(unit.sockets[socket]) if socket < unit.sockets.size() else DeepContent.SOCKET_RAINBOW
+	var lit: bool = DeepStone.shown_by(ev.get("colors", []), socket_kind)
+	var rings: bool = lit or socket_kind == DeepContent.SOCKET_NONE
+	## Harmony: the gem that fired just before this one rang too, and shares a color with it.
 	var harmony: bool = false
-	if bool(unit.get("previous_fired", false)):
+	if rings and bool(unit.get("previous_fired", false)) and bool(unit.get("previous_rang", true)):
 		for color in unit.get("previous_colors", []):
 			if ev.get("colors", []).has(color):
 				harmony = true
-	## A lit socket: one that shows the gem's color (a Rainbow shows every gem, an opal is
-	## shown by nothing else, a rider sits in none) adds a point of Resonance of its own.
-	var lit: bool = DeepStone.shown_by(ev.get("colors", []), str(unit.sockets[socket]) if socket < unit.sockets.size() else DeepContent.SOCKET_RAINBOW)
-	var gain: int = DeepRules.sat_mul(int(ev.get("resonance_gain", 1)) + (1 if harmony else 0) + (1 if lit else 0), maxi(1, int(unit.get("resonance_mult", 1))))
+	unit.previous_rang = rings
+	var gain: int = DeepRules.sat_mul(int(ev.get("resonance_gain", 1)) + (1 if harmony else 0), maxi(1, int(unit.get("resonance_mult", 1)))) if rings else 0
 	## A Null Shade in the room: the rail rings for only part of what it should. What is lost
 	## is carried in hundredths, so two gems at half each still make one.
 	var damp: int = 0
@@ -1554,14 +1561,14 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 	## Nothing left to hit and nothing else to do: resolved, but not played (P3).
 	if unopposed and not dry and hp_cost <= 0 and backlash <= 0 and results.all(func(r: Variant) -> bool: return r is Dictionary and str(r.get("kind", "")) in DeepRules.HOSTILE):
 		return _quiet_step(_event(state, "gem_fire", {"unit": unit.id, "socket": socket, "stone_id": str(stone.id), "skill": str(stone.skill),
-			"dice": ev.get("dice", []), "effects": results, "resonance": unit.resonance, "gain": gain, "harmony": harmony, "lit": lit, "tally": {},
+			"dice": ev.get("dice", []), "effects": results, "resonance": unit.resonance, "gain": gain, "harmony": harmony, "lit": lit, "rang": rings, "tally": {},
 			"magnitude": float(ev.get("magnitude", 1.0)), "carat": int(ev.get("carat", 1)), "cut_step": int(ev.get("cut_step", 0)),
 			"retrigger": retrigger, "replay": bool(opts.get("replay", false)), "scale": scale, "hp_cost": hp_cost, "fires": int(ev.get("fires", 1)),
 			"forced": bool(opts.get("force", false)), "promised": promised if not retrigger else 0, "worn": str(stone.get("worn_from", "")),
 			"absorbed": str(opts.get("as_skill", "")), "certain": certain, "flawless": bonus, "rung": _rung(results),
 			"backlash": backlash, "fired_count": int(unit.get("fired_count", 0)), "damped": damp > 0, "fed": fed, "crowned": crowned, "unopposed": true}), true)
 	return _event(state, "gem_fire", {"unit": unit.id, "socket": socket, "stone_id": str(stone.id), "skill": str(stone.skill),
-		"dice": ev.get("dice", []), "effects": results, "resonance": unit.resonance, "gain": gain, "harmony": harmony, "lit": lit, "tally": tally,
+		"dice": ev.get("dice", []), "effects": results, "resonance": unit.resonance, "gain": gain, "harmony": harmony, "lit": lit, "rang": rings, "tally": tally,
 		"magnitude": float(ev.get("magnitude", 1.0)), "carat": int(ev.get("carat", 1)), "cut_step": int(ev.get("cut_step", 0)),
 		"die_boost": float(ev.get("die_boost", 1.0)), "materials": DeepDice.matching_materials(DeepStone.rolls_of(unit.hand, ev.get("dice", [])), ev.get("colors", [])),
 		"retrigger": retrigger, "replay": bool(opts.get("replay", false)), "scale": scale, "hp_cost": hp_cost, "fires": int(ev.get("fires", 1)),
@@ -1916,7 +1923,8 @@ static func _paid_nothing(resolved: Array, resonance: int) -> String:
 	for entry in resolved:
 		var applied: Dictionary = entry[1]
 		var kind: String = str(applied.get("kind", ""))
-		if not kind in TALLY_KINDS:
+		## A Keep (Rampart) holds every point of Block: it lands no number, but it is worth seeing.
+		if not kind in TALLY_KINDS or bool(applied.get("keep_all", false)):
 			return ""
 		for result in entry[2]:
 			if not result is Dictionary:

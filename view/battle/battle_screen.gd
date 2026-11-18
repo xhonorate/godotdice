@@ -2728,9 +2728,9 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 			var ring := SocketRing.new(socket_color, stone == null)
 			ring.name = "Ring"
 			ring.front = front
-			## A socket that shows its gem's color is lit, and adds a point of Resonance when
-			## the gem fires; one that does not is greyed. A rider lights no socket, so its ring
-			## is neither.
+			## A socket that shows its gem's color is lit, and only there does the gem ring
+			## Resonance; one that does not is greyed and rings nothing. A rider lights no
+			## socket, so its ring is neither (it rings all the same).
 			if stone is Dictionary and not rider:
 				ring.shown = 1 if DeepStone.shows(stone, socket_color) else 0
 			ring.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -2946,6 +2946,10 @@ func _gem_plate(page: Page, unit_id: String, flat: int) -> Control:
 		opts.note = "Clouded: hit the creature that fogged it to clear it."
 		if fog_left > 0:
 			opts.note = "Clouded for %s: it lifts after %s, or when you hit the creature that fogged it." % [DeepUi.plural(int(fog.get("turns", 0)), "turn"), DeepUi.plural(fog_left, "more turn")]
+	## A gem in a socket that does not show its color rings no Resonance there.
+	var kinds: Array = unit.get("sockets", [])
+	if int(place.rider) < 0 and not DeepStone.shows(stone, str(kinds[flat]) if flat < kinds.size() else DeepContent.SOCKET_RAINBOW):
+		opts.unlit = true
 	## An opal beside or behind a gem it cannot touch says so (opals never copy opals).
 	var cant: Array = RailWarnings.lines_for(rail, flat, DeepBattle.opal_blocks(rail))
 	if not cant.is_empty():
@@ -6412,6 +6416,10 @@ func _gem_fire(event: Dictionary) -> void:
 			_resonance_flight(page, card, resonance, maxi(1, int(event.get("gain", 0))), color, bool(event.get("harmony", false)))
 		elif resonance != page.resonance_shown:
 			_show_resonance(resonance, page)
+		## A gem in a socket that does not show its color rings for nothing: said over it, so
+		## the greyed socket reads as the reason.
+		if not bool(event.get("rang", true)):
+			_float_at(card, "No Resonance", DeepUi.MUTED, 14)
 		## A count says it on its own plate.
 		if bool(event.get("retrigger", false)) and not tally.has("amount"):
 			_float_at(card, "Again!", DeepUi.ACCENT_HI, 15)

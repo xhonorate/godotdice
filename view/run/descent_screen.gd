@@ -2802,12 +2802,17 @@ func _pick_chip(box: VBoxContainer, id: String) -> bool:
 ## one for its lines and a Buy button. A stone from the bag dropped on the lens is appraised,
 ## on the scales sold; click either for a list instead.
 
+func _stall_cap() -> int:
+	## The heaviest a stone comes out of this mine at this depth: a stall stone that heavy is
+	## Heavy (CounterMarks).
+	return DeepForge.carat_cap(DeepDescent.mine_of(run), int(run.get("depth", 1)))
+
 func _show_stall() -> void:
 	var chamber: Dictionary = run.chamber
 	var unit: Dictionary = me()
 	var cost: int = DeepDescent.appraise_cost(run, local_id)
 	var stock: Array = DeepDescent.stall_stock(run, local_id)
-	var counter: Node3D = _stage.stall(stock, cost)
+	var counter: Node3D = _stage.stall(stock, cost, _stall_cap(), CounterMarks.heaviest_on_rail(unit))
 	if counter != null:
 		## Every price on the counter says whether this purse can meet it.
 		if counter.has_method("set_purse"):
@@ -3104,14 +3109,21 @@ func _stall_chip(box: VBoxContainer, id: String, parts: PackedStringArray) -> bo
 			var head := DeepUi.hbox(box, 8)
 			StoneCard.mini(head, stone, 40)
 			var words := DeepUi.vbox(head, 1)
-			DeepUi.title(words, str(DeepStone.skill_of(stone).get("name", "")), 18, tone)
-			DeepUi.label(words, "%s %s · %d ct · %s" % [DeepContent.cut_name(int(stone.cut)), DeepContent.clarity_name(int(stone.clarity)), int(stone.carat), str(grade.name)], 12, DeepUi.MUTED)
-			## A lucky find and a Void stone say so before anything else (review card S1).
-			if bool(item.get("lucky", false)):
-				DeepUi.stat(box, "spark", "Lucky find: rolled well above this depth", MineStage.Stall.lucky_tone(), 12)
-			## (The phone's chip is short of room: its Void inclusion chip and the counter's mark say it.)
-			if DeepStone.is_slotless(stone) and not DeepUi.phone:
-				DeepUi.stat(box, "widening_spiral", "Void: rides a socket, shatters when the run ends", DeepUi.INFO, 12)
+			## Its grade tier and the counter's pills beside it, then the grade as three ladders
+			## (card X1, db `shop1`). A lucky find is not named: it shows by what it is (card L1).
+			## The phone's card is short of height: the pills ride beside the name (its colour
+			## already says the tier) and the ladders take one line.
+			var cap: int = _stall_cap()
+			var tier_row := DeepUi.hbox(words, 6)
+			if DeepUi.phone:
+				DeepUi.title(tier_row, str(DeepStone.skill_of(stone).get("name", "")), 18, tone)
+			else:
+				DeepUi.title(words, str(DeepStone.skill_of(stone).get("name", "")), 18, tone)
+				words.move_child(tier_row, words.get_child_count() - 1)
+				DeepUi.label(tier_row, str(grade.name), 12, DeepUi.MUTED)
+			for key in CounterMarks.pills(stone, cap):
+				CounterMarks.pill_label(tier_row, str(key), 11)
+			box.add_child(CounterMarks.Ladders.new(stone, cap, 12, DeepUi.pt(190) if DeepUi.phone else 300.0))
 			DeepUi.wrap(box, DeepStone.text(stone), 13, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_LEFT, 300)
 			## What is frozen inside it, named before it is paid for; each says what it does.
 			if not stone.get("inclusions", []).is_empty() and (bool(stone.get("appraised", false)) or bool(stone.get("inclusions_revealed", false))):

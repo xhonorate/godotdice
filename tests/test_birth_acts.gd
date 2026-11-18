@@ -9,7 +9,7 @@ extends SceneTree
 ## DELVER_KEY for a variant.)
 
 const BirthAct = preload("res://view/battle/birth_act.gd")
-const UNLIT: String = "UNLIT"
+const UNLIT: String = "RAINBOW"  ## every gem rings (only a lit gem rings since November 18, 2026)
 
 ## The hands each stone is shown, on its delver's own dice ("top" is the die's own top face),
 ## and the rail it fires behind (a Patchwork wants colors).

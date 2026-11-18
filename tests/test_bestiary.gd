@@ -46,9 +46,9 @@ func setup(keys: Array, players: int = 1, context: Dictionary = {}, rail: Array 
 		for j in range(5):
 			bowl.append(DeepDice.make("D6", "p%d_d%d" % [i, j]))
 		var unit: Dictionary = DeepBattle.make_player("p%d" % i, "Player %d" % i, "ARDOR", rail.duplicate(true), bowl, -1, riders.duplicate(true))
-		## Sockets that show no stone: these fights count Resonance by the gems alone (a lit
-		## socket adds a point of its own, which tests/test_battle.gd reads).
-		unit.sockets = unit.sockets.map(func(_socket: Variant) -> String: return "UNLIT")
+		## Rainbow sockets: every gem rings, so these fights count Resonance by the gems alone
+		## (only a lit gem rings since November 18, 2026; tests/test_battle.gd reads that).
+		unit.sockets = unit.sockets.map(func(_socket: Variant) -> String: return "RAINBOW")
 		unit.birthstone = {}
 		unit.passive = {}
 		unit.hp = 1000

@@ -21,7 +21,7 @@ const HINTS := {
 	"carat": "Carat: how much. One multiplier over everything the stone does, and for an effect that cannot be a fraction, how many times over it happens.",
 	"clarity": "Clarity: how pure. Pristine and Flawless stones ring the rail for double and triple Resonance, Flawless hits harder besides; included stones carry inclusions instead.",
 	"cut": "Cut: how often. A better cut stands on a looser rung of the trigger ladder.",
-	"resonance": "Resonance: builds as each gem in your rail fires, a neighbour of the same color adding extra; your Birthstone reads it last.",
+	"resonance": "Resonance: builds as each gem in your rail fires from a socket that shows its color, a neighbour of the same color adding extra; a gem in any other socket adds none. Your Birthstone reads it last.",
 	"high": "The highest dice in your hand.",
 	"low": "The lowest dice in your hand.",
 	"pair": "The value shown by your highest pair, not the two dice added together.",

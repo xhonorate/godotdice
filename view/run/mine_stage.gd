@@ -1236,8 +1236,9 @@ func clear_salvage(seconds: float = 0.45) -> void:
 
 # --- the stall -----------------------------------------------------------------------------------
 
-func stall(stock: Array, appraise_cost: int) -> Node3D:
-	## The merchant's counter, built once for the room.
+func stall(stock: Array, appraise_cost: int, cap: int = 0, heaviest: int = 0) -> Node3D:
+	## The merchant's counter, built once for the room. `cap` and `heaviest` are what its marks
+	## are read against (Stall.set_context): this depth's heaviest stone and the buyer's rail.
 	if _headless or not has_room():
 		return null
 	var key: String = "stall|%s" % str(place.get("key", ""))
@@ -1248,6 +1249,7 @@ func stall(stock: Array, appraise_cost: int) -> Node3D:
 		made.build(room.biome, stock, room_seed(place) + 23)
 		_lead_eye(room_look("merchant"))
 	var counter: Node3D = business()
+	counter.set_context(cap, heaviest)
 	counter.show_stock(stock)
 	counter.set_lens_price(appraise_cost)
 	return counter
@@ -2169,6 +2171,9 @@ func _sync_names() -> void:
 					label.set_meta("stagger", true)
 				if spot.has_meta("under_tags"):
 					label.set_meta("under_tags", true)
+				if spot.has_meta("pair"):
+					label.set_meta("pair", str(spot.get_meta("pair")))
+					label.set_meta("pair_index", int(spot.get_meta("pair_index", 0)))
 				_names_layer.add_child(label)
 				_names[key] = label
 			## Only when they change: each override has the word laid out again.
@@ -2188,6 +2193,10 @@ func _sync_names() -> void:
 			if label.text != str(spot.get_meta("text", "")):
 				label.text = str(spot.get_meta("text", ""))
 				label.size = label.get_combined_minimum_size()
+			elif bool(spot.get_meta("relayout", false)):
+				## Its plate changed width (a stall stone's grade row gained or lost its arrow).
+				spot.set_meta("relayout", false)
+				label.size = label.get_combined_minimum_size()
 			var point: Vector3 = spot.global_position
 			var alpha: float = float(spot.get_meta("alpha", 1.0))
 			label.visible = spot.is_visible_in_tree() and alpha > 0.01 and not camera.is_position_behind(point)
@@ -2198,12 +2207,42 @@ func _sync_names() -> void:
 	## Every name was put where it stands just above: a step down is taken from there, once.
 	if DeepUi.phone and _laid_out():
 		_stagger_names()
+	if _laid_out():
+		_lay_pairs()
 	for key in _names.keys():
 		if not seen.has(key):
 			var gone: Variant = _names[key]
 			if gone is Node and is_instance_valid(gone):
 				(gone as Node).queue_free()
 			_names.erase(key)
+
+func _lay_pairs() -> void:
+	## Words that stand at one spot side by side (a stall stone's two pills on the desktop):
+	## laid out across it, centred on where the spot is seen, a little apart.
+	var pairs: Dictionary = {}
+	for key in _names:
+		var label: Variant = _names[key]
+		if label is Label and is_instance_valid(label) and (label as Label).visible and (label as Label).has_meta("pair"):
+			var group: String = str((label as Label).get_meta("pair"))
+			if not pairs.has(group):
+				pairs[group] = []
+			pairs[group].append(label)
+	for group in pairs:
+		var row: Array = pairs[group]
+		if row.size() < 2:
+			continue
+		row.sort_custom(func(a: Label, b: Label) -> bool: return int(a.get_meta("pair_index", 0)) < int(b.get_meta("pair_index", 0)))
+		var gap: float = 6.0
+		var width: float = gap * float(row.size() - 1)
+		var middle: float = 0.0
+		for label in row:
+			width += (label as Label).size.x
+			middle += (label as Label).position.x + (label as Label).size.x * 0.5
+		middle /= float(row.size())
+		var x: float = middle - width * 0.5
+		for label in row:
+			(label as Label).position.x = round(x)
+			x += (label as Label).size.x + gap
 
 func _stagger_names() -> void:
 	## On the phone the names under a stall's goods stand closer than they are long: where two
@@ -2229,8 +2268,8 @@ func _stagger_names() -> void:
 		var label: Label = row[index]
 		label.position.y += label.size.y + DeepUi.pt(2)
 		step = maxf(step, label.size.y + DeepUi.pt(2))
-	## A stall stone's marks ("Lucky find", "Void", review card S1) hang under the tags: they
-	## step down past the second line, so a mark never sits beside a tag stepped down.
+	## A stall stone's grade row (CounterMarks) hangs under its tag: the rows step down past
+	## the second line, so a row never sits beside a tag stepped down.
 	for key in _names:
 		var mark: Variant = _names[key]
 		if mark is Label and is_instance_valid(mark) and (mark as Label).visible and bool((mark as Label).get_meta("under_tags", false)):

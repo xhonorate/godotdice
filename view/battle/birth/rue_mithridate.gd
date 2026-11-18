@@ -1,9 +1,11 @@
 extends "res://view/battle/birth_act.gd"
 ## Rue's Mithridate: runs of dice coat the Apothecary's own blades.
 ##
-## While she is Envenomed every ring of her rail, the Birthstone's too, wears a film of
-## malachite banded like the stone, deeper the more stacks she carries (the Envenomed chip
-## over her says how many). While the hand is planned a chip over the stone counts the stabs
+## While she is Envenomed every ring of her rail, the Birthstone's too, is lit from its rim:
+## a malachite glow round it, a thin bright arc slowly running round, and now and then a small
+## green glint rising off it, brighter and fuller the more stacks she carries (the Envenomed
+## chip over her says how many). The gems themselves stay clear: her blades are charged, not
+## covered. While the hand is planned a chip over the stone counts the stabs
 ## Mithridate would make: her stacks once this turn's coats have landed, bright once the hand
 ## reaches a straight of five.
 ##
@@ -12,7 +14,7 @@ extends "res://view/battle/birth_act.gd"
 ## target, one a stack, each leaving a green drop as its Poison goes in; from then on every
 ## hit of hers that carries the venom splashes a small green drop where it lands.
 ##
-## Both layouts draw the same pieces: the film lies on the rings themselves, so nothing moves.
+## Both layouts draw the same pieces: the light lies on the rings themselves, so nothing moves.
 
 const MALACHITE := Color("2f8a5b")
 const DEEP := Color("14523a")
@@ -20,8 +22,15 @@ const PALE := Color("8fdcb0")
 const VENOM := Color("9ad35a")
 const STEEL := Color("d6e2da")
 const NIGHT := Color(0.02, 0.05, 0.035)
-## The stacks at which the film is at its deepest.
+## The stacks at which the rim light is at its brightest and its arc at its longest.
 const FILM_DEEP: int = 6
+## Seconds for the rim's bright arc to run once round a ring; a glint rises off a ring about
+## this often, and is up for this share of the time.
+const RIM_TURN: float = 4.5
+const GLINT_EVERY: float = 1.9
+const GLINT_SHARE: float = 0.45
+## How often the rim light is drawn again while it runs (a frame every this many ms).
+const RIM_FRAME_MS: int = 33
 ## A coat's run down the rail, how long its band lingers once it is down, and the flare a
 ## ring gives as the band reaches it.
 const FLOW: float = 0.34
@@ -39,7 +48,7 @@ var _chip: PanelContainer = null
 var _chip_said: Label = null
 var _stabs: int = 0
 var _stab_live: bool = false
-## The stacks the film shows: what she carries, held back while a coat is on its way down.
+## The stacks the rim light shows: what she carries, held back while a coat is on its way down.
 var _shown: int = 0
 var _firing: bool = false
 var _coats_seen: int = 0
@@ -120,7 +129,9 @@ func _sync_act() -> void:
 		_chip.reset_size()
 
 func _look_key() -> String:
-	return "%d|%d|%s|%s|%s|%s" % [_shown, _stabs, str(_stab_live), str(_chip.visible), str(bool(unit.get("downed", false))), str(_ring_rects())]
+	## While the rings are lit their arcs run and glints rise: a new frame every RIM_FRAME_MS.
+	var running: int = floori(float(Time.get_ticks_msec()) / float(RIM_FRAME_MS)) if _shown > 0 and not DeepUi.headless() else 0
+	return "%d|%d|%s|%s|%s|%s|%d" % [_shown, _stabs, str(_stab_live), str(_chip.visible), str(bool(unit.get("downed", false))), str(_ring_rects()), running]
 
 func _chip_plate() -> Control:
 	var stab: int = _stab_index()
@@ -168,7 +179,7 @@ func _reach_time(share: float) -> float:
 	return FLOW * (1.0 - sqrt(maxf(0.0, 1.0 - share)))
 
 func _film_at(x: float, now: int) -> int:
-	## The stacks a ring's film shows: each coat's once its band has reached the ring.
+	## The stacks a ring's light shows: each coat's once its band has reached the ring.
 	var shown: int = _shown
 	for flow in _flows:
 		var since: float = float(now - int(flow.at)) / 1000.0
@@ -189,7 +200,7 @@ func _flare_at(x: float, now: int) -> float:
 
 func _tick(_delta: float) -> void:
 	var now: int = Time.get_ticks_msec()
-	## A coat that has run its course is the film from now on.
+	## A coat that has run its course is the rim light from now on.
 	while not _flows.is_empty() and float(now - int(_flows[0].at)) / 1000.0 > FLOW + TAIL + FLARE:
 		_shown = int(_flows[0].to)
 		_flows.pop_front()
@@ -204,40 +215,71 @@ func _draw() -> void:
 	if unit.is_empty() or bool(unit.get("downed", false)):
 		return
 	var now: int = Time.get_ticks_msec()
-	for ring in _ring_rects():
-		var box: Rect2 = ring
-		_draw_film(box, _film_at(box.get_center().x, now), _flare_at(box.get_center().x, now))
+	var rings: Array = _ring_rects()
+	for index in range(rings.size()):
+		var box: Rect2 = rings[index]
+		_draw_rim(box, _film_at(box.get_center().x, now), _flare_at(box.get_center().x, now), index + 1, now)
 	var stone_at: Rect2 = stone_rect()
 	if stone_at.size.x > 0.0:
 		var edge: float = minf(stone_at.size.x, stone_at.size.y)
-		_draw_film(Rect2(stone_at.get_center() - Vector2(edge, edge) * 0.5, Vector2(edge, edge)), _film_at(stone_at.get_center().x, now), _flare_at(stone_at.get_center().x, now))
+		_draw_rim(Rect2(stone_at.get_center() - Vector2(edge, edge) * 0.5, Vector2(edge, edge)), _film_at(stone_at.get_center().x, now), _flare_at(stone_at.get_center().x, now), 0, now)
 	_draw_flows(now)
 	_draw_needles(now)
 	_draw_drops(now)
 
-func _draw_film(ring: Rect2, stacks: int, flare: float) -> void:
-	## A ring coated in venom: a green wash over it and malachite's wavy bands round its rim,
-	## more of them and darker the more stacks she carries.
+static func _hash(at: float) -> float:
+	## A steady scatter in 0..1 for a glint's spot, the same every frame for one go.
+	return fposmod(sin(at * 12.9898 + 78.233) * 43758.5453, 1.0)
+
+func _draw_rim(ring: Rect2, stacks: int, flare: float, seed_at: int, now: int) -> void:
+	## A ring charged with venom: a malachite glow round its rim, a thin bright arc slowly
+	## running round it, and now and then a small green glint rising off its sides. The gem in
+	## the middle stays clear. Brighter and fuller the more stacks she carries: the arc grows
+	## longer up to FILM_DEEP stacks, and a glint more rises for each of the first four.
 	if ring.size.x <= 2.0 or (stacks <= 0 and flare <= 0.0):
 		return
 	var middle: Vector2 = ring.get_center()
 	var radius: float = ring.size.x * 0.5
 	if stacks > 0:
 		var depth: float = clampf(float(stacks) / float(FILM_DEEP), 0.15, 1.0)
-		draw_circle(middle, radius * 0.97, Color(MALACHITE, 0.08 + 0.16 * depth))
-		var bands: int = clampi(1 + stacks, 2, 5)
-		var width: float = radius * 0.32 / float(bands)
-		var dark: Color = DEEP.lerp(Color("082a1c"), depth * 0.6)
-		var light: Color = PALE.lerp(MALACHITE, depth * 0.55)
-		for index in range(bands):
-			var at: float = radius * 1.0 - width * (float(index) + 0.5)
-			var tone: Color = dark if index % 2 == 0 else light
-			var wave := PackedVector2Array()
-			for step in range(41):
-				var angle: float = TAU * float(step) / 40.0
-				var swell: float = sin(angle * 3.0 + float(index) * 1.3) * width * 0.35
-				wave.append(middle + Vector2.from_angle(angle) * (at + swell))
-			draw_polyline(wave, Color(tone, 0.32 + 0.45 * depth), width + 0.5, true)
+		var glints: int = clampi(1 + stacks, 2, 5) - 1
+		var t: float = float(now) / 1000.0
+		var breath: float = 0.85 + 0.15 * sin(t * 2.1 + float(seed_at) * 1.7)
+		## The glow: soft rings fading outward from the rim.
+		var soft: float = maxf(1.5, radius * 0.065)
+		for step in range(5):
+			var fade: float = 1.0 - float(step) / 5.0
+			draw_arc(middle, radius * 0.97 + soft * (float(step) + 0.5), 0.0, TAU, 48, Color(MALACHITE.lightened(0.25), (0.08 + 0.24 * depth) * fade * breath), soft, true)
+		draw_arc(middle, radius * 0.985, 0.0, TAU, 48, Color(PALE, (0.3 + 0.4 * depth) * breath), maxf(1.0, u(2.0, 1.0)), true)
+		## The bright arc running round, its head the brightest.
+		var head: float = t * TAU / RIM_TURN + float(seed_at) * 0.9
+		var span: float = TAU * (0.16 + 0.22 * depth)
+		var parts: int = 10
+		var thick: float = maxf(1.5, u(3.0, 1.5))
+		for part in range(parts):
+			var share: float = float(part + 1) / float(parts)
+			var from: float = head - span + span * float(part) / float(parts)
+			var to: float = from + span / float(parts) + 0.01
+			draw_arc(middle, radius * 0.99, from, to, 4, Color(VENOM, (0.12 + 0.25 * depth) * share), thick * 3.0, true)
+			draw_arc(middle, radius * 0.99, from, to, 4, Color(VENOM.lightened(0.45), (0.4 + 0.6 * depth) * share * share), thick, true)
+		var at: Vector2 = middle + Vector2.from_angle(head) * radius * 0.99
+		draw_circle(at, thick * 1.8, Color(VENOM, 0.25 + 0.2 * depth))
+		draw_circle(at, thick * 0.75, Color(1.0, 1.0, 0.92, 0.7 + 0.3 * depth))
+		## Glints rising off the ring's sides now and then, each on its own slow clock.
+		for index in range(glints):
+			var every: float = GLINT_EVERY + 0.53 * float(index) + 0.21 * float(seed_at % 3)
+			var run: float = t / every + _hash(float(seed_at * 7 + index))
+			var p: float = fposmod(run, 1.0) / GLINT_SHARE
+			if p >= 1.0:
+				continue
+			var go: float = floorf(run) + float(seed_at * 13 + index * 5)
+			var side: float = -1.0 if _hash(go) < 0.5 else 1.0
+			var angle: float = -PI * 0.5 + side * PI * (0.3 + 0.28 * _hash(go + 0.5))
+			var spot: Vector2 = middle + Vector2.from_angle(angle) * radius * 1.03 + Vector2(side * radius * 0.06 * p, -radius * 0.38 * p)
+			var shine: float = sin(p * PI) * (0.55 + 0.45 * depth)
+			var dot: float = maxf(1.5, u(3.0, 1.5)) * (1.0 - 0.35 * p)
+			draw_circle(spot, dot * 2.2, Color(VENOM, 0.22 * shine))
+			draw_colored_polygon(PackedVector2Array([spot + Vector2(0.0, -dot * 1.6), spot + Vector2(dot, 0.0), spot + Vector2(0.0, dot * 1.1), spot + Vector2(-dot, 0.0)]), Color(PALE.lightened(0.3), shine))
 	if flare > 0.0:
 		draw_arc(middle, radius * 1.02, 0.0, TAU, 40, Color(VENOM.lightened(0.3), 0.85 * flare), maxf(2.0, u(4.0, 2.0)) * (1.0 + flare), true)
 
