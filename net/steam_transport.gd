@@ -68,7 +68,7 @@ static func start() -> Dictionary:
 			return {"ok": false, "error": "This build's Steam extension is not GodotSteam 4.22; Steam play is off."}
 	var result: Dictionary = api.call("get_steam_init_result")
 	if int(result.get("status", -1)) != 0:
-		result = api.call("steamInitEx", int(ProjectSettings.get_setting(APP_ID_SETTING, 480)), false)
+		result = api.call("steamInitEx", int(ProjectSettings.get_setting(APP_ID_SETTING, 5646030)), false)
 	if int(result.get("status", -1)) != 0:
 		return {"ok": false, "error": "Steam did not start (%s). Open the Steam client, or play over LAN." % str(result.get("verbal", "no answer"))}
 	_started = true

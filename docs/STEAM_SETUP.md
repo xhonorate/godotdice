@@ -32,7 +32,7 @@ The suite `tests/test_net.gd` drives three sessions through a stand-in for the G
 A single account cannot join its own lobby, so a real test needs two Steam accounts on two machines (or one machine plus a Steam Deck).
 
 1. Both machines: Steam running and **online** (`loggedOn()` false means offline mode; lobbies fail with result 3).
-2. Both: launch the same build of the game. With the test App ID 480 the game shows as Spacewar in Steam, and both must already be running before an invite is accepted; otherwise Steam launches Spacewar itself.
+2. Both: launch the same build of the game. The game uses its own App ID 5646030 (it was the test ID 480, Spacewar, until November 19, 2026); both must already be running before an invite is accepted, or Steam launches the installed copy itself.
 3. Host: Map tab, Play together, **Host on Steam**. The lobby ID appears.
 4. Host: **Invite friends** (exported build, overlay on) or **Copy ID** and send the number.
 5. Guest: accept the invite, or paste the ID and press **Join**. The party card shows both lapidaries.
@@ -46,9 +46,9 @@ Choose Host on LAN on one machine. Other players type its LAN address and press 
 
 ## Release checklist
 
-- Replace `steam/initialization/app_data/app_id=480` in `project.godot` with the real App ID.
+- The real App ID 5646030 is set in `project.godot` (`steam/initialization/app_data/app_id`) and as the fallback in `net/steam_transport.gd`.
 - Keep `initialize_on_startup=true`; without it the overlay and its invite dialog never appear.
-- Do not ship a `steam_appid.txt` in a production depot; an adjacent one containing `480` only helps a test build started outside Steam.
+- Do not ship a `steam_appid.txt` in a production depot; an adjacent one containing `5646030` only helps a test build started outside Steam.
 - Consider `restartAppIfNecessary(app_id)` at startup so a copy started outside Steam relaunches through it.
 - Rejoining mid-run keeps a seat only if the hello carries that seat's ID; tying seats to Steam IDs would let a crashed guest reclaim theirs.
 

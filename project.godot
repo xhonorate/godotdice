@@ -12,7 +12,7 @@ config_version=5
 
 config/name="Deep Cut"
 config/description="A cooperative dice-and-stone roguelike. Dig, appraise, refit, dig deeper."
-config/version="0.0.31"
+config/version="0.0.32"
 run/main_scene="res://view/main.tscn"
 run/flush_stdout_on_print.ios=true
 config/use_custom_user_dir=true
@@ -51,5 +51,5 @@ environment/defaults/default_clear_color=Color(0.047, 0.055, 0.075, 1)
 
 [steam]
 
-initialization/app_data/app_id=480
+initialization/app_data/app_id=5646030
 initialization/processes/initialize_on_startup=true
