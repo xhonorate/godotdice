@@ -13641,7 +13641,7 @@
           "id": "fuse",
           "label": "Fuse two stones",
           "needs": "two_stones",
-          "text": "One will be destroyed, but the other will gain power from it.",
+          "text": "One will be destroyed; the other takes the best of both.",
           "action": {
             "kind": "fuse"
           }

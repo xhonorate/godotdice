@@ -487,40 +487,60 @@ func _test_geode_offer(player: Dictionary, rng: RandomNumberGenerator, mine: Dic
 func _test_fuse(rng: RandomNumberGenerator, ctx: Dictionary) -> void:
 	## Two colors in means the colour that lost comes out frozen in as a Zoning, so a fused
 	## stone always says what was burned to make it.
+	## The fire takes the best of the pair and grows nothing (owner, November 19, 2026).
+	var c: Callable = func(key: String) -> int: return DeepContent.clarity_index(key)
+	var etched: int = c.call("ETCHED")
 	var zoned: int = 0
-	var clarities: Dictionary = {}
-	var top: int = DeepContent.clarity_index("INCLUDED")
-	var bottom: int = DeepContent.clarity_index("INTRICATE")
 	for _i in range(200):
-		var p: Dictionary = {"haul": [read(stone("STRIKE", 10, 4, 3)), read(stone("GUARD", 4, 0, 3))], "rail": []}
+		var strike: Dictionary = read(stone("STRIKE", 10, 4, etched))
+		strike.inclusions = ["SILK", "GRAIN"]
+		var guard: Dictionary = read(stone("GUARD", 4, 0, c.call("INCLUDED")))
+		guard.inclusions = ["SPARK"]
+		var p: Dictionary = {"haul": [strike, guard], "rail": []}
 		var out: Dictionary = DeepOddities.apply({"kind": "fuse"}, p, {"keep_id": "strike", "feed_id": "guard"}, rng, ctx)
 		check(out.ok and p.haul.size() == 1, "a fusion resolves")
 		var made: Dictionary = p.haul[0]
-		check(int(made.carat) >= 10 and int(made.carat) <= 12, "the heavier carat survives, a carat or two more at most: %d" % int(made.carat))
-		check(int(made.cut) == 2, "the cut is the average of the two, rounded down: %d" % int(made.cut))
-		clarities[int(made.clarity)] = true
-		check(int(made.clarity) >= mini(bottom, top) and int(made.clarity) <= maxi(bottom, top), "the clarity lands between Included and Intricate")
+		check(int(made.carat) == 10, "the heavier carat survives and grows nothing: %d" % int(made.carat))
+		check(int(made.cut) == 4, "the better Cut survives: %d" % int(made.cut))
+		check(int(made.clarity) == etched, "Etched is farther from Clear than Included, so it wins: %d" % int(made.clarity))
 		var want: String = DeepOddities.zoning_key("BLUE" if str(made.skill) == "STRIKE" else "RED")
 		if made.inclusions.has(want):
 			zoned += 1
-	check(zoned == 200, "and the colour that lost is always frozen in as a Zoning (%d of 200)" % zoned)
-	check(clarities.size() >= 2, "the crucible draws its clarity rather than keeping one")
-	## The gain is a chance by how close the lighter stone comes: two equals always grow, one
-	## or two carats half and half; a stone a third the weight of the other mostly adds nothing.
-	var equal_gains: Dictionary = {}
-	var small_gains: Dictionary = {}
-	for _i in range(400):
-		## One draw a tally: drawn twice (once for the key, once for the count looked up) the
-		## counts copied across one another and summed to more than 400.
-		var equal_gain: int = DeepOddities.fuse_gain(rng, 10, 10)
-		equal_gains[equal_gain] = int(equal_gains.get(equal_gain, 0)) + 1
-		var small_gain: int = DeepOddities.fuse_gain(rng, 10, 3)
-		small_gains[small_gain] = int(small_gains.get(small_gain, 0)) + 1
-	check(not equal_gains.has(0) and int(equal_gains.get(1, 0)) > 120 and int(equal_gains.get(2, 0)) > 120, "two equals always grow, a carat or two about half and half: %s" % str(equal_gains))
-	check(int(small_gains.get(0, 0)) > 320 and int(small_gains.get(2, 0)) < 20, "a stone a third the weight mostly adds nothing, and two carats almost never: %s" % str(small_gains))
-	check(DeepOddities.fuse_gain(rng, 10, 0) == 0 and DeepOddities.fuse_gain(rng, 0, 4) == 0, "nothing grows on nothing")
-	var odd: Dictionary = {"haul": [read(stone("STRIKE", 10, 4, 3)), read(stone("GUARD", 4, 1, 3))], "rail": []}
-	check(DeepOddities.apply({"kind": "fuse"}, odd, {"keep_id": "strike", "feed_id": "guard"}, rng, ctx).ok and int(odd.haul[0].cut) == 2, "Perfect and Fair average down to Good, never up: a Perfect is only ever found")
+		check(made.inclusions.size() == 2 and made.inclusions.all(func(k: Variant) -> bool: return str(k) == want or str(k) in ["SILK", "GRAIN", "SPARK"]),
+			"every inclusion is the Zoning or one the pair brought: %s" % str(made.inclusions))
+	check(zoned == 200, "and the colour that lost is frozen in as a Zoning when there is room (%d of 200)" % zoned)
+	## Clarity: farther from Clear wins on the same side; one either side of Clear is a coin flip.
+	var pair: Callable = func(a: String, b: String) -> Array:
+		return DeepOddities.fuse_clarities({"clarity": c.call(a)}, {"clarity": c.call(b)})
+	check(pair.call("FLAWLESS", "PRISTINE") == [c.call("FLAWLESS")], "Flawless beats Pristine")
+	check(pair.call("ETCHED", "INTRICATE") == [c.call("INTRICATE")], "Intricate beats Etched")
+	check(pair.call("CLEAR", "PRISTINE") == [c.call("PRISTINE")] and pair.call("INCLUDED", "CLEAR") == [c.call("INCLUDED")], "anything beats Clear")
+	check(pair.call("PRISTINE", "INCLUDED").size() == 2 and pair.call("FLAWLESS", "INTRICATE").size() == 2, "one each side of Clear is a coin flip")
+	var drawn: Dictionary = {}
+	var twins: Dictionary = {}
+	for _i in range(300):
+		var a: Dictionary = read(stone("STRIKE", 8, 2, c.call("PRISTINE")))
+		var b: Dictionary = read(stone("STRIKE", 8, 2, c.call("INCLUDED")))
+		b.id = "strike2"
+		b.inclusions = ["SILK"]
+		var made: Dictionary = DeepOddities.fuse_stats(rng, a, b, ctx.mine)
+		drawn[int(made.clarity)] = int(drawn.get(int(made.clarity), 0)) + 1
+		check(int(made.carat) == 8, "two equal weights still grow nothing: %d" % int(made.carat))
+		check(made.inclusions == ([] if int(made.clarity) == c.call("PRISTINE") else ["SILK"]), "Pristine keeps none, Included keeps the one it brought: %s" % str(made.inclusions))
+		## Two Etched with four inclusions between them keep two, and every one gets picked.
+		var e1: Dictionary = read(stone("STRIKE", 6, 1, etched))
+		e1.inclusions = ["SILK", "GRAIN"]
+		var e2: Dictionary = read(stone("STRIKE", 6, 1, etched))
+		e2.id = "strike3"
+		e2.inclusions = ["SPARK", "NEEDLE"]
+		for key in DeepOddities.fuse_stats(rng, e1, e2, ctx.mine).inclusions:
+			twins[str(key)] = true
+	check(int(drawn.get(c.call("PRISTINE"), 0)) > 100 and int(drawn.get(c.call("INCLUDED"), 0)) > 100, "Pristine and Included come out about half and half: %s" % str(drawn))
+	check(twins.size() == 4, "the inclusions kept are drawn from both stones: %s" % str(twins.keys()))
+	var flawless: Dictionary = read(stone("STRIKE", 8, 2, c.call("FLAWLESS")))
+	var flawless2: Dictionary = flawless.duplicate(true)
+	flawless2.id = "strike4"
+	check(int(DeepOddities.fuse_stats(rng, flawless, flawless2, ctx.mine).clarity) == c.call("FLAWLESS"), "two Flawless stones come out Flawless")
 
 func _test_idol(rng: RandomNumberGenerator, ctx: Dictionary) -> void:
 	## The eye takes between one and five pulls, each dearer than the last, and what comes out

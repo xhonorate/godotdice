@@ -486,36 +486,31 @@ func _nov5_c1(app: Control) -> void:
 	landing.landing.trades[me_id] = ["You traded a stone."]
 	app.descent.show_state(landing)
 	check(not app.descent._landing_stations().has("trade") and app.descent._tradeable().is_empty(), "once this player has traded the booth is no longer offered")
-	## The twin plate says what the fire can make as a range (the owner, November 5, round 3):
-	## the weights fuse_gain can reach, no percentages, under the averaged Cut and the Clarity.
-	var held: Dictionary = DeepStone.make("STRIKE", 8, 3, 3, [], {}, "c1_held")
+	## The twin plate says what the fire makes (the owner, November 19, 2026): the best of the
+	## pair, no percentages: the heavier weight, the better Cut, the Clarity farther from Clear
+	## ("Pristine or Included" when it is a coin flip) and how many inclusions it keeps.
+	var pristine: int = DeepContent.clarity_index("PRISTINE")
+	var included: int = DeepContent.clarity_index("INCLUDED")
+	var held: Dictionary = DeepStone.make("STRIKE", 8, 3, pristine, [], {}, "c1_held")
 	held.appraised = true
-	var found: Dictionary = DeepStone.make("STRIKE", 7, 1, 3, [], {}, "c1_found")
+	var found: Dictionary = DeepStone.make("STRIKE", 7, 1, included, ["SILK"], {}, "c1_found")
 	found.appraised = true
-	var odds: Array = app.descent.fuse_odds(8, 4)
-	check(absf(float(odds[0]) - 0.75) < 0.001 and absf(float(odds[1]) - 0.21875) < 0.001 and absf(float(odds[2]) - 0.03125) < 0.001,
-		"the fuse odds are fuse_gain's: half the weight gives a carat a quarter of the time and two one time in thirty-two (%s)" % str(odds))
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 7
-	var drawn: Array = [0, 0, 0]
-	for _draw in range(4000):
-		drawn[DeepOddities.fuse_gain(rng, 8, 4)] += 1
-	check(absf(float(drawn[0]) / 4000.0 - float(odds[0])) < 0.03 and absf(float(drawn[1]) / 4000.0 - float(odds[1])) < 0.03,
-		"the sim's fire draws at the odds the range is read from (%s)" % str(drawn))
-	var top: int = DeepStone.carat_max()
-	var ranges: Array = [[8, 7, "Carat 8–10"], [10, 2, "Carat 10–12"], [8, 8, "Carat 9–10"], [top, top, "Carat %d" % top], [top - 1, 3, "Carat %d–%d" % [top - 1, top]]]
-	for entry in ranges:
-		var words: String = app.descent.carat_range_words(app.descent.fuse_range(int(entry[0]), int(entry[1])))
-		check(words == str(entry[2]), "%d ct and %d ct fuse to %s (got %s)" % [int(entry[0]), int(entry[1]), str(entry[2]), words])
 	var probe_box := VBoxContainer.new()
 	root.add_child(probe_box)
 	var line: Control = app.descent._fuse_line(probe_box, found, held)
 	var said: Array = []
 	_percent_labels(line, said)
-	check(said.is_empty() and _label_count(line, "Carat 8–10") == 1 and _label_count(line, "Cut: %s" % DeepContent.cut_name(2)) == 1 and _label_count(line, "Clarity: Included to Intricate") == 1 and _label_count(line, "Zoning") == 0,
-		"the twin plate's one line: Carat 8–10, the averaged Cut and the Clarity range, and no percentages (%s)" % str(said))
+	check(said.is_empty() and _label_count(line, "Carat 8") == 1 and _label_count(line, "Cut: %s" % DeepContent.cut_name(3)) == 1
+		and _label_count(line, "Clarity: Included or Pristine") + _label_count(line, "Clarity: Pristine or Included") == 1
+		and _label_count(line, "Inclusions: 0 or 1") == 1 and _label_count(line, "Zoning") == 0,
+		"the twin plate's one line: Carat 8, the better Cut, the coin-flip Clarity, the inclusions kept, no percentages (%s)" % str(said))
+	var etched: int = DeepContent.clarity_index("ETCHED")
+	var rich: Dictionary = DeepStone.make("STRIKE", 8, 3, etched, ["SILK", "GRAIN"], {}, "c1_rich")
+	var richer: Dictionary = DeepStone.make("STRIKE", 8, 3, etched, ["SPARK", "NEEDLE"], {}, "c1_richer")
+	check(app.descent.fuse_inclusion_words(rich, richer) == "Inclusions: 2 of 4" and app.descent.fuse_inclusion_words(held, held) == "No inclusions",
+		"the inclusions kept are counted out of what the pair brings (%s)" % app.descent.fuse_inclusion_words(rich, richer))
 	## Two colors in: the lost one is named as a Zoning wherever the sim would freeze one in.
-	var blue: Dictionary = DeepStone.make("GUARD", 5, 1, 3, [], {}, "c1_blue")
+	var blue: Dictionary = DeepStone.make("GUARD", 5, 1, included, [], {}, "c1_blue")
 	var lost_color: String = str(DeepContent.skill("GUARD").get("color", ""))
 	var zoned: bool = not DeepOddities.zoning_key(lost_color).is_empty()
 	var mixed: Control = app.descent._fuse_line(probe_box, blue, held)

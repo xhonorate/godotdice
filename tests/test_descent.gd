@@ -1287,8 +1287,8 @@ func _test_twins() -> void:
 	check(not cmd(state, "a", "twin", {"choice": "fuse"}).ok, "fusing wants the crucible's pyrite")
 	a.ore = DeepOddities.fuse_cost() + 5
 	var fused: Dictionary = cmd(state, "a", "twin", {"choice": "fuse"})
-	check(fused.ok and int(a.ore) == 5 and str(a.rail[1].id) == "g2" and int(a.rail[1].carat) >= 6 and int(a.rail[1].carat) <= 8 and int(a.rail[1].cut) == 2 and not a.haul.any(func(s: Dictionary) -> bool: return str(s.id) == "g3"),
-		"fused, the held stone stays where it is, a carat or two heavier at most, its cut averaged down, and the fee is paid: %s" % str(fused.get("error", "")))
+	check(fused.ok and int(a.ore) == 5 and str(a.rail[1].id) == "g2" and int(a.rail[1].carat) == 6 and int(a.rail[1].cut) == 3 and not a.haul.any(func(s: Dictionary) -> bool: return str(s.id) == "g3"),
+		"fused, the held stone stays where it is, no heavier, with the better cut, and the fee is paid: %s" % str(fused.get("error", "")))
 	check(fused.event.has("fused") and int(fused.event.paid) == DeepOddities.fuse_cost(), "and the event says what came of it")
 	## Two read stones of one skill in the bag are twins too; a raw one keeps its secret.
 	var bagged: Dictionary = stone("CRUSH", 4, 2, 3, "c1")

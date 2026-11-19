@@ -1968,9 +1968,8 @@ func _sync_twin() -> void:
 	var compare := DeepUi.vbox(pair, 4)
 	compare.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	Appraisal.swap_lines(compare, stone, other)
-	## What the fire would make of them, as one line under the pair (the owner, November 5,
-	## 2026: a range, "Carat 8-10", not the chance of each weight): the weights it can come
-	## out at, and the Cut and Clarity it would have.
+	## What the fire would make of them, as one line under the pair, no percentages (the owner,
+	## November 5, 2026): the weight, Cut and Clarity it would have and the inclusions it keeps.
 	_fuse_line(box, stone, other)
 	var fee: int = DeepOddities.fuse_cost()
 	var buttons := DeepUi.hbox(box, 16)
@@ -1978,7 +1977,7 @@ func _sync_twin() -> void:
 	var choices: Array = [
 		["swap", "reroll", "Keep the new one", "The one you held is gone; the new one takes its place.", DeepUi.GOOD],
 		["toss", "cross_out", "Toss the new one", "The one you held stays as it is.", DeepUi.ACCENT],
-		["fuse", "flame", "Fuse for %d pyrite" % fee, "The held one takes the new one in, where it stands.", DeepUi.ORE]]
+		["fuse", "flame", "Fuse for %d pyrite" % fee, "One stone with the best of both, where the held one stands.", DeepUi.ORE]]
 	for choice in choices:
 		var column := DeepUi.vbox(buttons, 4)
 		var pick: String = str(choice[0])
@@ -2008,60 +2007,48 @@ func _twin_where(other: Dictionary) -> String:
 		return ", riding socket %d" % (int(place.get("socket", 0)) + 1)
 	return ", in the bag"
 
-static func fuse_odds(heavy: int, light: int) -> Array:
-	## The chances the fire adds nothing, one carat or two to the heavier stone, [none, one,
-	## two], as `DeepOddities.fuse_gain` draws them: r the lighter over the heavier, two carats
-	## with chance r^4 / 2, one with r^2 less that, nothing with the rest.
-	if heavy <= 0 or light <= 0:
-		return [1.0, 0.0, 0.0]
-	var ratio: float = clampf(float(light) / float(heavy), 0.0, 1.0)
-	var two: float = 0.5 * pow(ratio, 4.0)
-	var one: float = ratio * ratio - two
-	return [1.0 - ratio * ratio, one, two]
-
-static func fuse_range(heavy: int, light: int) -> Array:
-	## The weights the fire can give the pair, [lightest, heaviest]: the heavier stone plus every
-	## gain `fuse_odds` gives a chance above nothing, held to the carat cap. Two equal stones
-	## always gain (9-10 from two 8s); any lighter one can still, rarely, give two.
-	var odds: Array = fuse_odds(heavy, light)
-	var gains: Array = []
-	for gain in range(odds.size()):
-		if float(odds[gain]) > 0.0:
-			gains.append(gain)
-	if gains.is_empty():
-		gains = [0]
-	var top: int = DeepStone.carat_max()
-	return [clampi(maxi(1, heavy) + int(gains.min()), 1, top), clampi(maxi(1, heavy) + int(gains.max()), 1, top)]
-
-static func carat_range_words(span: Array) -> String:
-	## "Carat 8-10" with an en dash, or "Carat 8" when the fire can only give the one weight.
-	if int(span[0]) == int(span[1]):
-		return "Carat %d" % int(span[0])
-	return "Carat %d–%d" % [int(span[0]), int(span[1])]
+static func fuse_inclusion_words(held: Dictionary, found: Dictionary) -> String:
+	## How many inclusions the fused stone keeps out of how many the pair brings, as the fire
+	## draws them (`DeepOddities.fuse_stats`): "Inclusions: 2 of 3", "Inclusions: 2" when it
+	## keeps them all, or "No inclusions" when its Clarity holds none. With two Clarities to
+	## come out at (a coin flip), "Inclusions: 0 or 2 of 3".
+	var pool: int = DeepOddities.fuse_pool(held, found).size()
+	if not DeepOddities.fuse_zoning(held, found).is_empty():
+		pool += 1
+	var counts: Array = []
+	for clarity in DeepOddities.fuse_clarities(held, found):
+		var kept: int = DeepStone.inclusion_slots(int(clarity))
+		if not counts.has(kept):
+			counts.append(kept)
+	counts.sort()
+	if counts.size() == 1 and int(counts[0]) == 0:
+		return "No inclusions"
+	var most: int = int(counts.max())
+	var said: String = " or ".join(counts.map(func(n: Variant) -> String: return str(n)))
+	return "Inclusions: %s" % said if most >= pool else "Inclusions: %s of %d" % [said, pool]
 
 func _fuse_line(parent: Node, stone: Dictionary, other: Dictionary) -> HBoxContainer:
 	## What fusing the pair would make, in one line under it, marked the way the facts above it
-	## are (see `DeepOddities.fuse_stats`): the weights it can come out at, the Cut averaged
-	## down, the Clarity drawn between Included and Intricate, and a Zoning of the lost color
-	## when the fire would freeze one in.
-	var heavy: int = maxi(int(stone.get("carat", 1)), int(other.get("carat", 1)))
-	var light: int = mini(int(stone.get("carat", 1)), int(other.get("carat", 1)))
-	var cut: int = clampi(int(floor(float(int(stone.get("cut", 0)) + int(other.get("cut", 0))) / 2.0)), 0, DeepPatterns.STEPS - 1)
+	## are (see `DeepOddities.fuse_stats`): the heavier weight, the better Cut, the Clarity
+	## farther from Clear ("Pristine or Included" when it is a coin flip), how many of the
+	## pair's inclusions it keeps, and a Zoning of the lost color when the fire freezes one in.
+	var carat: int = maxi(int(stone.get("carat", 1)), int(other.get("carat", 1)))
+	var cut: int = clampi(maxi(int(stone.get("cut", 0)), int(other.get("cut", 0))), 0, DeepPatterns.STEPS - 1)
+	var clarities: Array = DeepOddities.fuse_clarities(other, stone).map(func(c: Variant) -> String: return DeepContent.clarity_name(int(c)))
 	var row := DeepUi.hbox(parent, 8)
 	row.name = "FuseRange"
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	DeepUi.label(row, "If fused", 12, DeepUi.MUTED).size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	var parts: Array = [["carat", carat_range_words(fuse_range(heavy, light))], ["cut", "Cut: %s" % DeepContent.cut_name(cut)],
-		["clarity", "Clarity: %s to %s" % [DeepContent.clarity_name(DeepContent.clarity_index("INCLUDED")), DeepContent.clarity_name(DeepContent.clarity_index("INTRICATE"))]]]
+	var parts: Array = [["carat", "Carat %d" % carat], ["cut", "Cut: %s" % DeepContent.cut_name(cut)],
+		["clarity", "Clarity: %s" % " or ".join(clarities)], ["spark", fuse_inclusion_words(other, stone)]]
 	## The sim compares the two skills' own colors, and freezes the lost one in only where an
-	## inclusion stands for it.
-	var kept_color: String = str(DeepContent.skill(str(other.get("skill", ""))).get("color", ""))
-	var lost_color: String = str(DeepContent.skill(str(stone.get("skill", ""))).get("color", ""))
-	if not lost_color.is_empty() and lost_color != kept_color and lost_color != DeepContent.OPAL and kept_color != DeepContent.OPAL:
-		var zoning: String = DeepOddities.zoning_key(lost_color)
-		if not zoning.is_empty():
-			var kind: String = str(DeepContent.inclusion(zoning).get("class", ""))
-			parts.append([str(StoneCard.INCLUSION_GLYPHS.get(kind, "spark")), "Zoning: %s" % str(DeepContent.color(lost_color).get("name", lost_color.capitalize()))])
+	## inclusion stands for it and the Clarity has room for one.
+	var zoning: String = DeepOddities.fuse_zoning(other, stone)
+	var roomy: bool = DeepOddities.fuse_clarities(other, stone).any(func(c: Variant) -> bool: return DeepStone.inclusion_slots(int(c)) > 0)
+	if not zoning.is_empty() and roomy:
+		var lost_color: String = str(DeepContent.skill(str(stone.get("skill", ""))).get("color", ""))
+		var kind: String = str(DeepContent.inclusion(zoning).get("class", ""))
+		parts.append([str(StoneCard.INCLUSION_GLYPHS.get(kind, "spark")), "Zoning: %s" % str(DeepContent.color(lost_color).get("name", lost_color.capitalize()))])
 	for index in range(parts.size()):
 		if index > 0:
 			DeepUi.label(row, "·", 13, DeepUi.DIM).size_flags_vertical = Control.SIZE_SHRINK_CENTER

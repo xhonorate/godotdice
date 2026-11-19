@@ -2426,9 +2426,9 @@ static func _twin(state: Dictionary, unit: Dictionary, choice: String) -> Dictio
 	## Settling a twin: `swap` puts the newcomer where the held stone was (its socket, its line
 	## of riders, or the bag) and the held stone is gone; `toss` loses the newcomer; `fuse`
 	## pays the crucible's fee and feeds the newcomer to the held stone where it stands
-	## (DeepOddities.fuse_stats: a carat or two by how close their weights are, the Cut
-	## averaged down, the Clarity drawn fresh). Nothing lost here is paid for: a twin is
-	## never sold.
+	## (DeepOddities.fuse_stats: the heavier weight, the better Cut, the Clarity farther from
+	## Clear, and inclusions drawn from both). Nothing lost here is paid for: a twin is never
+	## sold.
 	var pending: Dictionary = unit.get("twin", {})
 	if pending.is_empty():
 		return _refuse("you hold no twin to settle")

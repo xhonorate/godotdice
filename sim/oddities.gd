@@ -1172,60 +1172,83 @@ static func fuse_cost() -> int:
 	## room itself is free: its price is the coin flip on which stone survives.
 	return int(DeepContent.constant("fuse_ore_cost", 100))
 
-static func fuse_gain(rng: RandomNumberGenerator, heavy: int, light: int) -> int:
-	## What the fire adds to the heavier stone's weight: nothing, one carat or two, by how
-	## close the lighter stone comes to it. With r the lighter over the heavier, two carats
-	## with chance r^4 / 2 and one with chance r^2 in all, so a stone half the weight of the
-	## other gives one carat a quarter of the time and two one time in thirty-two, and two
-	## equals give one or two every time, half and half. Nothing else grows carat here
-	## (October 29, 2026; it used to carry a random share of the lighter stone).
-	if heavy <= 0 or light <= 0:
-		return 0
-	var ratio: float = clampf(float(light) / float(heavy), 0.0, 1.0)
-	var draw: float = rng.randf()
-	if draw < 0.5 * pow(ratio, 4.0):
-		return 2
-	if draw < ratio * ratio:
-		return 1
-	return 0
+static func fuse_clarities(a: Dictionary, b: Dictionary) -> Array:
+	## The Clarities fusing `a` and `b` can come out at (the owner, November 19, 2026): the one
+	## farther from Clear, either way (Etched beats Included, Flawless beats Pristine, anything
+	## beats Clear). One on each side of Clear (Pristine and Included) is a coin flip between the
+	## two, so the list holds both. Never anything neither stone had.
+	var clear: int = DeepContent.clear_index()
+	var first: int = int(a.get("clarity", clear))
+	var second: int = int(b.get("clarity", clear))
+	if first == second:
+		return [first]
+	var one: int = first - clear
+	var two: int = second - clear
+	if one * two < 0:
+		return [first, second]
+	return [first] if absi(one) > absi(two) else [second]
+
+static func fuse_zoning(keep: Dictionary, feed: Dictionary) -> String:
+	## The Zoning the fire freezes into the survivor when the two were different colors (the
+	## color whose skill lost), or "". Opal counts as no color at all.
+	var color: String = str(DeepContent.skill(str(keep.get("skill", ""))).get("color", ""))
+	var other: String = str(DeepContent.skill(str(feed.get("skill", ""))).get("color", ""))
+	if other.is_empty() or other == color or other == DeepContent.OPAL or color == DeepContent.OPAL:
+		return ""
+	return zoning_key(other)
+
+static func fuse_pool(keep: Dictionary, feed: Dictionary) -> Array:
+	## Every inclusion the two stones bring to the fire, once each, the survivor's first: what
+	## the fused stone's inclusions are drawn from. A Zoning of the survivor's own color says
+	## nothing on it and is left out, as is the Zoning `fuse_zoning` puts in on its own.
+	var color: String = str(DeepContent.skill(str(keep.get("skill", ""))).get("color", ""))
+	var frozen: String = fuse_zoning(keep, feed)
+	var pool: Array = []
+	for stone in [keep, feed]:
+		for key in stone.get("inclusions", []):
+			var held: String = str(key)
+			if pool.has(held) or held == frozen or DeepContent.inclusion(held).is_empty():
+				continue
+			if DeepForge.zoning_color(DeepContent.inclusion(held)) == color:
+				continue
+			pool.append(held)
+	return pool
 
 static func fuse_stats(rng: RandomNumberGenerator, keep: Dictionary, feed: Dictionary, mine: Dictionary, _carry_pct: float = 0.0) -> Dictionary:
 	## What comes out of the fire, as fields to write over `keep`, the stone the fire already
-	## chose to survive: its skill comes through. The heavier of the two sets the weight and
-	## grows by `fuse_gain`: a carat or two, likelier the nearer the lighter stone comes to it;
-	## the Cut is the average of the pair, rounded down, so a Perfect is only ever found;
-	## the Clarity is drawn fresh between Included and Intricate, which is the only range the
-	## crucible ever gives back. Two colors in and the one whose skill lost is frozen in as a
-	## Zoning, so a fused stone always says what it was made of. Opal counts as no color at all.
-	var heavy: int = maxi(int(keep.get("carat", 1)), int(feed.get("carat", 1)))
-	var light: int = mini(int(keep.get("carat", 1)), int(feed.get("carat", 1)))
-	var carried: int = fuse_gain(rng, heavy, light)
+	## chose to survive: its skill comes through. The rest is the best of the pair (the owner,
+	## November 19, 2026, replacing the carat gain that made every twin a free carat and the
+	## fresh Clarity that turned two Flawless stones into an Intricate one): the heavier weight,
+	## no growth; the better Cut, so a Perfect is still only ever found; the Clarity farther from
+	## Clear (`fuse_clarities`, a coin flip when they sit either side of it); and as many of the
+	## two stones' inclusions as that Clarity holds, drawn at random from both (`fuse_pool`).
+	## Two colors in and the one whose skill lost is frozen in as a Zoning first, where the
+	## Clarity has room for one. Only a slot the pair cannot fill is rolled fresh from the mine.
 	var skill: String = str(keep.get("skill", ""))
-	var lost: Dictionary = feed
-	var cut: int = int(floor(float(int(keep.get("cut", 0)) + int(feed.get("cut", 0))) / 2.0))
-	var top: int = DeepContent.clarity_index("INCLUDED")
-	var bottom: int = DeepContent.clarity_index("INTRICATE")
-	var clarity: int = rng.randi_range(mini(bottom, top), maxi(bottom, top))
+	var color: String = str(DeepContent.skill(skill).get("color", ""))
+	var choices: Array = fuse_clarities(keep, feed)
+	var clarity: int = int(DeepRng.pick(rng, choices)) if choices.size() > 1 else int(choices[0])
 	var out: Dictionary = {
 		"skill": skill,
-		"carat": clampi(heavy + carried, 1, DeepStone.carat_max()),
-		"cut": clampi(cut, 0, DeepPatterns.STEPS - 1),
+		"carat": clampi(maxi(int(keep.get("carat", 1)), int(feed.get("carat", 1))), 1, DeepStone.carat_max()),
+		"cut": clampi(maxi(int(keep.get("cut", 0)), int(feed.get("cut", 0))), 0, DeepPatterns.STEPS - 1),
 		"clarity": clarity,
 		"appraised": true,
 		"inclusions_revealed": true,
 	}
-	var color: String = str(DeepContent.skill(skill).get("color", ""))
-	var other: String = str(DeepContent.skill(str(lost.get("skill", ""))).get("color", ""))
-	var zoning: String = ""
-	if not other.is_empty() and other != color and other != DeepContent.OPAL and color != DeepContent.OPAL:
-		zoning = zoning_key(other)
 	var slots: int = DeepStone.inclusion_slots(clarity)
 	var inside: Array = []
-	if not zoning.is_empty():
+	var zoning: String = fuse_zoning(keep, feed)
+	if not zoning.is_empty() and slots > 0:
 		inside.append(zoning)
-	for key in DeepForge.roll_inclusions(rng, maxi(0, slots - inside.size()), mine, "", color):
-		if not inside.has(str(key)) and inside.size() < slots:
-			inside.append(str(key))
+	for key in DeepRng.shuffled(rng, fuse_pool(keep, feed)):
+		if inside.size() >= slots:
+			break
+		inside.append(str(key))
+	if inside.size() < slots:
+		for key in DeepForge.roll_inclusions(rng, slots - inside.size(), mine, "", color):
+			if not inside.has(str(key)) and inside.size() < slots:
+				inside.append(str(key))
 	out.inclusions = inside
 	return out
 
